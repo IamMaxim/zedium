@@ -1,0 +1,52 @@
+# Banned crates (workspace members that must not exist).
+#
+# One crate directory name per line. Verifier fails if crates/<name>/ exists.
+# Names match upstream crate directory names under crates/.
+#
+# Entries get added as strip patches land. See zedium/docs/DISCOVERY.md §2.
+
+# Patch 0001 (telemetry strip)
+telemetry
+
+# Patch 0002 (collab + UI strip)
+collab
+collab_ui
+call
+livekit_api
+livekit_client
+
+# Patch 0003 (auto_update strip)
+auto_update
+auto_update_ui
+auto_update_helper
+
+# Patch 0005 (feedback strip)
+feedback
+
+# Patch 0006 (copilot strip)
+copilot
+copilot_chat
+copilot_ui
+
+# Patch 0008 (channel strip)
+channel
+
+# Patch 0012 (language_models_cloud strip)
+language_models_cloud
+
+# Patch 0013 (web_search_providers strip — cloud-only provider)
+web_search_providers
+
+# Patch 0018 (ai_onboarding strip — Zed AI / Zed Pro onboarding popup)
+ai_onboarding
+
+# Patch 0022 (edit_prediction_cli strip — dev/eval harness for Zed-hosted predict)
+edit_prediction_cli
+
+# Patch 0026 (orphan vendor LLM provider crates — zero referrers after cloud strip)
+anthropic
+mistral
+deepseek
+x_ai
+open_router
+bedrock

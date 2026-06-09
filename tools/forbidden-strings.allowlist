@@ -1,0 +1,65 @@
+# Allowlist (path prefixes) for the forbidden-strings check.
+#
+# One path per line. Each entry matches either the exact file path or any
+# file under that path. Paths are relative to the parent repo root.
+
+# Fork docs reference upstream Zed, providers, and product names by necessity.
+docs
+
+# Verifier's own config files (would self-match).
+tools/forbidden-strings.txt
+tools/forbidden-strings.allowlist
+tools/banned-crates.txt
+tools/deny.toml
+
+# Patch files contain forbidden strings as part of their (-) removal lines.
+# The forbidden check only matters for code that is actually applied, not
+# the strip patches themselves.
+patches
+
+# Upstream Zed CI / release pipeline. We do not run these (Zedium has its
+# own CI under ./.github/workflows/), so references to upstream's secrets
+# and minidump endpoints are inert artifacts.
+zed/.github
+zed/tooling/xtask
+zed/script
+
+# Upstream Zed's own mdBook documentation (docs/src/**). Reference material
+# shipped in the submodule, not compiled into the Zedium binary and not shown
+# in-app. Names upstream providers/products by necessity.
+zed/docs
+
+# Parent README mentions upstream by name.
+README.md
+
+# Upstream license/attribution texts (legitimately name upstream).
+zed/LICENSE-AGPL
+zed/LICENSE-APACHE
+zed/LICENSE-GPL
+zed/NOTICE
+zed/legal
+
+# Generated agent-eval fixture corpus: sample buffer content includes an inline
+# zed.dev doc link as ordinary text. It is test data, never a shipped surface.
+zed/crates/agent/src/tools/evals/fixtures
+
+# Windows-only Explorer shell integration (explorer_command_injector): the
+# AppxManifest + injector reference the installed Zed.exe / app id. Zedium does
+# not build or ship the Windows Explorer extension for v1; rebranding the Appx
+# package is deferred. Not compiled into the shipped linux/macOS binary.
+zed/crates/explorer_command_injector
+
+# Upstream repo-level documentation and infrastructure that names zed.dev /
+# Zed by necessity. None of this is compiled into the Zedium binary or shown
+# in-app: top-level READMEs, contributor docs, the Cloudflare docs proxy, the
+# Nix build, .gitignore artifact patterns, crate-level READMEs, and the macOS
+# provisioning profiles (Zed Industries' signing identity — unusable by the
+# fork, which ad-hoc signs; deletion is a deferred cleanup).
+zed/README.md
+zed/CONTRIBUTING.md
+zed/.cloudflare
+zed/.gitignore
+zed/nix
+zed/crates/zed/contents
+zed/extensions/README.md
+zed/crates/gpui/README.md

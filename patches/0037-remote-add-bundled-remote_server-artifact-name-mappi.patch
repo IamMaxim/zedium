@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Mon, 1 Jun 2026 00:40:24 +0300
+Subject: [PATCH] remote: add bundled remote_server artifact-name mapping
+
+Adds the logical-host -> artifact filename mapping (os/arch ->
+zed-remote-server-<os>-<arch>.gz) used to locate the bundled
+remote_server binary for a given SSH/Docker/WSL host. Pure lookup;
+no behaviour change on its own.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ .../src/remote_connection.rs                  | 30 +++++++++++++++++++
+ 1 file changed, 30 insertions(+)
+
+diff --git a/crates/remote_connection/src/remote_connection.rs b/crates/remote_connection/src/remote_connection.rs
+index b337f60372..ff2665b590 100644
+--- a/crates/remote_connection/src/remote_connection.rs
++++ b/crates/remote_connection/src/remote_connection.rs
+@@ -670,3 +670,33 @@ pub fn connect(
+ }
+ 
+ use anyhow::Context as _;
++
++/// Filename of the bundled `remote_server` artifact for a given host platform,
++/// matching the names produced by `script/bundle-linux` and `tools/build-remote-servers.sh`.
++fn bundled_server_artifact_name(platform: RemotePlatform) -> String {
++    format!(
++        "zed-remote-server-{}-{}.gz",
++        platform.os.as_str(),
++        platform.arch.as_str(),
++    )
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn test_bundled_server_artifact_name() {
++        use remote::{RemoteArch, RemoteOs, RemotePlatform};
++
++        let cases = [
++            (RemoteOs::Linux, RemoteArch::X86_64, "zed-remote-server-linux-x86_64.gz"),
++            (RemoteOs::Linux, RemoteArch::Aarch64, "zed-remote-server-linux-aarch64.gz"),
++            (RemoteOs::MacOs, RemoteArch::Aarch64, "zed-remote-server-macos-aarch64.gz"),
++        ];
++        for (os, arch, expected) in cases {
++            let platform = RemotePlatform { os, arch };
++            assert_eq!(bundled_server_artifact_name(platform), expected);
++        }
++    }
++}

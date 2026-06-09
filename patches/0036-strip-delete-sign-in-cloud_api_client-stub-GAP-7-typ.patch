@@ -1,0 +1,148 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 31 May 2026 19:09:34 +0300
+Subject: [PATCH] strip: delete sign-in + cloud_api_client stub (GAP-7,
+ type-only residual)
+
+Deletes the boot authenticate() path, its two call sites, the SignIn action
+handler, and the sign_in_with_optional_connect no-op stub (callerless after the
+above). cloud_api_client is not fully deletable: it stays as a type-only crate
+for kept consumers (client, language_models) - CloudApiClient no-op handle,
+ClientApiError, LlmApiToken, and re-exported cloud_api_types enums. The residual
+is documented symbol-by-symbol at the top of cloud_api_client.rs. No method
+contacts a remote service. Closes GAP-7.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/client/src/client.rs                   | 23 +-----------------
+ .../cloud_api_client/src/cloud_api_client.rs  | 22 +++++++++++++++++
+ crates/zed/src/main.rs                        | 24 -------------------
+ 3 files changed, 23 insertions(+), 46 deletions(-)
+
+diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
+index 7c44f08f7f..23aa6ea836 100644
+--- a/crates/client/src/client.rs
++++ b/crates/client/src/client.rs
+@@ -25,7 +25,7 @@ use futures::{
+     future::BoxFuture,
+     stream::BoxStream,
+ };
+-use gpui::{App, AsyncApp, Entity, Global, Task, TaskExt, WeakEntity, actions};
++use gpui::{App, AsyncApp, Entity, Global, Task, WeakEntity, actions};
+ use http_client::{HttpClient, HttpClientWithUrl, http, read_proxy_from_env};
+ use parking_lot::{Mutex, RwLock};
+ use postage::watch;
+@@ -163,15 +163,6 @@ impl Settings for ProxySettings {
+ pub fn init(client: &Arc<Client>, cx: &mut App) {
+     let client = Arc::downgrade(client);
+     cx.on_action({
+-        let client = client.clone();
+-        move |_: &SignIn, cx| {
+-            if let Some(client) = client.upgrade() {
+-                cx.spawn(async move |cx| client.sign_in_with_optional_connect(true, cx).await)
+-                    .detach_and_log_err(cx);
+-            }
+-        }
+-    })
+-    .on_action({
+         let client = client.clone();
+         move |_: &SignOut, cx| {
+             if let Some(client) = client.upgrade() {
+@@ -1012,18 +1003,6 @@ impl Client {
+         Ok(())
+     }
+ 
+-    /// Sign-in is disabled in Zedium (telemetry-free fork).
+-    ///
+-    /// Returns Ok immediately without contacting any remote service. UI entry
+-    /// points that call this still compile but do nothing.
+-    pub async fn sign_in_with_optional_connect(
+-        self: &Arc<Self>,
+-        _try_provider: bool,
+-        _cx: &AsyncApp,
+-    ) -> Result<()> {
+-        Ok(())
+-    }
+-
+     pub async fn connect(
+         self: &Arc<Self>,
+         try_provider: bool,
+diff --git a/crates/cloud_api_client/src/cloud_api_client.rs b/crates/cloud_api_client/src/cloud_api_client.rs
+index eabaccb938..767aec9700 100644
+--- a/crates/cloud_api_client/src/cloud_api_client.rs
++++ b/crates/cloud_api_client/src/cloud_api_client.rs
+@@ -1,3 +1,25 @@
++//! Zedium residual surface (GAP-7 closed).
++//!
++//! Sign-in and all Zed-cloud network transport were removed (patches 0014/0015
++//! gutted the websocket/REST client; the `sign_in_with_optional_connect` entry
++//! point and the boot `authenticate()` path were deleted in patch 0037). No
++//! method in this crate contacts a remote service.
++//!
++//! The crate is retained ONLY as a shared TYPE crate for kept consumers. Each
++//! remaining exported symbol and the consumer that keeps it alive:
++//!   - `CloudApiClient`  — `client/src/client.rs`: a no-op handle whose methods
++//!                         return `CloudDisabled`/`NotSignedIn`; no transport.
++//!   - `ClientApiError`  — `client/src/client.rs`: error enum.
++//!   - `LlmApiToken`     — `client/src/{client,llm_token}.rs`, `language_models`:
++//!                         BYO-key LLM token cache (no Zed account).
++//!   - re-exported `cloud_api_types::*` (incl. `websocket_protocol::MessageToClient`,
++//!                         `Plan`, `Organization*`, `GetAuthenticatedUserResponse`)
++//!                       — `client/src/user.rs`: local account/plan + message
++//!                         types; the websocket is gone, only the enums remain.
++//!
++//! If any consumer above is later stripped, delete the matching export here
++//! rather than leaving it dormant.
++
+ mod llm_token;
+ 
+ use std::sync::Arc;
+diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
+index bb7096b801..f497d2ffe0 100644
+--- a/crates/zed/src/main.rs
++++ b/crates/zed/src/main.rs
+@@ -790,12 +790,6 @@ fn main() {
+ 
+         cx.activate(true);
+ 
+-        cx.spawn({
+-            let client = app_state.client.clone();
+-            async move |cx| authenticate(client, cx).await
+-        })
+-        .detach_and_log_err(cx);
+-
+         let urls: Vec<_> = args
+             .paths_or_urls
+             .iter()
+@@ -1287,11 +1281,6 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
+                 if let Some(task) = task {
+                     task.await?;
+                 }
+-                let client = app_state.client.clone();
+-                // we continue even if authentication fails as join_channel/ open channel notes will
+-                // show a visible error message.
+-                authenticate(client, cx).await.log_err();
+-
+                 if let Some(channel_id) = request.join_channel {
+                     cx.update(|cx| {
+                         workspace::join_channel(
+@@ -1330,19 +1319,6 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
+     }
+ }
+ 
+-async fn authenticate(client: Arc<Client>, cx: &AsyncApp) -> Result<()> {
+-    if stdout_is_a_pty() {
+-        if client::IMPERSONATE_LOGIN.is_some() {
+-            client.sign_in_with_optional_connect(false, cx).await?;
+-        } else if client.has_credentials(cx).await {
+-            client.sign_in_with_optional_connect(true, cx).await?;
+-        }
+-    } else if client.has_credentials(cx).await {
+-        client.sign_in_with_optional_connect(true, cx).await?;
+-    }
+-
+-    Ok(())
+-}
+ 
+ pub(crate) async fn restore_or_create_workspace(
+     app_state: Arc<AppState>,

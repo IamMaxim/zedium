@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Mon, 1 Jun 2026 00:40:28 +0300
+Subject: [PATCH] remote: serve bundled remote_server from download hook
+
+Wires download_server_binary_locally to serve the bundled artifact
+resolved above: the severed cloud/GitHub download hook now returns
+the matching pre-compiled .gz, which the existing transport pipeline
+uploads and unpacks on the host. No network egress.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/remote_connection/src/remote_connection.rs | 14 ++++----------
+ 1 file changed, 4 insertions(+), 10 deletions(-)
+
+diff --git a/crates/remote_connection/src/remote_connection.rs b/crates/remote_connection/src/remote_connection.rs
+index a3c07096fc..f1865a9ed8 100644
+--- a/crates/remote_connection/src/remote_connection.rs
++++ b/crates/remote_connection/src/remote_connection.rs
+@@ -473,15 +473,12 @@ impl remote::RemoteClientDelegate for RemoteClientDelegate {
+ 
+     fn download_server_binary_locally(
+         &self,
+-        _platform: RemotePlatform,
++        platform: RemotePlatform,
+         _release_channel: ReleaseChannel,
+         _version: Option<Version>,
+         _cx: &mut AsyncApp,
+     ) -> Task<anyhow::Result<PathBuf>> {
+-        Task::ready(Err(anyhow!(
+-            "Automatic remote server downloads are disabled in this build. \
+-             Build and install the remote server manually."
+-        )))
++        Task::ready(bundled_server_binary_path(platform))
+     }
+ 
+     fn get_download_url(
+@@ -611,15 +608,12 @@ impl remote::RemoteClientDelegate for BackgroundRemoteClientDelegate {
+ 
+     fn download_server_binary_locally(
+         &self,
+-        _platform: RemotePlatform,
++        platform: RemotePlatform,
+         _release_channel: ReleaseChannel,
+         _version: Option<Version>,
+         _cx: &mut AsyncApp,
+     ) -> Task<anyhow::Result<PathBuf>> {
+-        Task::ready(Err(anyhow!(
+-            "Automatic remote server downloads are disabled in this build. \
+-             Build and install the remote server manually."
+-        )))
++        Task::ready(bundled_server_binary_path(platform))
+     }
+ 
+     fn get_download_url(

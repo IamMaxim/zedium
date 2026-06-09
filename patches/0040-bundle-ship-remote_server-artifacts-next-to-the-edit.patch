@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Mon, 1 Jun 2026 01:06:17 +0300
+Subject: [PATCH] bundle: ship remote_server artifacts next to the editor
+ binary
+
+Teaches script/bundle-linux and script/bundle-mac to copy the
+pre-compiled remote_server artifacts into the app layout
+(libexec/remote_servers on Linux, Contents/MacOS/remote_servers on
+macOS) so they ship next to the editor binary.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ script/bundle-linux | 10 ++++++++++
+ script/bundle-mac   | 10 ++++++++++
+ 2 files changed, 20 insertions(+)
+
+diff --git a/script/bundle-linux b/script/bundle-linux
+index b510365acb..edddfd74fd 100755
+--- a/script/bundle-linux
++++ b/script/bundle-linux
+@@ -150,6 +150,16 @@ mkdir -p "${zed_dir}/bin" "${zed_dir}/libexec"
+ cp "${target_dir}/${target_triple}/release/zed" "${zed_dir}/libexec/zed-editor"
+ cp "${target_dir}/${target_triple}/release/cli" "${zed_dir}/bin/zed"
+ 
++# Bundle pre-compiled remote_server artifacts (for SSH/Docker/WSL hosts) next to
++# the editor binary, where the editor resolves them at connect time.
++remote_servers_src="${REMOTE_SERVERS_DIR:-${target_dir}/remote-servers-bundle}"
++mkdir -p "${zed_dir}/libexec/remote_servers"
++if compgen -G "${remote_servers_src}/zed-remote-server-"*.gz >/dev/null; then
++    cp "${remote_servers_src}"/zed-remote-server-*.gz "${zed_dir}/libexec/remote_servers/"
++else
++    echo "warning: no bundled remote_server artifacts found in ${remote_servers_src}; run 'just remote-servers'"
++fi
++
+ # Libs
+ # Bundle libstdc++ so older supported systems can run binaries built with our
+ # toolchain even when their system libstdc++.so.6 lacks required GLIBCXX symbols.
+diff --git a/script/bundle-mac b/script/bundle-mac
+index eae4f861ba..a8dd0949d1 100755
+--- a/script/bundle-mac
++++ b/script/bundle-mac
+@@ -334,6 +334,16 @@ upload_debug_symbols
+ 
+ cp target/${target_triple}/${target_dir}/zed "${app_path}/Contents/MacOS/zed"
+ cp target/${target_triple}/${target_dir}/cli "${app_path}/Contents/MacOS/cli"
++
++# Bundle pre-compiled remote_server artifacts next to the editor binary.
++remote_servers_src="${REMOTE_SERVERS_DIR:-target/remote-servers-bundle}"
++mkdir -p "${app_path}/Contents/MacOS/remote_servers"
++if compgen -G "${remote_servers_src}/zed-remote-server-"*.gz >/dev/null; then
++    cp "${remote_servers_src}"/zed-remote-server-*.gz "${app_path}/Contents/MacOS/remote_servers/"
++else
++    echo "warning: no bundled remote_server artifacts in ${remote_servers_src}; run 'just remote-servers'"
++fi
++
+ sign_app_binaries
+ 
+ sign_binary "target/$target_triple/release/remote_server"

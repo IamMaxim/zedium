@@ -1,0 +1,265 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Wed, 3 Jun 2026 23:40:02 +0300
+Subject: [PATCH] strip: remove surviving Zed-cloud egress + sign-in surface
+ from client
+
+The admin-impersonation path was a live cloud egress that outlived the
+cloud strip. In authenticate_with_browser, when ZED_IMPERSONATE and
+ZED_ADMIN_API_TOKEN were both set, the client POSTed to
+cloud.zed.dev/internal/users/impersonate via authenticate_as_admin. It
+slipped through because the verify gate's build_zed_cloud_url tripwire
+was silently dead: tools/verify.sh mangled the regex backslashes, so the
+pattern failed to compile and the gate falsely reported PASS.
+
+- client.rs: delete authenticate_as_admin, its sole (impersonation)
+  caller branch, and the ADMIN_API_TOKEN / USE_WEB_LOGIN env handles it
+  needed. IMPERSONATE_LOGIN stays (still used by the kept auth paths).
+  The removed early return had anchored the spawn closure's error type,
+  so pin it explicitly with anyhow::Ok. Drop the now-unused Request /
+  AsyncReadExt imports and the dead `this` binding.
+- http_client.rs: delete the orphaned build_zed_api_url,
+  build_zed_cloud_url and build_zed_cloud_url_with_query builders (the
+  impersonation call was their last referrer) and the unused
+  serde::Serialize import.
+- client.rs actions!: drop the orphaned client::SignIn action. Patch
+  0037 removed its handler but left the declaration -- a
+  palette-dispatchable "Sign in to Zed account" command that did
+  nothing.
+- docs/authentication.md: de-macro the now-dangling {#action
+  client::SignIn} reference so the docs action manifest stays valid.
+- client.rs tests: import settings::SettingsContent. Pre-existing latent
+  breakage that kept the client test build from compiling; surfaced by
+  --tests while validating this change.
+
+cargo check -p client -p http_client -p cloud_api_client --tests is clean.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/client/src/client.rs           | 81 +++------------------------
+ crates/http_client/src/http_client.rs | 43 --------------
+ docs/src/authentication.md            |  2 +-
+ 3 files changed, 8 insertions(+), 118 deletions(-)
+
+diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
+index 23aa6ea836..2d641aa945 100644
+--- a/crates/client/src/client.rs
++++ b/crates/client/src/client.rs
+@@ -10,7 +10,7 @@ use anyhow::{Context as _, Result, anyhow};
+ use async_tungstenite::tungstenite::{
+     client::IntoClientRequest,
+     error::Error as WebsocketError,
+-    http::{HeaderValue, Request, StatusCode},
++    http::{HeaderValue, StatusCode},
+ };
+ use clock::SystemClock;
+ use cloud_api_client::LlmApiToken;
+@@ -20,7 +20,7 @@ use cloud_api_types::OrganizationId;
+ use credentials_provider::CredentialsProvider;
+ use feature_flags::FeatureFlagAppExt as _;
+ use futures::{
+-    AsyncReadExt, FutureExt, SinkExt, Stream, StreamExt, TryFutureExt as _, TryStreamExt,
++    FutureExt, SinkExt, Stream, StreamExt, TryFutureExt as _, TryStreamExt,
+     channel::{mpsc, oneshot},
+     future::BoxFuture,
+     stream::BoxStream,
+@@ -67,14 +67,6 @@ pub static IMPERSONATE_LOGIN: LazyLock<Option<String>> = LazyLock::new(|| {
+         .and_then(|s| if s.is_empty() { None } else { Some(s) })
+ });
+ 
+-pub static USE_WEB_LOGIN: LazyLock<bool> = LazyLock::new(|| std::env::var("ZED_WEB_LOGIN").is_ok());
+-
+-pub static ADMIN_API_TOKEN: LazyLock<Option<String>> = LazyLock::new(|| {
+-    std::env::var("ZED_ADMIN_API_TOKEN")
+-        .ok()
+-        .and_then(|s| if s.is_empty() { None } else { Some(s) })
+-});
+-
+ pub static ZED_APP_PATH: LazyLock<Option<PathBuf>> =
+     LazyLock::new(|| std::env::var("ZED_APP_PATH").ok().map(PathBuf::from));
+ 
+@@ -88,8 +80,6 @@ pub const CONNECTION_TIMEOUT: Duration = Duration::from_secs(20);
+ actions!(
+     client,
+     [
+-        /// Signs in to Zed account.
+-        SignIn,
+         /// Signs out of Zed account.
+         SignOut,
+         /// Reconnects to the collaboration server.
+@@ -1342,7 +1332,6 @@ impl Client {
+ 
+     pub fn authenticate_with_browser(self: &Arc<Self>, cx: &AsyncApp) -> Task<Result<Credentials>> {
+         let http = self.http.clone();
+-        let this = self.clone();
+         cx.spawn(async move |cx| {
+             let background = cx.background_executor().clone();
+ 
+@@ -1367,18 +1356,6 @@ impl Client {
+                     let public_key = String::try_from(public_key)
+                         .context("failed to serialize public key for auth")?;
+ 
+-                    if let Some((login, token)) =
+-                        IMPERSONATE_LOGIN.as_ref().zip(ADMIN_API_TOKEN.as_ref())
+-                    {
+-                        if !*USE_WEB_LOGIN {
+-                            eprintln!("authenticate as admin {login}, {token}");
+-
+-                            return this
+-                                .authenticate_as_admin(http, login.clone(), token.clone())
+-                                .await;
+-                        }
+-                    }
+-
+                     // Start an HTTP server to receive the redirect from Zed's sign-in page.
+                     let server = tiny_http::Server::http("127.0.0.1:0")
+                         .map_err(|e| anyhow!(e).context("failed to bind callback port"))?;
+@@ -1459,7 +1436,10 @@ impl Client {
+                         .decrypt_string(&access_token)
+                         .context("failed to decrypt access token")?;
+ 
+-                    Ok(Credentials {
++                    // `anyhow::Ok` pins the closure's error type. The removed admin
++                    // impersonation early-return used to anchor it; without it,
++                    // inference is ambiguous in the larger test crate graph.
++                    anyhow::Ok(Credentials {
+                         user_id: user_id.parse()?,
+                         access_token,
+                     })
+@@ -1471,53 +1451,6 @@ impl Client {
+         })
+     }
+ 
+-    async fn authenticate_as_admin(
+-        self: &Arc<Self>,
+-        http: Arc<HttpClientWithUrl>,
+-        login: String,
+-        api_token: String,
+-    ) -> Result<Credentials> {
+-        #[derive(Serialize)]
+-        struct ImpersonateUserBody {
+-            github_login: String,
+-        }
+-
+-        #[derive(Deserialize)]
+-        struct ImpersonateUserResponse {
+-            user_id: u64,
+-            access_token: String,
+-        }
+-
+-        let url = self
+-            .http
+-            .build_zed_cloud_url("/internal/users/impersonate")?;
+-        let request = Request::post(url.as_str())
+-            .header("Content-Type", "application/json")
+-            .header("Authorization", format!("Bearer {api_token}"))
+-            .body(
+-                serde_json::to_string(&ImpersonateUserBody {
+-                    github_login: login,
+-                })?
+-                .into(),
+-            )?;
+-
+-        let mut response = http.send(request).await?;
+-        let mut body = String::new();
+-        response.body_mut().read_to_string(&mut body).await?;
+-        anyhow::ensure!(
+-            response.status().is_success(),
+-            "admin user request failed {} - {}",
+-            response.status().as_u16(),
+-            body,
+-        );
+-        let response: ImpersonateUserResponse = serde_json::from_str(&body)?;
+-
+-        Ok(Credentials {
+-            user_id: response.user_id,
+-            access_token: response.access_token,
+-        })
+-    }
+-
+     pub async fn refresh_llm_token(
+         &self,
+         llm_token: &LlmApiToken,
+@@ -1874,7 +1807,7 @@ mod tests {
+     use http_client::FakeHttpClient;
+     use parking_lot::Mutex;
+     use proto::TypedEnvelope;
+-    use settings::SettingsStore;
++    use settings::{SettingsContent, SettingsStore};
+     use std::future;
+ 
+     #[test]
+diff --git a/crates/http_client/src/http_client.rs b/crates/http_client/src/http_client.rs
+index 9228c2fe13..0548d3784e 100644
+--- a/crates/http_client/src/http_client.rs
++++ b/crates/http_client/src/http_client.rs
+@@ -12,7 +12,6 @@ pub use http::{self, Method, Request, Response, StatusCode, Uri, request::Builde
+ 
+ use futures::future::BoxFuture;
+ use parking_lot::Mutex;
+-use serde::Serialize;
+ use std::sync::Arc;
+ #[cfg(feature = "test-support")]
+ use std::{any::type_name, fmt};
+@@ -209,48 +208,6 @@ impl HttpClientWithUrl {
+     pub fn build_url(&self, path: &str) -> String {
+         format!("{}{}", self.base_url(), path)
+     }
+-
+-    /// Builds a Zed API URL using the given path.
+-    pub fn build_zed_api_url(&self, path: &str, query: &[(&str, &str)]) -> Result<Url> {
+-        let base_url = self.base_url();
+-        let base_api_url = match base_url.as_ref() {
+-            "https://zed.dev" => "https://api.zed.dev",
+-            "https://staging.zed.dev" => "https://api-staging.zed.dev",
+-            "http://localhost:3000" => "http://localhost:8080",
+-            other => other,
+-        };
+-
+-        Ok(Url::parse_with_params(
+-            &format!("{}{}", base_api_url, path),
+-            query,
+-        )?)
+-    }
+-
+-    /// Builds a Zed Cloud URL using the given path.
+-    pub fn build_zed_cloud_url(&self, path: &str) -> Result<Url> {
+-        let base_url = self.base_url();
+-        let base_api_url = match base_url.as_ref() {
+-            "https://zed.dev" => "https://cloud.zed.dev",
+-            "https://staging.zed.dev" => "https://cloud.zed.dev",
+-            "http://localhost:3000" => "http://localhost:8787",
+-            other => other,
+-        };
+-
+-        Ok(Url::parse(&format!("{}{}", base_api_url, path))?)
+-    }
+-
+-    /// Builds a Zed Cloud URL using the given path and query params.
+-    pub fn build_zed_cloud_url_with_query(&self, path: &str, query: impl Serialize) -> Result<Url> {
+-        let base_url = self.base_url();
+-        let base_api_url = match base_url.as_ref() {
+-            "https://zed.dev" => "https://cloud.zed.dev",
+-            "https://staging.zed.dev" => "https://cloud.zed.dev",
+-            "http://localhost:3000" => "http://localhost:8787",
+-            other => other,
+-        };
+-        let query = serde_urlencoded::to_string(&query)?;
+-        Ok(Url::parse(&format!("{}{}?{}", base_api_url, path, query))?)
+-    }
+ }
+ 
+ impl HttpClient for HttpClientWithUrl {
+diff --git a/docs/src/authentication.md b/docs/src/authentication.md
+index 8d0b0b7c0d..dff07b56a0 100644
+--- a/docs/src/authentication.md
++++ b/docs/src/authentication.md
+@@ -16,7 +16,7 @@ Signing in to Zed is not required. You can use most features you'd expect in a c
+ 
+ Zed uses GitHub's OAuth flow to authenticate users, requiring only the `read:user` GitHub scope, which grants read-only access to your GitHub profile information.
+ 
+-1. Open Zed and click the `Sign In` button in the top-right corner of the window, or run the {#action client::SignIn} command from the command palette (`cmd-shift-p` on macOS or `ctrl-shift-p` on Windows/Linux).
++1. Open Zed and click the `Sign In` button in the top-right corner of the window, or run the `Sign In` command from the command palette (`cmd-shift-p` on macOS or `ctrl-shift-p` on Windows/Linux).
+ 2. Your default web browser will open to the Zed sign-in page.
+ 3. Authenticate with your GitHub account when prompted.
+ 4. After successful authentication, your browser will display a confirmation, and you'll be automatically signed in to Zed.

@@ -1,0 +1,5659 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 31 May 2026 12:50:00 +0300
+Subject: [PATCH] strip: delete orphan vendor LLM provider crates
+
+anthropic, mistral, deepseek, x_ai, open_router, bedrock had zero
+workspace referrers after the cloud-provider strip (language_models
+registers only Ollama/LMStudio/OpenAI-compatible). They were dead
+workspace members carrying hardcoded vendor endpoints. Deleted outright
+so reintroduction fails to resolve.
+
+Kept: open_ai, google_ai (wire types used by agent_servers/opencode),
+codestral (BYO edit prediction), ollama, lmstudio.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Cargo.toml                            |   12 -
+ crates/anthropic/Cargo.toml           |   30 -
+ crates/anthropic/LICENSE-GPL          |    1 -
+ crates/anthropic/src/anthropic.rs     | 1114 -------------------------
+ crates/anthropic/src/batches.rs       |  197 -----
+ crates/anthropic/src/completion.rs    |  871 -------------------
+ crates/bedrock/Cargo.toml             |   27 -
+ crates/bedrock/LICENSE-GPL            |    1 -
+ crates/bedrock/src/bedrock.rs         |  241 ------
+ crates/bedrock/src/models.rs          | 1038 -----------------------
+ crates/deepseek/Cargo.toml            |   24 -
+ crates/deepseek/LICENSE-GPL           |    1 -
+ crates/deepseek/src/deepseek.rs       |  338 --------
+ crates/mistral/Cargo.toml             |   25 -
+ crates/mistral/LICENSE-GPL            |    1 -
+ crates/mistral/src/mistral.rs         |  472 -----------
+ crates/open_router/Cargo.toml         |   28 -
+ crates/open_router/LICENSE-GPL        |    1 -
+ crates/open_router/src/open_router.rs |  814 ------------------
+ crates/x_ai/Cargo.toml                |   22 -
+ crates/x_ai/LICENSE-GPL               |    1 -
+ crates/x_ai/src/x_ai.rs               |  125 ---
+ 22 files changed, 5384 deletions(-)
+ delete mode 100644 crates/anthropic/Cargo.toml
+ delete mode 120000 crates/anthropic/LICENSE-GPL
+ delete mode 100644 crates/anthropic/src/anthropic.rs
+ delete mode 100644 crates/anthropic/src/batches.rs
+ delete mode 100644 crates/anthropic/src/completion.rs
+ delete mode 100644 crates/bedrock/Cargo.toml
+ delete mode 120000 crates/bedrock/LICENSE-GPL
+ delete mode 100644 crates/bedrock/src/bedrock.rs
+ delete mode 100644 crates/bedrock/src/models.rs
+ delete mode 100644 crates/deepseek/Cargo.toml
+ delete mode 120000 crates/deepseek/LICENSE-GPL
+ delete mode 100644 crates/deepseek/src/deepseek.rs
+ delete mode 100644 crates/mistral/Cargo.toml
+ delete mode 120000 crates/mistral/LICENSE-GPL
+ delete mode 100644 crates/mistral/src/mistral.rs
+ delete mode 100644 crates/open_router/Cargo.toml
+ delete mode 120000 crates/open_router/LICENSE-GPL
+ delete mode 100644 crates/open_router/src/open_router.rs
+ delete mode 100644 crates/x_ai/Cargo.toml
+ delete mode 120000 crates/x_ai/LICENSE-GPL
+ delete mode 100644 crates/x_ai/src/x_ai.rs
+
+diff --git a/Cargo.toml b/Cargo.toml
+index 9fa304d659..7bf146d662 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -10,12 +10,10 @@ members = [
+     "crates/agent_settings",
+     "crates/agent_skills",
+     "crates/agent_ui",
+-    "crates/anthropic",
+     "crates/askpass",
+     "crates/assets",
+     "crates/audio",
+     "crates/aws_http_client",
+-    "crates/bedrock",
+     "crates/breadcrumbs",
+     "crates/buffer_diff",
+     "crates/cli",
+@@ -40,7 +38,6 @@ members = [
+     "crates/debug_adapter_extension",
+     "crates/debugger_tools",
+     "crates/debugger_ui",
+-    "crates/deepseek",
+     "crates/denoise",
+     "crates/dev_container",
+     "crates/diagnostics",
+@@ -120,7 +117,6 @@ members = [
+     "crates/menu",
+     "crates/migrator",
+     "crates/miniprofiler_ui",
+-    "crates/mistral",
+     "crates/multi_buffer",
+     "crates/nc",
+     "crates/net",
+@@ -132,7 +128,6 @@ members = [
+     "crates/opencode",
+     "crates/open_ai",
+     "crates/open_path_prompt",
+-    "crates/open_router",
+     "crates/outline",
+     "crates/outline_panel",
+     "crates/panel",
+@@ -210,7 +205,6 @@ members = [
+     "crates/workspace",
+     "crates/worktree",
+     "crates/worktree_benchmarks",
+-    "crates/x_ai",
+     "crates/zed",
+     "crates/zed_actions",
+     "crates/windows_resources",
+@@ -260,12 +254,10 @@ agent_servers = { path = "crates/agent_servers" }
+ agent_settings = { path = "crates/agent_settings" }
+ agent_skills = { path = "crates/agent_skills" }
+ agent_ui = { path = "crates/agent_ui" }
+-anthropic = { path = "crates/anthropic" }
+ askpass = { path = "crates/askpass" }
+ assets = { path = "crates/assets" }
+ audio = { path = "crates/audio" }
+ aws_http_client = { path = "crates/aws_http_client" }
+-bedrock = { path = "crates/bedrock" }
+ breadcrumbs = { path = "crates/breadcrumbs" }
+ buffer_diff = { path = "crates/buffer_diff" }
+ cli = { path = "crates/cli" }
+@@ -292,7 +284,6 @@ db = { path = "crates/db" }
+ debug_adapter_extension = { path = "crates/debug_adapter_extension" }
+ debugger_tools = { path = "crates/debugger_tools" }
+ debugger_ui = { path = "crates/debugger_ui" }
+-deepseek = { path = "crates/deepseek" }
+ derive_refineable = { path = "crates/refineable/derive_refineable" }
+ dev_container = { path = "crates/dev_container" }
+ diagnostics = { path = "crates/diagnostics" }
+@@ -364,7 +355,6 @@ svg_preview = { path = "crates/svg_preview" }
+ media = { path = "crates/media" }
+ menu = { path = "crates/menu" }
+ migrator = { path = "crates/migrator" }
+-mistral = { path = "crates/mistral" }
+ multi_buffer = { path = "crates/multi_buffer" }
+ miniprofiler_ui = { path = "crates/miniprofiler_ui" }
+ nc = { path = "crates/nc" }
+@@ -377,7 +367,6 @@ onboarding = { path = "crates/onboarding" }
+ opencode = { path = "crates/opencode" }
+ open_ai = { path = "crates/open_ai" }
+ open_path_prompt = { path = "crates/open_path_prompt" }
+-open_router = { path = "crates/open_router", features = ["schemars"] }
+ outline = { path = "crates/outline" }
+ outline_panel = { path = "crates/outline_panel" }
+ panel = { path = "crates/panel" }
+@@ -453,7 +442,6 @@ watch = { path = "crates/watch" }
+ web_search = { path = "crates/web_search" }
+ workspace = { path = "crates/workspace" }
+ worktree = { path = "crates/worktree" }
+-x_ai = { path = "crates/x_ai" }
+ zed = { path = "crates/zed" }
+ zed_actions = { path = "crates/zed_actions" }
+ zed_credentials_provider = { path = "crates/zed_credentials_provider" }
+diff --git a/crates/anthropic/Cargo.toml b/crates/anthropic/Cargo.toml
+deleted file mode 100644
+index 3001b5801c..0000000000
+--- a/crates/anthropic/Cargo.toml
++++ /dev/null
+@@ -1,30 +0,0 @@
+-[package]
+-name = "anthropic"
+-version = "0.1.0"
+-edition.workspace = true
+-publish.workspace = true
+-license = "GPL-3.0-or-later"
+-
+-[features]
+-default = []
+-schemars = ["dep:schemars"]
+-
+-[lints]
+-workspace = true
+-
+-[lib]
+-path = "src/anthropic.rs"
+-
+-[dependencies]
+-anyhow.workspace = true
+-chrono.workspace = true
+-collections.workspace = true
+-futures.workspace = true
+-http_client.workspace = true
+-language_model_core.workspace = true
+-log.workspace = true
+-schemars = { workspace = true, optional = true }
+-serde.workspace = true
+-serde_json.workspace = true
+-strum.workspace = true
+-thiserror.workspace = true
+diff --git a/crates/anthropic/LICENSE-GPL b/crates/anthropic/LICENSE-GPL
+deleted file mode 120000
+index 89e542f750..0000000000
+--- a/crates/anthropic/LICENSE-GPL
++++ /dev/null
+@@ -1 +0,0 @@
+-../../LICENSE-GPL
+\ No newline at end of file
+diff --git a/crates/anthropic/src/anthropic.rs b/crates/anthropic/src/anthropic.rs
+deleted file mode 100644
+index 6df9d5da24..0000000000
+--- a/crates/anthropic/src/anthropic.rs
++++ /dev/null
+@@ -1,1114 +0,0 @@
+-use std::io;
+-use std::str::FromStr;
+-use std::time::Duration;
+-
+-use anyhow::{Context as _, Result};
+-use chrono::{DateTime, Utc};
+-use futures::{AsyncBufReadExt, AsyncReadExt, StreamExt, io::BufReader, stream::BoxStream};
+-use http_client::http::{self, HeaderMap, HeaderValue};
+-use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest, StatusCode};
+-use serde::{Deserialize, Serialize};
+-use strum::EnumString;
+-use thiserror::Error;
+-
+-pub mod batches;
+-pub mod completion;
+-
+-pub const ANTHROPIC_API_URL: &str = "https://api.anthropic.com";
+-const FAST_MODE_BETA_HEADER: &str = "fast-mode-2026-02-01";
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+-pub enum AnthropicModelMode {
+-    #[default]
+-    Default,
+-    Thinking {
+-        budget_tokens: Option<u32>,
+-    },
+-    AdaptiveThinking,
+-}
+-
+-/// Capabilities reported by the Anthropic models endpoint for a given model.
+-#[derive(Clone, Debug, Default, Deserialize)]
+-pub struct ModelCapabilities {
+-    #[serde(default)]
+-    pub thinking: Option<ThinkingCapability>,
+-    #[serde(default)]
+-    pub image_input: Option<SupportedCapability>,
+-    #[serde(default)]
+-    pub effort: Option<EffortCapability>,
+-}
+-
+-#[derive(Clone, Debug, Default, Deserialize)]
+-pub struct SupportedCapability {
+-    #[serde(default)]
+-    pub supported: bool,
+-}
+-
+-#[derive(Clone, Debug, Default, Deserialize)]
+-pub struct ThinkingCapability {
+-    #[serde(default)]
+-    pub supported: bool,
+-    #[serde(default)]
+-    pub types: Option<ThinkingTypes>,
+-}
+-
+-#[derive(Clone, Debug, Default, Deserialize)]
+-pub struct ThinkingTypes {
+-    #[serde(default)]
+-    pub adaptive: SupportedCapability,
+-    #[serde(default)]
+-    pub enabled: SupportedCapability,
+-}
+-
+-#[derive(Clone, Debug, Default, Deserialize)]
+-pub struct EffortCapability {
+-    #[serde(default)]
+-    pub supported: bool,
+-    #[serde(default)]
+-    pub low: Option<SupportedCapability>,
+-    #[serde(default)]
+-    pub medium: Option<SupportedCapability>,
+-    #[serde(default)]
+-    pub high: Option<SupportedCapability>,
+-    #[serde(default)]
+-    pub max: Option<SupportedCapability>,
+-    #[serde(default)]
+-    pub xhigh: Option<SupportedCapability>,
+-}
+-
+-#[derive(Clone, Debug, PartialEq)]
+-pub struct Model {
+-    pub id: String,
+-    pub display_name: String,
+-    pub max_input_tokens: u64,
+-    pub max_output_tokens: u64,
+-    pub default_temperature: f32,
+-    pub mode: AnthropicModelMode,
+-    pub supports_thinking: bool,
+-    pub supports_adaptive_thinking: bool,
+-    pub supports_images: bool,
+-    pub supports_speed: bool,
+-    pub supported_effort_levels: Vec<Effort>,
+-    /// A model id to substitute when invoking tools, used for models that
+-    /// don't support tool calling natively.
+-    pub tool_override: Option<String>,
+-    /// Extra `Anthropic-Beta` header values to send with each request.
+-    pub extra_beta_headers: Vec<String>,
+-}
+-
+-impl Model {
+-    /// Construct a `Model` from an entry returned by the `/v1/models` listing endpoint.
+-    pub fn from_listed(entry: ListModelEntry) -> Self {
+-        let supports_thinking = entry
+-            .capabilities
+-            .as_ref()
+-            .and_then(|t| t.thinking.as_ref())
+-            .map(|t| t.supported)
+-            .unwrap_or(false);
+-        let supports_adaptive_thinking = entry
+-            .capabilities
+-            .as_ref()
+-            .and_then(|t| t.thinking.as_ref())
+-            .and_then(|t| t.types.as_ref())
+-            .map(|types| types.adaptive.supported)
+-            .unwrap_or(false);
+-        let supports_images = entry
+-            .capabilities
+-            .as_ref()
+-            .and_then(|c| c.image_input.as_ref())
+-            .map(|c| c.supported)
+-            .unwrap_or(false);
+-
+-        let mut supported_effort_levels = Vec::new();
+-        if let Some(effort) = entry.capabilities.as_ref().and_then(|e| e.effort.as_ref()) {
+-            // The `xhigh` effort level reported by the API has no
+-            // corresponding `Effort` variant in the request enum, so it is
+-            // intentionally dropped here.
+-            for (level, supported) in [
+-                (Effort::Low, effort.low.as_ref()),
+-                (Effort::Medium, effort.medium.as_ref()),
+-                (Effort::High, effort.high.as_ref()),
+-                (Effort::XHigh, effort.xhigh.as_ref()),
+-                (Effort::Max, effort.max.as_ref()),
+-            ] {
+-                if supported.map(|c| c.supported).unwrap_or(false) {
+-                    supported_effort_levels.push(level);
+-                }
+-            }
+-        }
+-
+-        let mode = if supports_adaptive_thinking {
+-            AnthropicModelMode::AdaptiveThinking
+-        } else if supports_thinking {
+-            AnthropicModelMode::Thinking {
+-                budget_tokens: Some(4_096),
+-            }
+-        } else {
+-            AnthropicModelMode::Default
+-        };
+-
+-        let supports_speed = matches!(entry.id.as_str(), "claude-opus-4-6" | "claude-opus-4-7");
+-
+-        let mut extra_beta_headers = Vec::new();
+-        if supports_speed {
+-            extra_beta_headers.push(FAST_MODE_BETA_HEADER.to_string());
+-        }
+-
+-        Self {
+-            display_name: entry.display_name,
+-            id: entry.id,
+-            max_input_tokens: entry.max_input_tokens,
+-            max_output_tokens: entry.max_tokens,
+-            default_temperature: 1.0,
+-            mode,
+-            supports_thinking,
+-            supports_adaptive_thinking,
+-            supports_images,
+-            supports_speed,
+-            supported_effort_levels,
+-            tool_override: None,
+-            extra_beta_headers,
+-        }
+-    }
+-
+-    pub fn beta_headers(&self) -> Option<String> {
+-        let headers: Vec<&str> = self
+-            .extra_beta_headers
+-            .iter()
+-            .map(|h| h.trim())
+-            .filter(|h| !h.is_empty())
+-            .collect();
+-        if headers.is_empty() {
+-            None
+-        } else {
+-            Some(headers.join(","))
+-        }
+-    }
+-
+-    pub fn request_id(&self, has_tools: bool) -> &str {
+-        if has_tools {
+-            self.tool_override.as_deref().unwrap_or(&self.id)
+-        } else {
+-            &self.id
+-        }
+-    }
+-}
+-
+-/// Generate completion with streaming.
+-pub async fn stream_completion(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-    request: Request,
+-    beta_headers: Option<String>,
+-) -> Result<BoxStream<'static, Result<Event, AnthropicError>>, AnthropicError> {
+-    stream_completion_with_rate_limit_info(client, api_url, api_key, request, beta_headers)
+-        .await
+-        .map(|output| output.0)
+-}
+-
+-/// A raw model entry returned by the Anthropic models listing endpoint.
+-#[derive(Clone, Debug, Deserialize)]
+-pub struct ListModelEntry {
+-    pub id: String,
+-    pub display_name: String,
+-    pub max_input_tokens: u64,
+-    pub max_tokens: u64,
+-    #[serde(default)]
+-    pub capabilities: Option<ModelCapabilities>,
+-}
+-
+-#[derive(Debug, Deserialize)]
+-struct ListModelsResponse {
+-    data: Vec<ListModelEntry>,
+-}
+-
+-/// Fetch the list of models available to the current API key. The returned
+-/// models are constructed by feeding each raw entry through
+-/// [`Model::from_listed`].
+-///
+-/// See https://docs.claude.com/en/api/models-list.
+-pub async fn list_models(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-) -> Result<Vec<Model>> {
+-    let uri = format!("{api_url}/v1/models?limit=1000");
+-
+-    let request = HttpRequest::builder()
+-        .method(Method::GET)
+-        .uri(uri)
+-        .header("Anthropic-Version", "2023-06-01")
+-        .header("X-Api-Key", api_key.trim())
+-        .header("Accept", "application/json")
+-        .body(AsyncBody::default())
+-        .context("failed to build Anthropic models list request")?;
+-
+-    let mut response = client
+-        .send(request)
+-        .await
+-        .context("failed to send Anthropic models list request")?;
+-
+-    let mut body = String::new();
+-    response
+-        .body_mut()
+-        .read_to_string(&mut body)
+-        .await
+-        .context("failed to read Anthropic models list response")?;
+-
+-    anyhow::ensure!(
+-        response.status().is_success(),
+-        "failed to list Anthropic models: {} {}",
+-        response.status(),
+-        body,
+-    );
+-
+-    let parsed: ListModelsResponse =
+-        serde_json::from_str(&body).context("failed to parse Anthropic models list response")?;
+-
+-    let models = parsed
+-        .data
+-        .into_iter()
+-        .map(Model::from_listed)
+-        .collect::<Vec<_>>();
+-    Ok(models)
+-}
+-
+-/// Generate completion without streaming.
+-pub async fn non_streaming_completion(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-    request: Request,
+-    beta_headers: Option<String>,
+-) -> Result<Response, AnthropicError> {
+-    let (mut response, rate_limits) =
+-        send_request(client, api_url, api_key, &request, beta_headers).await?;
+-
+-    if response.status().is_success() {
+-        let mut body = String::new();
+-        response
+-            .body_mut()
+-            .read_to_string(&mut body)
+-            .await
+-            .map_err(AnthropicError::ReadResponse)?;
+-
+-        serde_json::from_str(&body).map_err(AnthropicError::DeserializeResponse)
+-    } else {
+-        Err(handle_error_response(response, rate_limits).await)
+-    }
+-}
+-
+-async fn send_request(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-    request: impl Serialize,
+-    beta_headers: Option<String>,
+-) -> Result<(http::Response<AsyncBody>, RateLimitInfo), AnthropicError> {
+-    let uri = format!("{api_url}/v1/messages");
+-
+-    let mut request_builder = HttpRequest::builder()
+-        .method(Method::POST)
+-        .uri(uri)
+-        .header("Anthropic-Version", "2023-06-01")
+-        .header("X-Api-Key", api_key.trim())
+-        .header("Content-Type", "application/json");
+-
+-    if let Some(beta_headers) = beta_headers {
+-        request_builder = request_builder.header("Anthropic-Beta", beta_headers);
+-    }
+-
+-    let serialized_request =
+-        serde_json::to_string(&request).map_err(AnthropicError::SerializeRequest)?;
+-    let request = request_builder
+-        .body(AsyncBody::from(serialized_request))
+-        .map_err(AnthropicError::BuildRequestBody)?;
+-
+-    let response = client
+-        .send(request)
+-        .await
+-        .map_err(AnthropicError::HttpSend)?;
+-
+-    let rate_limits = RateLimitInfo::from_headers(response.headers());
+-
+-    Ok((response, rate_limits))
+-}
+-
+-async fn handle_error_response(
+-    mut response: http::Response<AsyncBody>,
+-    rate_limits: RateLimitInfo,
+-) -> AnthropicError {
+-    if response.status().as_u16() == 529 {
+-        return AnthropicError::ServerOverloaded {
+-            retry_after: rate_limits.retry_after,
+-        };
+-    }
+-
+-    if let Some(retry_after) = rate_limits.retry_after {
+-        return AnthropicError::RateLimit { retry_after };
+-    }
+-
+-    let mut body = String::new();
+-    let read_result = response
+-        .body_mut()
+-        .read_to_string(&mut body)
+-        .await
+-        .map_err(AnthropicError::ReadResponse);
+-
+-    if let Err(err) = read_result {
+-        return err;
+-    }
+-
+-    match serde_json::from_str::<Event>(&body) {
+-        Ok(Event::Error { error }) => AnthropicError::ApiError(error),
+-        Ok(_) | Err(_) => AnthropicError::HttpResponseError {
+-            status_code: response.status(),
+-            message: body,
+-        },
+-    }
+-}
+-
+-/// An individual rate limit.
+-#[derive(Debug)]
+-pub struct RateLimit {
+-    pub limit: usize,
+-    pub remaining: usize,
+-    pub reset: DateTime<Utc>,
+-}
+-
+-impl RateLimit {
+-    fn from_headers(resource: &str, headers: &HeaderMap<HeaderValue>) -> Result<Self> {
+-        let limit =
+-            get_header(&format!("anthropic-ratelimit-{resource}-limit"), headers)?.parse()?;
+-        let remaining = get_header(
+-            &format!("anthropic-ratelimit-{resource}-remaining"),
+-            headers,
+-        )?
+-        .parse()?;
+-        let reset = DateTime::parse_from_rfc3339(get_header(
+-            &format!("anthropic-ratelimit-{resource}-reset"),
+-            headers,
+-        )?)?
+-        .to_utc();
+-
+-        Ok(Self {
+-            limit,
+-            remaining,
+-            reset,
+-        })
+-    }
+-}
+-
+-/// <https://docs.anthropic.com/en/api/rate-limits#response-headers>
+-#[derive(Debug)]
+-pub struct RateLimitInfo {
+-    pub retry_after: Option<Duration>,
+-    pub requests: Option<RateLimit>,
+-    pub tokens: Option<RateLimit>,
+-    pub input_tokens: Option<RateLimit>,
+-    pub output_tokens: Option<RateLimit>,
+-}
+-
+-impl RateLimitInfo {
+-    fn from_headers(headers: &HeaderMap<HeaderValue>) -> Self {
+-        // Check if any rate limit headers exist
+-        let has_rate_limit_headers = headers
+-            .keys()
+-            .any(|k| k == "retry-after" || k.as_str().starts_with("anthropic-ratelimit-"));
+-
+-        if !has_rate_limit_headers {
+-            return Self {
+-                retry_after: None,
+-                requests: None,
+-                tokens: None,
+-                input_tokens: None,
+-                output_tokens: None,
+-            };
+-        }
+-
+-        Self {
+-            retry_after: parse_retry_after(headers),
+-            requests: RateLimit::from_headers("requests", headers).ok(),
+-            tokens: RateLimit::from_headers("tokens", headers).ok(),
+-            input_tokens: RateLimit::from_headers("input-tokens", headers).ok(),
+-            output_tokens: RateLimit::from_headers("output-tokens", headers).ok(),
+-        }
+-    }
+-}
+-
+-/// Parses the Retry-After header value as an integer number of seconds (anthropic always uses
+-/// seconds). Note that other services might specify an HTTP date or some other format for this
+-/// header. Returns `None` if the header is not present or cannot be parsed.
+-pub fn parse_retry_after(headers: &HeaderMap<HeaderValue>) -> Option<Duration> {
+-    headers
+-        .get("retry-after")
+-        .and_then(|v| v.to_str().ok())
+-        .and_then(|v| v.parse::<u64>().ok())
+-        .map(Duration::from_secs)
+-}
+-
+-fn get_header<'a>(key: &str, headers: &'a HeaderMap) -> anyhow::Result<&'a str> {
+-    Ok(headers
+-        .get(key)
+-        .with_context(|| format!("missing header `{key}`"))?
+-        .to_str()?)
+-}
+-
+-pub async fn stream_completion_with_rate_limit_info(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-    request: Request,
+-    beta_headers: Option<String>,
+-) -> Result<
+-    (
+-        BoxStream<'static, Result<Event, AnthropicError>>,
+-        Option<RateLimitInfo>,
+-    ),
+-    AnthropicError,
+-> {
+-    let request = StreamingRequest {
+-        base: request,
+-        stream: true,
+-    };
+-
+-    let (response, rate_limits) =
+-        send_request(client, api_url, api_key, &request, beta_headers).await?;
+-
+-    if response.status().is_success() {
+-        let reader = BufReader::new(response.into_body());
+-        let stream = reader
+-            .lines()
+-            .filter_map(|line| async move {
+-                match line {
+-                    Ok(line) => {
+-                        let line = line
+-                            .strip_prefix("data: ")
+-                            .or_else(|| line.strip_prefix("data:"))?;
+-
+-                        match serde_json::from_str(line) {
+-                            Ok(response) => Some(Ok(response)),
+-                            Err(error) => Some(Err(AnthropicError::DeserializeResponse(error))),
+-                        }
+-                    }
+-                    Err(error) => Some(Err(AnthropicError::ReadResponse(error))),
+-                }
+-            })
+-            .boxed();
+-        Ok((stream, Some(rate_limits)))
+-    } else {
+-        Err(handle_error_response(response, rate_limits).await)
+-    }
+-}
+-
+-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+-#[serde(rename_all = "lowercase")]
+-pub enum CacheControlType {
+-    Ephemeral,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+-pub enum CacheTtl {
+-    /// Anthropic's default ephemeral TTL (currently 5 minutes). Refreshes for
+-    /// free on every cache hit.
+-    #[serde(rename = "5m")]
+-    FiveMinutes,
+-    /// Anthropic's extended ephemeral TTL (currently 1 hour). Costs 2x base
+-    /// input tokens to write, but persists across longer idle gaps.
+-    #[serde(rename = "1h")]
+-    OneHour,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+-pub struct CacheControl {
+-    #[serde(rename = "type")]
+-    pub cache_type: CacheControlType,
+-    /// Omitted (None) means the API's default 5-minute TTL. Anthropic requires
+-    /// that cache entries with longer TTLs appear before shorter ones in the
+-    /// prefix order (tools → system → messages).
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub ttl: Option<CacheTtl>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Message {
+-    pub role: Role,
+-    pub content: Vec<RequestContent>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize, Eq, PartialEq, Hash)]
+-#[serde(rename_all = "lowercase")]
+-pub enum Role {
+-    User,
+-    Assistant,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(tag = "type")]
+-pub enum RequestContent {
+-    #[serde(rename = "text")]
+-    Text {
+-        text: String,
+-        #[serde(skip_serializing_if = "Option::is_none")]
+-        cache_control: Option<CacheControl>,
+-    },
+-    #[serde(rename = "thinking")]
+-    Thinking {
+-        thinking: String,
+-        signature: String,
+-        #[serde(skip_serializing_if = "Option::is_none")]
+-        cache_control: Option<CacheControl>,
+-    },
+-    #[serde(rename = "redacted_thinking")]
+-    RedactedThinking { data: String },
+-    #[serde(rename = "image")]
+-    Image {
+-        source: ImageSource,
+-        #[serde(skip_serializing_if = "Option::is_none")]
+-        cache_control: Option<CacheControl>,
+-    },
+-    #[serde(rename = "tool_use")]
+-    ToolUse {
+-        id: String,
+-        name: String,
+-        input: serde_json::Value,
+-        #[serde(skip_serializing_if = "Option::is_none")]
+-        cache_control: Option<CacheControl>,
+-    },
+-    #[serde(rename = "tool_result")]
+-    ToolResult {
+-        tool_use_id: String,
+-        is_error: bool,
+-        content: ToolResultContent,
+-        #[serde(skip_serializing_if = "Option::is_none")]
+-        cache_control: Option<CacheControl>,
+-    },
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(untagged)]
+-pub enum ToolResultContent {
+-    Plain(String),
+-    Multipart(Vec<ToolResultPart>),
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(tag = "type", rename_all = "lowercase")]
+-pub enum ToolResultPart {
+-    Text { text: String },
+-    Image { source: ImageSource },
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(tag = "type")]
+-pub enum ResponseContent {
+-    #[serde(rename = "text")]
+-    Text { text: String },
+-    #[serde(rename = "thinking")]
+-    Thinking { thinking: String },
+-    #[serde(rename = "redacted_thinking")]
+-    RedactedThinking { data: String },
+-    #[serde(rename = "tool_use")]
+-    ToolUse {
+-        id: String,
+-        name: String,
+-        input: serde_json::Value,
+-    },
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct ImageSource {
+-    #[serde(rename = "type")]
+-    pub source_type: String,
+-    pub media_type: String,
+-    pub data: String,
+-}
+-
+-fn is_false(value: &bool) -> bool {
+-    !value
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Tool {
+-    pub name: String,
+-    pub description: String,
+-    pub input_schema: serde_json::Value,
+-    #[serde(default, skip_serializing_if = "is_false")]
+-    pub eager_input_streaming: bool,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub cache_control: Option<CacheControl>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(tag = "type", rename_all = "lowercase")]
+-pub enum ToolChoice {
+-    Auto,
+-    Any,
+-    Tool { name: String },
+-    None,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(tag = "type", rename_all = "lowercase")]
+-pub enum Thinking {
+-    Enabled {
+-        budget_tokens: Option<u32>,
+-    },
+-    Adaptive {
+-        #[serde(default, skip_serializing_if = "Option::is_none")]
+-        display: Option<AdaptiveThinkingDisplay>,
+-    },
+-}
+-
+-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+-#[serde(rename_all = "lowercase")]
+-pub enum AdaptiveThinkingDisplay {
+-    Omitted,
+-    Summarized,
+-}
+-
+-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, EnumString)]
+-#[serde(rename_all = "snake_case")]
+-#[strum(serialize_all = "snake_case")]
+-pub enum Effort {
+-    Low,
+-    Medium,
+-    High,
+-    XHigh,
+-    Max,
+-}
+-
+-#[derive(Debug, Clone, Serialize, Deserialize)]
+-pub struct OutputConfig {
+-    pub effort: Option<Effort>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(untagged)]
+-pub enum StringOrContents {
+-    String(String),
+-    Content(Vec<RequestContent>),
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Request {
+-    pub model: String,
+-    pub max_tokens: u64,
+-    pub messages: Vec<Message>,
+-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-    pub tools: Vec<Tool>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub thinking: Option<Thinking>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub tool_choice: Option<ToolChoice>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub system: Option<StringOrContents>,
+-    /// Top-level cache_control opts into Anthropic's automatic prompt caching.
+-    /// When set, Anthropic places the cache breakpoint on the last cacheable block
+-    /// in the request (covering tools + system + the full conversation prefix), so
+-    /// we don't have to micromanage per-block breakpoints ourselves.
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub cache_control: Option<CacheControl>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub metadata: Option<Metadata>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub output_config: Option<OutputConfig>,
+-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-    pub stop_sequences: Vec<String>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub speed: Option<Speed>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub temperature: Option<f32>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub top_k: Option<u32>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub top_p: Option<f32>,
+-}
+-
+-#[derive(Debug, Default, Serialize, Deserialize)]
+-#[serde(rename_all = "snake_case")]
+-pub enum Speed {
+-    #[default]
+-    Standard,
+-    Fast,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct StreamingRequest {
+-    #[serde(flatten)]
+-    pub base: Request,
+-    pub stream: bool,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Metadata {
+-    pub user_id: Option<String>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize, Default)]
+-pub struct Usage {
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub input_tokens: Option<u64>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub output_tokens: Option<u64>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub cache_creation_input_tokens: Option<u64>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub cache_read_input_tokens: Option<u64>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Response {
+-    pub id: String,
+-    #[serde(rename = "type")]
+-    pub response_type: String,
+-    pub role: Role,
+-    pub content: Vec<ResponseContent>,
+-    pub model: String,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub stop_reason: Option<String>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub stop_sequence: Option<String>,
+-    pub usage: Usage,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(tag = "type")]
+-pub enum Event {
+-    #[serde(rename = "message_start")]
+-    MessageStart { message: Response },
+-    #[serde(rename = "content_block_start")]
+-    ContentBlockStart {
+-        index: usize,
+-        content_block: ResponseContent,
+-    },
+-    #[serde(rename = "content_block_delta")]
+-    ContentBlockDelta { index: usize, delta: ContentDelta },
+-    #[serde(rename = "content_block_stop")]
+-    ContentBlockStop { index: usize },
+-    #[serde(rename = "message_delta")]
+-    MessageDelta { delta: MessageDelta, usage: Usage },
+-    #[serde(rename = "message_stop")]
+-    MessageStop,
+-    #[serde(rename = "ping")]
+-    Ping,
+-    #[serde(rename = "error")]
+-    Error { error: ApiError },
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(tag = "type")]
+-pub enum ContentDelta {
+-    #[serde(rename = "text_delta")]
+-    TextDelta { text: String },
+-    #[serde(rename = "thinking_delta")]
+-    ThinkingDelta { thinking: String },
+-    #[serde(rename = "signature_delta")]
+-    SignatureDelta { signature: String },
+-    #[serde(rename = "input_json_delta")]
+-    InputJsonDelta { partial_json: String },
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct MessageDelta {
+-    pub stop_reason: Option<String>,
+-    pub stop_sequence: Option<String>,
+-}
+-
+-#[derive(Debug)]
+-pub enum AnthropicError {
+-    /// Failed to serialize the HTTP request body to JSON
+-    SerializeRequest(serde_json::Error),
+-
+-    /// Failed to construct the HTTP request body
+-    BuildRequestBody(http::Error),
+-
+-    /// Failed to send the HTTP request
+-    HttpSend(anyhow::Error),
+-
+-    /// Failed to deserialize the response from JSON
+-    DeserializeResponse(serde_json::Error),
+-
+-    /// Failed to read from response stream
+-    ReadResponse(io::Error),
+-
+-    /// HTTP error response from the API
+-    HttpResponseError {
+-        status_code: StatusCode,
+-        message: String,
+-    },
+-
+-    /// Rate limit exceeded
+-    RateLimit { retry_after: Duration },
+-
+-    /// Server overloaded
+-    ServerOverloaded { retry_after: Option<Duration> },
+-
+-    /// API returned an error response
+-    ApiError(ApiError),
+-}
+-
+-#[derive(Debug, Serialize, Deserialize, Error)]
+-#[error("Anthropic API Error: {error_type}: {message}")]
+-pub struct ApiError {
+-    #[serde(rename = "type")]
+-    pub error_type: String,
+-    pub message: String,
+-}
+-
+-/// An Anthropic API error code.
+-/// <https://docs.anthropic.com/en/api/errors#http-errors>
+-#[derive(Debug, PartialEq, Eq, Clone, Copy, EnumString)]
+-#[strum(serialize_all = "snake_case")]
+-pub enum ApiErrorCode {
+-    /// 400 - `invalid_request_error`: There was an issue with the format or content of your request.
+-    InvalidRequestError,
+-    /// 401 - `authentication_error`: There's an issue with your API key.
+-    AuthenticationError,
+-    /// 403 - `permission_error`: Your API key does not have permission to use the specified resource.
+-    PermissionError,
+-    /// 404 - `not_found_error`: The requested resource was not found.
+-    NotFoundError,
+-    /// 413 - `request_too_large`: Request exceeds the maximum allowed number of bytes.
+-    RequestTooLarge,
+-    /// 429 - `rate_limit_error`: Your account has hit a rate limit.
+-    RateLimitError,
+-    /// 500 - `api_error`: An unexpected error has occurred internal to Anthropic's systems.
+-    ApiError,
+-    /// 529 - `overloaded_error`: Anthropic's API is temporarily overloaded.
+-    OverloadedError,
+-}
+-
+-impl ApiError {
+-    pub fn code(&self) -> Option<ApiErrorCode> {
+-        ApiErrorCode::from_str(&self.error_type).ok()
+-    }
+-
+-    pub fn is_rate_limit_error(&self) -> bool {
+-        matches!(self.error_type.as_str(), "rate_limit_error")
+-    }
+-
+-    pub fn match_window_exceeded(&self) -> Option<u64> {
+-        let Some(ApiErrorCode::InvalidRequestError) = self.code() else {
+-            return None;
+-        };
+-
+-        parse_prompt_too_long(&self.message)
+-    }
+-}
+-
+-pub fn parse_prompt_too_long(message: &str) -> Option<u64> {
+-    message
+-        .strip_prefix("prompt is too long: ")?
+-        .split_once(" tokens")?
+-        .0
+-        .parse()
+-        .ok()
+-}
+-
+-// -- Conversions from/to `language_model_core` types --
+-
+-impl From<language_model_core::Speed> for Speed {
+-    fn from(speed: language_model_core::Speed) -> Self {
+-        match speed {
+-            language_model_core::Speed::Standard => Speed::Standard,
+-            language_model_core::Speed::Fast => Speed::Fast,
+-        }
+-    }
+-}
+-
+-impl From<AnthropicError> for language_model_core::LanguageModelCompletionError {
+-    fn from(error: AnthropicError) -> Self {
+-        let provider = language_model_core::ANTHROPIC_PROVIDER_NAME;
+-        match error {
+-            AnthropicError::SerializeRequest(error) => Self::SerializeRequest { provider, error },
+-            AnthropicError::BuildRequestBody(error) => Self::BuildRequestBody { provider, error },
+-            AnthropicError::HttpSend(error) => Self::HttpSend { provider, error },
+-            AnthropicError::DeserializeResponse(error) => {
+-                Self::DeserializeResponse { provider, error }
+-            }
+-            AnthropicError::ReadResponse(error) => Self::ApiReadResponseError { provider, error },
+-            AnthropicError::HttpResponseError {
+-                status_code,
+-                message,
+-            } => Self::HttpResponseError {
+-                provider,
+-                status_code,
+-                message,
+-            },
+-            AnthropicError::RateLimit { retry_after } => Self::RateLimitExceeded {
+-                provider,
+-                retry_after: Some(retry_after),
+-            },
+-            AnthropicError::ServerOverloaded { retry_after } => Self::ServerOverloaded {
+-                provider,
+-                retry_after,
+-            },
+-            AnthropicError::ApiError(api_error) => api_error.into(),
+-        }
+-    }
+-}
+-
+-impl From<ApiError> for language_model_core::LanguageModelCompletionError {
+-    fn from(error: ApiError) -> Self {
+-        use ApiErrorCode::*;
+-        let provider = language_model_core::ANTHROPIC_PROVIDER_NAME;
+-        match error.code() {
+-            Some(code) => match code {
+-                InvalidRequestError => Self::BadRequestFormat {
+-                    provider,
+-                    message: error.message,
+-                },
+-                AuthenticationError => Self::AuthenticationError {
+-                    provider,
+-                    message: error.message,
+-                },
+-                PermissionError => Self::PermissionError {
+-                    provider,
+-                    message: error.message,
+-                },
+-                NotFoundError => Self::ApiEndpointNotFound { provider },
+-                RequestTooLarge => Self::PromptTooLarge {
+-                    tokens: language_model_core::parse_prompt_too_long(&error.message),
+-                },
+-                RateLimitError => Self::RateLimitExceeded {
+-                    provider,
+-                    retry_after: None,
+-                },
+-                ApiError => Self::ApiInternalServerError {
+-                    provider,
+-                    message: error.message,
+-                },
+-                OverloadedError => Self::ServerOverloaded {
+-                    provider,
+-                    retry_after: None,
+-                },
+-            },
+-            None => Self::Other(error.into()),
+-        }
+-    }
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-
+-    fn listed_entry(id: &str, capabilities: ModelCapabilities) -> ListModelEntry {
+-        ListModelEntry {
+-            id: id.to_string(),
+-            display_name: id.to_string(),
+-            max_input_tokens: 200_000,
+-            max_tokens: 64_000,
+-            capabilities: Some(capabilities),
+-        }
+-    }
+-
+-    #[test]
+-    fn from_listed_picks_adaptive_thinking_mode() {
+-        let entry = listed_entry(
+-            "claude-test-adaptive",
+-            ModelCapabilities {
+-                thinking: Some(ThinkingCapability {
+-                    supported: true,
+-                    types: Some(ThinkingTypes {
+-                        adaptive: SupportedCapability { supported: true },
+-                        enabled: SupportedCapability { supported: true },
+-                    }),
+-                }),
+-                ..Default::default()
+-            },
+-        );
+-        let model = Model::from_listed(entry);
+-        assert!(model.supports_thinking);
+-        assert!(model.supports_adaptive_thinking);
+-        assert_eq!(model.mode, AnthropicModelMode::AdaptiveThinking);
+-    }
+-
+-    #[test]
+-    fn from_listed_picks_thinking_mode_when_only_enabled_supported() {
+-        let entry = listed_entry(
+-            "claude-test-thinking",
+-            ModelCapabilities {
+-                thinking: Some(ThinkingCapability {
+-                    supported: true,
+-                    types: Some(ThinkingTypes {
+-                        adaptive: SupportedCapability { supported: false },
+-                        enabled: SupportedCapability { supported: true },
+-                    }),
+-                }),
+-                ..Default::default()
+-            },
+-        );
+-        let model = Model::from_listed(entry);
+-        assert!(model.supports_thinking);
+-        assert!(!model.supports_adaptive_thinking);
+-        assert!(matches!(model.mode, AnthropicModelMode::Thinking { .. }));
+-    }
+-
+-    #[test]
+-    fn from_listed_default_mode_when_no_thinking() {
+-        let entry = listed_entry("claude-test-default", ModelCapabilities::default());
+-        let model = Model::from_listed(entry);
+-        assert!(!model.supports_thinking);
+-        assert!(!model.supports_adaptive_thinking);
+-        assert_eq!(model.mode, AnthropicModelMode::Default);
+-    }
+-
+-    #[test]
+-    fn from_listed_collects_supported_effort_levels() {
+-        let entry = listed_entry(
+-            "claude-test-effort",
+-            ModelCapabilities {
+-                effort: Some(EffortCapability {
+-                    supported: true,
+-                    low: Some(SupportedCapability { supported: true }),
+-                    medium: Some(SupportedCapability { supported: false }),
+-                    high: Some(SupportedCapability { supported: true }),
+-                    max: Some(SupportedCapability { supported: true }),
+-                    xhigh: Some(SupportedCapability { supported: true }),
+-                }),
+-                ..Default::default()
+-            },
+-        );
+-        let model = Model::from_listed(entry);
+-        assert_eq!(
+-            &model.supported_effort_levels,
+-            &[Effort::Low, Effort::High, Effort::XHigh, Effort::Max]
+-        );
+-    }
+-}
+-
+-#[test]
+-fn test_match_window_exceeded() {
+-    let error = ApiError {
+-        error_type: "invalid_request_error".to_string(),
+-        message: "prompt is too long: 220000 tokens > 200000".to_string(),
+-    };
+-    assert_eq!(error.match_window_exceeded(), Some(220_000));
+-
+-    let error = ApiError {
+-        error_type: "invalid_request_error".to_string(),
+-        message: "prompt is too long: 1234953 tokens".to_string(),
+-    };
+-    assert_eq!(error.match_window_exceeded(), Some(1234953));
+-
+-    let error = ApiError {
+-        error_type: "invalid_request_error".to_string(),
+-        message: "not a prompt length error".to_string(),
+-    };
+-    assert_eq!(error.match_window_exceeded(), None);
+-
+-    let error = ApiError {
+-        error_type: "rate_limit_error".to_string(),
+-        message: "prompt is too long: 12345 tokens".to_string(),
+-    };
+-    assert_eq!(error.match_window_exceeded(), None);
+-
+-    let error = ApiError {
+-        error_type: "invalid_request_error".to_string(),
+-        message: "prompt is too long: invalid tokens".to_string(),
+-    };
+-    assert_eq!(error.match_window_exceeded(), None);
+-}
+diff --git a/crates/anthropic/src/batches.rs b/crates/anthropic/src/batches.rs
+deleted file mode 100644
+index 32b45c6ffe..0000000000
+--- a/crates/anthropic/src/batches.rs
++++ /dev/null
+@@ -1,197 +0,0 @@
+-use anyhow::Result;
+-use futures::AsyncReadExt;
+-use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest};
+-use serde::{Deserialize, Serialize};
+-
+-use crate::{AnthropicError, ApiError, RateLimitInfo, Request, Response};
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct BatchRequest {
+-    pub custom_id: String,
+-    pub params: Request,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct CreateBatchRequest {
+-    pub requests: Vec<BatchRequest>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct MessageBatchRequestCounts {
+-    pub processing: u64,
+-    pub succeeded: u64,
+-    pub errored: u64,
+-    pub canceled: u64,
+-    pub expired: u64,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct MessageBatch {
+-    pub id: String,
+-    #[serde(rename = "type")]
+-    pub batch_type: String,
+-    pub processing_status: String,
+-    pub request_counts: MessageBatchRequestCounts,
+-    pub ended_at: Option<String>,
+-    pub created_at: String,
+-    pub expires_at: String,
+-    pub archived_at: Option<String>,
+-    pub cancel_initiated_at: Option<String>,
+-    pub results_url: Option<String>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(tag = "type")]
+-pub enum BatchResult {
+-    #[serde(rename = "succeeded")]
+-    Succeeded { message: Response },
+-    #[serde(rename = "errored")]
+-    Errored { error: BatchErrorResponse },
+-    #[serde(rename = "canceled")]
+-    Canceled,
+-    #[serde(rename = "expired")]
+-    Expired,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct BatchErrorResponse {
+-    #[serde(rename = "type")]
+-    pub response_type: String,
+-    pub error: ApiError,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct BatchIndividualResponse {
+-    pub custom_id: String,
+-    pub result: BatchResult,
+-}
+-
+-pub async fn create_batch(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-    request: CreateBatchRequest,
+-) -> Result<MessageBatch, AnthropicError> {
+-    let uri = format!("{api_url}/v1/messages/batches");
+-
+-    let request_builder = HttpRequest::builder()
+-        .method(Method::POST)
+-        .uri(uri)
+-        .header("Anthropic-Version", "2023-06-01")
+-        .header("X-Api-Key", api_key.trim())
+-        .header("Content-Type", "application/json");
+-
+-    let serialized_request =
+-        serde_json::to_string(&request).map_err(AnthropicError::SerializeRequest)?;
+-    let http_request = request_builder
+-        .body(AsyncBody::from(serialized_request))
+-        .map_err(AnthropicError::BuildRequestBody)?;
+-
+-    let mut response = client
+-        .send(http_request)
+-        .await
+-        .map_err(AnthropicError::HttpSend)?;
+-
+-    let rate_limits = RateLimitInfo::from_headers(response.headers());
+-
+-    if response.status().is_success() {
+-        let mut body = String::new();
+-        response
+-            .body_mut()
+-            .read_to_string(&mut body)
+-            .await
+-            .map_err(AnthropicError::ReadResponse)?;
+-
+-        serde_json::from_str(&body).map_err(AnthropicError::DeserializeResponse)
+-    } else {
+-        Err(crate::handle_error_response(response, rate_limits).await)
+-    }
+-}
+-
+-pub async fn retrieve_batch(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-    message_batch_id: &str,
+-) -> Result<MessageBatch, AnthropicError> {
+-    let uri = format!("{api_url}/v1/messages/batches/{message_batch_id}");
+-
+-    let request_builder = HttpRequest::builder()
+-        .method(Method::GET)
+-        .uri(uri)
+-        .header("Anthropic-Version", "2023-06-01")
+-        .header("X-Api-Key", api_key.trim());
+-
+-    let http_request = request_builder
+-        .body(AsyncBody::default())
+-        .map_err(AnthropicError::BuildRequestBody)?;
+-
+-    let mut response = client
+-        .send(http_request)
+-        .await
+-        .map_err(AnthropicError::HttpSend)?;
+-
+-    let rate_limits = RateLimitInfo::from_headers(response.headers());
+-
+-    if response.status().is_success() {
+-        let mut body = String::new();
+-        response
+-            .body_mut()
+-            .read_to_string(&mut body)
+-            .await
+-            .map_err(AnthropicError::ReadResponse)?;
+-
+-        serde_json::from_str(&body).map_err(AnthropicError::DeserializeResponse)
+-    } else {
+-        Err(crate::handle_error_response(response, rate_limits).await)
+-    }
+-}
+-
+-pub async fn retrieve_batch_results(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-    message_batch_id: &str,
+-) -> Result<Vec<BatchIndividualResponse>, AnthropicError> {
+-    let uri = format!("{api_url}/v1/messages/batches/{message_batch_id}/results");
+-
+-    let request_builder = HttpRequest::builder()
+-        .method(Method::GET)
+-        .uri(uri)
+-        .header("Anthropic-Version", "2023-06-01")
+-        .header("X-Api-Key", api_key.trim());
+-
+-    let http_request = request_builder
+-        .body(AsyncBody::default())
+-        .map_err(AnthropicError::BuildRequestBody)?;
+-
+-    let mut response = client
+-        .send(http_request)
+-        .await
+-        .map_err(AnthropicError::HttpSend)?;
+-
+-    let rate_limits = RateLimitInfo::from_headers(response.headers());
+-
+-    if response.status().is_success() {
+-        let mut body = String::new();
+-        response
+-            .body_mut()
+-            .read_to_string(&mut body)
+-            .await
+-            .map_err(AnthropicError::ReadResponse)?;
+-
+-        let mut results = Vec::new();
+-        for line in body.lines() {
+-            if line.trim().is_empty() {
+-                continue;
+-            }
+-            let result: BatchIndividualResponse =
+-                serde_json::from_str(line).map_err(AnthropicError::DeserializeResponse)?;
+-            results.push(result);
+-        }
+-
+-        Ok(results)
+-    } else {
+-        Err(crate::handle_error_response(response, rate_limits).await)
+-    }
+-}
+diff --git a/crates/anthropic/src/completion.rs b/crates/anthropic/src/completion.rs
+deleted file mode 100644
+index 5cb864a088..0000000000
+--- a/crates/anthropic/src/completion.rs
++++ /dev/null
+@@ -1,871 +0,0 @@
+-use anyhow::Result;
+-use collections::HashMap;
+-use futures::{Stream, StreamExt};
+-use language_model_core::{
+-    LanguageModelCompletionError, LanguageModelCompletionEvent, LanguageModelRequest,
+-    LanguageModelToolChoice, LanguageModelToolResultContent, LanguageModelToolUse, MessageContent,
+-    Role, StopReason, TokenUsage,
+-    util::{fix_streamed_json, parse_tool_arguments},
+-};
+-use std::pin::Pin;
+-use std::str::FromStr;
+-
+-use crate::{
+-    AdaptiveThinkingDisplay, AnthropicError, AnthropicModelMode, CacheControl, CacheControlType,
+-    CacheTtl, ContentDelta, Event, ImageSource, Message, RequestContent, ResponseContent,
+-    StringOrContents, Thinking, Tool, ToolChoice, ToolResultContent, ToolResultPart, Usage,
+-};
+-
+-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+-pub enum AnthropicPromptCacheMode {
+-    Disabled,
+-    Legacy,
+-    #[default]
+-    Automatic,
+-}
+-
+-fn set_cache_control(content: &mut RequestContent, cache_control: Option<CacheControl>) -> bool {
+-    match content {
+-        RequestContent::RedactedThinking { .. } => false,
+-        RequestContent::Text {
+-            cache_control: target,
+-            ..
+-        }
+-        | RequestContent::Thinking {
+-            cache_control: target,
+-            ..
+-        }
+-        | RequestContent::Image {
+-            cache_control: target,
+-            ..
+-        }
+-        | RequestContent::ToolUse {
+-            cache_control: target,
+-            ..
+-        }
+-        | RequestContent::ToolResult {
+-            cache_control: target,
+-            ..
+-        } => {
+-            *target = cache_control;
+-            true
+-        }
+-    }
+-}
+-
+-fn mark_last_cacheable_content(content: &mut [RequestContent], cache_control: CacheControl) {
+-    for content in content.iter_mut().rev() {
+-        if set_cache_control(content, Some(cache_control)) {
+-            break;
+-        }
+-    }
+-}
+-
+-fn to_anthropic_content(content: MessageContent) -> Option<RequestContent> {
+-    match content {
+-        MessageContent::Text(text) => {
+-            let text = if text.chars().last().is_some_and(|c| c.is_whitespace()) {
+-                text.trim_end().to_string()
+-            } else {
+-                text
+-            };
+-            if !text.is_empty() {
+-                Some(RequestContent::Text {
+-                    text,
+-                    cache_control: None,
+-                })
+-            } else {
+-                None
+-            }
+-        }
+-        MessageContent::Thinking {
+-            text: thinking,
+-            signature,
+-        } => {
+-            if let Some(signature) = signature
+-                && !thinking.is_empty()
+-            {
+-                Some(RequestContent::Thinking {
+-                    thinking,
+-                    signature,
+-                    cache_control: None,
+-                })
+-            } else {
+-                None
+-            }
+-        }
+-        MessageContent::RedactedThinking(data) => {
+-            if !data.is_empty() {
+-                Some(RequestContent::RedactedThinking { data })
+-            } else {
+-                None
+-            }
+-        }
+-        MessageContent::Image(image) => Some(RequestContent::Image {
+-            source: ImageSource {
+-                source_type: "base64".to_string(),
+-                media_type: "image/png".to_string(),
+-                data: image.source.to_string(),
+-            },
+-            cache_control: None,
+-        }),
+-        MessageContent::ToolUse(tool_use) => Some(RequestContent::ToolUse {
+-            id: tool_use.id.to_string(),
+-            name: tool_use.name.to_string(),
+-            input: tool_use.input,
+-            cache_control: None,
+-        }),
+-        MessageContent::ToolResult(tool_result) => {
+-            let content = match tool_result.content.as_slice() {
+-                [LanguageModelToolResultContent::Text(text)] => {
+-                    ToolResultContent::Plain(text.to_string())
+-                }
+-                _ => {
+-                    let parts = tool_result
+-                        .content
+-                        .into_iter()
+-                        .map(|part| match part {
+-                            LanguageModelToolResultContent::Text(text) => ToolResultPart::Text {
+-                                text: text.to_string(),
+-                            },
+-                            LanguageModelToolResultContent::Image(image) => ToolResultPart::Image {
+-                                source: ImageSource {
+-                                    source_type: "base64".to_string(),
+-                                    media_type: "image/png".to_string(),
+-                                    data: image.source.to_string(),
+-                                },
+-                            },
+-                        })
+-                        .collect();
+-                    ToolResultContent::Multipart(parts)
+-                }
+-            };
+-            Some(RequestContent::ToolResult {
+-                tool_use_id: tool_result.tool_use_id.to_string(),
+-                is_error: tool_result.is_error,
+-                content,
+-                cache_control: None,
+-            })
+-        }
+-    }
+-}
+-
+-pub fn into_anthropic(
+-    request: LanguageModelRequest,
+-    model: String,
+-    default_temperature: f32,
+-    max_output_tokens: u64,
+-    mode: AnthropicModelMode,
+-    cache_mode: AnthropicPromptCacheMode,
+-) -> crate::Request {
+-    let mut new_messages: Vec<Message> = Vec::new();
+-    let mut system_message = String::new();
+-    let mut any_message_wants_cache = false;
+-
+-    for message in request.messages {
+-        if message.contents_empty() {
+-            continue;
+-        }
+-
+-        any_message_wants_cache |= message.cache;
+-
+-        match message.role {
+-            Role::User | Role::Assistant => {
+-                let mut anthropic_message_content: Vec<RequestContent> = message
+-                    .content
+-                    .into_iter()
+-                    .filter_map(to_anthropic_content)
+-                    .collect();
+-                let anthropic_role = match message.role {
+-                    Role::User => crate::Role::User,
+-                    Role::Assistant => crate::Role::Assistant,
+-                    Role::System => unreachable!("System role should never occur here"),
+-                };
+-                if anthropic_message_content.is_empty() {
+-                    continue;
+-                }
+-
+-                if cache_mode == AnthropicPromptCacheMode::Legacy && message.cache {
+-                    mark_last_cacheable_content(
+-                        &mut anthropic_message_content,
+-                        CacheControl {
+-                            cache_type: CacheControlType::Ephemeral,
+-                            ttl: None,
+-                        },
+-                    );
+-                }
+-
+-                if let Some(last_message) = new_messages.last_mut()
+-                    && last_message.role == anthropic_role
+-                {
+-                    last_message.content.extend(anthropic_message_content);
+-                    continue;
+-                }
+-
+-                new_messages.push(Message {
+-                    role: anthropic_role,
+-                    content: anthropic_message_content,
+-                });
+-            }
+-            Role::System => {
+-                if !system_message.is_empty() {
+-                    system_message.push_str("\n\n");
+-                }
+-                system_message.push_str(&message.string_contents());
+-            }
+-        }
+-    }
+-
+-    // When caching is enabled, mark the static prefix (tools + system) with an
+-    // explicit long-TTL breakpoint, and let Anthropic's automatic top-level
+-    // cache_control handle the short-TTL conversation breakpoint. Anthropic
+-    // requires that longer TTLs appear earlier in the prefix, and the prefix
+-    // order is tools → system → messages, so long-TTL tools/system before a
+-    // short-TTL conversation breakpoint is a valid mix.
+-    let long_lived_cache = (cache_mode == AnthropicPromptCacheMode::Automatic
+-        && any_message_wants_cache)
+-        .then_some(CacheControl {
+-            cache_type: CacheControlType::Ephemeral,
+-            ttl: Some(CacheTtl::OneHour),
+-        });
+-
+-    let system = if system_message.is_empty() {
+-        None
+-    } else if let Some(cache_control) = long_lived_cache {
+-        Some(StringOrContents::Content(vec![RequestContent::Text {
+-            text: system_message,
+-            cache_control: Some(cache_control),
+-        }]))
+-    } else {
+-        Some(StringOrContents::String(system_message))
+-    };
+-
+-    let mut tools: Vec<Tool> = request
+-        .tools
+-        .into_iter()
+-        .map(|tool| Tool {
+-            name: tool.name,
+-            description: tool.description,
+-            input_schema: tool.input_schema,
+-            eager_input_streaming: tool.use_input_streaming,
+-            cache_control: None,
+-        })
+-        .collect();
+-    if let Some(cache_control) = long_lived_cache
+-        && let Some(last_tool) = tools.last_mut()
+-    {
+-        last_tool.cache_control = Some(cache_control);
+-    }
+-
+-    crate::Request {
+-        model,
+-        messages: new_messages,
+-        max_tokens: max_output_tokens,
+-        system,
+-        // Opt into Anthropic's automatic prompt caching for the conversation
+-        // tail. Omitting `ttl` uses the default (short) TTL, which refreshes
+-        // for free on every cache hit — ideal for the rapidly-changing
+-        // conversation suffix.
+-        cache_control: (cache_mode == AnthropicPromptCacheMode::Automatic
+-            && any_message_wants_cache)
+-            .then_some(CacheControl {
+-                cache_type: CacheControlType::Ephemeral,
+-                ttl: None,
+-            }),
+-        thinking: if request.thinking_allowed {
+-            match mode {
+-                AnthropicModelMode::Thinking { budget_tokens } => {
+-                    Some(Thinking::Enabled { budget_tokens })
+-                }
+-                AnthropicModelMode::AdaptiveThinking => Some(Thinking::Adaptive {
+-                    display: Some(AdaptiveThinkingDisplay::Summarized),
+-                }),
+-                AnthropicModelMode::Default => None,
+-            }
+-        } else {
+-            None
+-        },
+-        tools,
+-        tool_choice: request.tool_choice.map(|choice| match choice {
+-            LanguageModelToolChoice::Auto => ToolChoice::Auto,
+-            LanguageModelToolChoice::Any => ToolChoice::Any,
+-            LanguageModelToolChoice::None => ToolChoice::None,
+-        }),
+-        metadata: None,
+-        output_config: if request.thinking_allowed
+-            && matches!(mode, AnthropicModelMode::AdaptiveThinking)
+-        {
+-            request.thinking_effort.as_deref().and_then(|effort| {
+-                let effort = match effort {
+-                    "low" => Some(crate::Effort::Low),
+-                    "medium" => Some(crate::Effort::Medium),
+-                    "high" => Some(crate::Effort::High),
+-                    "max" => Some(crate::Effort::Max),
+-                    _ => None,
+-                };
+-                effort.map(|effort| crate::OutputConfig {
+-                    effort: Some(effort),
+-                })
+-            })
+-        } else {
+-            None
+-        },
+-        stop_sequences: Vec::new(),
+-        speed: request.speed.map(Into::into),
+-        temperature: request.temperature.or(Some(default_temperature)),
+-        top_k: None,
+-        top_p: None,
+-    }
+-}
+-
+-pub struct AnthropicEventMapper {
+-    tool_uses_by_index: HashMap<usize, RawToolUse>,
+-    usage: Usage,
+-    stop_reason: StopReason,
+-}
+-
+-impl AnthropicEventMapper {
+-    pub fn new() -> Self {
+-        Self {
+-            tool_uses_by_index: HashMap::default(),
+-            usage: Usage::default(),
+-            stop_reason: StopReason::EndTurn,
+-        }
+-    }
+-
+-    pub fn map_stream(
+-        mut self,
+-        events: Pin<Box<dyn Send + Stream<Item = Result<Event, AnthropicError>>>>,
+-    ) -> impl Stream<Item = Result<LanguageModelCompletionEvent, LanguageModelCompletionError>>
+-    {
+-        events.flat_map(move |event| {
+-            futures::stream::iter(match event {
+-                Ok(event) => self.map_event(event),
+-                Err(error) => vec![Err(error.into())],
+-            })
+-        })
+-    }
+-
+-    pub fn map_event(
+-        &mut self,
+-        event: Event,
+-    ) -> Vec<Result<LanguageModelCompletionEvent, LanguageModelCompletionError>> {
+-        match event {
+-            Event::ContentBlockStart {
+-                index,
+-                content_block,
+-            } => match content_block {
+-                ResponseContent::Text { text } => {
+-                    vec![Ok(LanguageModelCompletionEvent::Text(text))]
+-                }
+-                ResponseContent::Thinking { thinking } => {
+-                    vec![Ok(LanguageModelCompletionEvent::Thinking {
+-                        text: thinking,
+-                        signature: None,
+-                    })]
+-                }
+-                ResponseContent::RedactedThinking { data } => {
+-                    vec![Ok(LanguageModelCompletionEvent::RedactedThinking { data })]
+-                }
+-                ResponseContent::ToolUse { id, name, .. } => {
+-                    self.tool_uses_by_index.insert(
+-                        index,
+-                        RawToolUse {
+-                            id,
+-                            name,
+-                            input_json: String::new(),
+-                        },
+-                    );
+-                    Vec::new()
+-                }
+-            },
+-            Event::ContentBlockDelta { index, delta } => match delta {
+-                ContentDelta::TextDelta { text } => {
+-                    vec![Ok(LanguageModelCompletionEvent::Text(text))]
+-                }
+-                ContentDelta::ThinkingDelta { thinking } => {
+-                    vec![Ok(LanguageModelCompletionEvent::Thinking {
+-                        text: thinking,
+-                        signature: None,
+-                    })]
+-                }
+-                ContentDelta::SignatureDelta { signature } => {
+-                    vec![Ok(LanguageModelCompletionEvent::Thinking {
+-                        text: "".to_string(),
+-                        signature: Some(signature),
+-                    })]
+-                }
+-                ContentDelta::InputJsonDelta { partial_json } => {
+-                    if let Some(tool_use) = self.tool_uses_by_index.get_mut(&index) {
+-                        tool_use.input_json.push_str(&partial_json);
+-
+-                        // Try to convert invalid (incomplete) JSON into
+-                        // valid JSON that serde can accept, e.g. by closing
+-                        // unclosed delimiters. This way, we can update the
+-                        // UI with whatever has been streamed back so far.
+-                        if let Ok(input) =
+-                            serde_json::Value::from_str(&fix_streamed_json(&tool_use.input_json))
+-                        {
+-                            return vec![Ok(LanguageModelCompletionEvent::ToolUse(
+-                                LanguageModelToolUse {
+-                                    id: tool_use.id.clone().into(),
+-                                    name: tool_use.name.clone().into(),
+-                                    is_input_complete: false,
+-                                    raw_input: tool_use.input_json.clone(),
+-                                    input,
+-                                    thought_signature: None,
+-                                },
+-                            ))];
+-                        }
+-                    }
+-                    vec![]
+-                }
+-            },
+-            Event::ContentBlockStop { index } => {
+-                if let Some(tool_use) = self.tool_uses_by_index.remove(&index) {
+-                    let input_json = tool_use.input_json.trim();
+-                    let event_result = match parse_tool_arguments(input_json) {
+-                        Ok(input) => Ok(LanguageModelCompletionEvent::ToolUse(
+-                            LanguageModelToolUse {
+-                                id: tool_use.id.into(),
+-                                name: tool_use.name.into(),
+-                                is_input_complete: true,
+-                                input,
+-                                raw_input: tool_use.input_json.clone(),
+-                                thought_signature: None,
+-                            },
+-                        )),
+-                        Err(json_parse_err) => {
+-                            Ok(LanguageModelCompletionEvent::ToolUseJsonParseError {
+-                                id: tool_use.id.into(),
+-                                tool_name: tool_use.name.into(),
+-                                raw_input: input_json.into(),
+-                                json_parse_error: json_parse_err.to_string(),
+-                            })
+-                        }
+-                    };
+-
+-                    vec![event_result]
+-                } else {
+-                    Vec::new()
+-                }
+-            }
+-            Event::MessageStart { message } => {
+-                update_usage(&mut self.usage, &message.usage);
+-                vec![
+-                    Ok(LanguageModelCompletionEvent::UsageUpdate(convert_usage(
+-                        &self.usage,
+-                    ))),
+-                    Ok(LanguageModelCompletionEvent::StartMessage {
+-                        message_id: message.id,
+-                    }),
+-                ]
+-            }
+-            Event::MessageDelta { delta, usage } => {
+-                update_usage(&mut self.usage, &usage);
+-                if let Some(stop_reason) = delta.stop_reason.as_deref() {
+-                    self.stop_reason = match stop_reason {
+-                        "end_turn" => StopReason::EndTurn,
+-                        "max_tokens" => StopReason::MaxTokens,
+-                        "tool_use" => StopReason::ToolUse,
+-                        "refusal" => StopReason::Refusal,
+-                        _ => {
+-                            log::error!("Unexpected anthropic stop_reason: {stop_reason}");
+-                            StopReason::EndTurn
+-                        }
+-                    };
+-                }
+-                vec![Ok(LanguageModelCompletionEvent::UsageUpdate(
+-                    convert_usage(&self.usage),
+-                ))]
+-            }
+-            Event::MessageStop => {
+-                vec![Ok(LanguageModelCompletionEvent::Stop(self.stop_reason))]
+-            }
+-            Event::Error { error } => {
+-                vec![Err(error.into())]
+-            }
+-            _ => Vec::new(),
+-        }
+-    }
+-}
+-
+-struct RawToolUse {
+-    id: String,
+-    name: String,
+-    input_json: String,
+-}
+-
+-/// Updates usage data by preferring counts from `new`.
+-fn update_usage(usage: &mut Usage, new: &Usage) {
+-    if let Some(input_tokens) = new.input_tokens {
+-        usage.input_tokens = Some(input_tokens);
+-    }
+-    if let Some(output_tokens) = new.output_tokens {
+-        usage.output_tokens = Some(output_tokens);
+-    }
+-    if let Some(cache_creation_input_tokens) = new.cache_creation_input_tokens {
+-        usage.cache_creation_input_tokens = Some(cache_creation_input_tokens);
+-    }
+-    if let Some(cache_read_input_tokens) = new.cache_read_input_tokens {
+-        usage.cache_read_input_tokens = Some(cache_read_input_tokens);
+-    }
+-}
+-
+-fn convert_usage(usage: &Usage) -> TokenUsage {
+-    TokenUsage {
+-        input_tokens: usage.input_tokens.unwrap_or(0),
+-        output_tokens: usage.output_tokens.unwrap_or(0),
+-        cache_creation_input_tokens: usage.cache_creation_input_tokens.unwrap_or(0),
+-        cache_read_input_tokens: usage.cache_read_input_tokens.unwrap_or(0),
+-    }
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-    use crate::AnthropicModelMode;
+-    use language_model_core::{LanguageModelImage, LanguageModelRequestMessage, MessageContent};
+-
+-    #[test]
+-    fn test_caching_uses_top_level_auto_and_long_lived_prefix() {
+-        let request = LanguageModelRequest {
+-            messages: vec![
+-                LanguageModelRequestMessage {
+-                    role: Role::System,
+-                    content: vec![MessageContent::Text("You are helpful.".to_string())],
+-                    cache: false,
+-                    reasoning_details: None,
+-                },
+-                LanguageModelRequestMessage {
+-                    role: Role::User,
+-                    content: vec![
+-                        MessageContent::Text("Some prompt".to_string()),
+-                        MessageContent::Image(LanguageModelImage::empty()),
+-                        MessageContent::Image(LanguageModelImage::empty()),
+-                    ],
+-                    cache: true,
+-                    reasoning_details: None,
+-                },
+-            ],
+-            thread_id: None,
+-            prompt_id: None,
+-            intent: None,
+-            stop: vec![],
+-            temperature: None,
+-            tools: vec![language_model_core::LanguageModelRequestTool {
+-                name: "do_thing".into(),
+-                description: "Does a thing.".into(),
+-                input_schema: serde_json::json!({"type": "object"}),
+-                use_input_streaming: false,
+-            }],
+-            tool_choice: None,
+-            thinking_allowed: true,
+-            thinking_effort: None,
+-            speed: None,
+-        };
+-
+-        let anthropic_request = into_anthropic(
+-            request,
+-            "claude-3-5-sonnet".to_string(),
+-            0.7,
+-            4096,
+-            AnthropicModelMode::Default,
+-            AnthropicPromptCacheMode::Automatic,
+-        );
+-
+-        // No message content block should carry cache_control anymore; the
+-        // conversation breakpoint is set via top-level automatic caching.
+-        assert_eq!(anthropic_request.messages.len(), 1);
+-        for block in &anthropic_request.messages[0].content {
+-            let cache_control = match block {
+-                RequestContent::Text { cache_control, .. }
+-                | RequestContent::Thinking { cache_control, .. }
+-                | RequestContent::Image { cache_control, .. }
+-                | RequestContent::ToolUse { cache_control, .. }
+-                | RequestContent::ToolResult { cache_control, .. } => *cache_control,
+-                RequestContent::RedactedThinking { .. } => None,
+-            };
+-            assert!(
+-                cache_control.is_none(),
+-                "message content blocks should no longer be individually marked",
+-            );
+-        }
+-
+-        // Top-level cache_control opts into automatic caching with the default
+-        // 5-minute TTL for the conversation tail.
+-        assert!(matches!(
+-            anthropic_request.cache_control,
+-            Some(CacheControl {
+-                cache_type: CacheControlType::Ephemeral,
+-                ttl: None,
+-            })
+-        ));
+-
+-        // System prompt is emitted in array form with a long-TTL breakpoint on
+-        // the final text block.
+-        match anthropic_request.system {
+-            Some(StringOrContents::Content(ref blocks)) => {
+-                assert_eq!(blocks.len(), 1);
+-                assert!(matches!(
+-                    blocks[0],
+-                    RequestContent::Text {
+-                        cache_control: Some(CacheControl {
+-                            cache_type: CacheControlType::Ephemeral,
+-                            ttl: Some(CacheTtl::OneHour),
+-                        }),
+-                        ..
+-                    }
+-                ));
+-            }
+-            other => panic!("expected system content array, got {other:?}"),
+-        }
+-
+-        // The last (and only) tool carries a long-TTL breakpoint.
+-        assert_eq!(anthropic_request.tools.len(), 1);
+-        assert!(matches!(
+-            anthropic_request.tools[0].cache_control,
+-            Some(CacheControl {
+-                cache_type: CacheControlType::Ephemeral,
+-                ttl: Some(CacheTtl::OneHour),
+-            })
+-        ));
+-    }
+-
+-    #[test]
+-    fn test_legacy_caching_marks_last_message_content_block() {
+-        let request = LanguageModelRequest {
+-            messages: vec![
+-                LanguageModelRequestMessage {
+-                    role: Role::System,
+-                    content: vec![MessageContent::Text("You are helpful.".to_string())],
+-                    cache: false,
+-                    reasoning_details: None,
+-                },
+-                LanguageModelRequestMessage {
+-                    role: Role::User,
+-                    content: vec![
+-                        MessageContent::Text("Some prompt".to_string()),
+-                        MessageContent::Image(LanguageModelImage::empty()),
+-                    ],
+-                    cache: true,
+-                    reasoning_details: None,
+-                },
+-            ],
+-            thread_id: None,
+-            prompt_id: None,
+-            intent: None,
+-            stop: vec![],
+-            temperature: None,
+-            tools: vec![language_model_core::LanguageModelRequestTool {
+-                name: "do_thing".into(),
+-                description: "Does a thing.".into(),
+-                input_schema: serde_json::json!({"type": "object"}),
+-                use_input_streaming: false,
+-            }],
+-            tool_choice: None,
+-            thinking_allowed: true,
+-            thinking_effort: None,
+-            speed: None,
+-        };
+-
+-        let anthropic_request = into_anthropic(
+-            request,
+-            "claude-3-5-sonnet".to_string(),
+-            0.7,
+-            4096,
+-            AnthropicModelMode::Default,
+-            AnthropicPromptCacheMode::Legacy,
+-        );
+-
+-        assert!(anthropic_request.cache_control.is_none());
+-        assert!(matches!(
+-            anthropic_request.system,
+-            Some(StringOrContents::String(_))
+-        ));
+-        assert_eq!(anthropic_request.tools.len(), 1);
+-        assert!(anthropic_request.tools[0].cache_control.is_none());
+-        assert_eq!(anthropic_request.messages.len(), 1);
+-        assert!(matches!(
+-            anthropic_request.messages[0].content[0],
+-            RequestContent::Text {
+-                cache_control: None,
+-                ..
+-            }
+-        ));
+-        assert!(matches!(
+-            anthropic_request.messages[0].content[1],
+-            RequestContent::Image {
+-                cache_control: Some(CacheControl {
+-                    cache_type: CacheControlType::Ephemeral,
+-                    ttl: None,
+-                }),
+-                ..
+-            }
+-        ));
+-    }
+-
+-    #[test]
+-    fn test_no_cache_control_when_caching_disabled() {
+-        let request = LanguageModelRequest {
+-            messages: vec![
+-                LanguageModelRequestMessage {
+-                    role: Role::System,
+-                    content: vec![MessageContent::Text("You are helpful.".to_string())],
+-                    cache: false,
+-                    reasoning_details: None,
+-                },
+-                LanguageModelRequestMessage {
+-                    role: Role::User,
+-                    content: vec![MessageContent::Text("Hi".to_string())],
+-                    cache: false,
+-                    reasoning_details: None,
+-                },
+-            ],
+-            thread_id: None,
+-            prompt_id: None,
+-            intent: None,
+-            stop: vec![],
+-            temperature: None,
+-            tools: vec![language_model_core::LanguageModelRequestTool {
+-                name: "do_thing".into(),
+-                description: "Does a thing.".into(),
+-                input_schema: serde_json::json!({"type": "object"}),
+-                use_input_streaming: false,
+-            }],
+-            tool_choice: None,
+-            thinking_allowed: true,
+-            thinking_effort: None,
+-            speed: None,
+-        };
+-
+-        let anthropic_request = into_anthropic(
+-            request,
+-            "claude-3-5-sonnet".to_string(),
+-            0.7,
+-            4096,
+-            AnthropicModelMode::Default,
+-            AnthropicPromptCacheMode::Automatic,
+-        );
+-
+-        assert!(anthropic_request.cache_control.is_none());
+-        assert!(matches!(
+-            anthropic_request.system,
+-            Some(StringOrContents::String(_))
+-        ));
+-        assert!(anthropic_request.tools[0].cache_control.is_none());
+-    }
+-
+-    fn request_with_assistant_content(assistant_content: Vec<MessageContent>) -> crate::Request {
+-        let mut request = LanguageModelRequest {
+-            messages: vec![LanguageModelRequestMessage {
+-                role: Role::User,
+-                content: vec![MessageContent::Text("Hello".to_string())],
+-                cache: false,
+-                reasoning_details: None,
+-            }],
+-            thinking_effort: None,
+-            thread_id: None,
+-            prompt_id: None,
+-            intent: None,
+-            stop: vec![],
+-            temperature: None,
+-            tools: vec![],
+-            tool_choice: None,
+-            thinking_allowed: true,
+-            speed: None,
+-        };
+-        request.messages.push(LanguageModelRequestMessage {
+-            role: Role::Assistant,
+-            content: assistant_content,
+-            cache: false,
+-            reasoning_details: None,
+-        });
+-        into_anthropic(
+-            request,
+-            "claude-sonnet-4-5".to_string(),
+-            1.0,
+-            16000,
+-            AnthropicModelMode::Thinking {
+-                budget_tokens: Some(10000),
+-            },
+-            AnthropicPromptCacheMode::Automatic,
+-        )
+-    }
+-
+-    #[test]
+-    fn test_unsigned_thinking_blocks_stripped() {
+-        let result = request_with_assistant_content(vec![
+-            MessageContent::Thinking {
+-                text: "Cancelled mid-think, no signature".to_string(),
+-                signature: None,
+-            },
+-            MessageContent::Text("Some response text".to_string()),
+-        ]);
+-
+-        let assistant_message = result
+-            .messages
+-            .iter()
+-            .find(|m| m.role == crate::Role::Assistant)
+-            .expect("assistant message should still exist");
+-
+-        assert_eq!(
+-            assistant_message.content.len(),
+-            1,
+-            "Only the text content should remain; unsigned thinking block should be stripped"
+-        );
+-        assert!(matches!(
+-            &assistant_message.content[0],
+-            RequestContent::Text { text, .. } if text == "Some response text"
+-        ));
+-    }
+-
+-    #[test]
+-    fn test_signed_thinking_blocks_preserved() {
+-        let result = request_with_assistant_content(vec![
+-            MessageContent::Thinking {
+-                text: "Completed thinking".to_string(),
+-                signature: Some("valid-signature".to_string()),
+-            },
+-            MessageContent::Text("Response".to_string()),
+-        ]);
+-
+-        let assistant_message = result
+-            .messages
+-            .iter()
+-            .find(|m| m.role == crate::Role::Assistant)
+-            .expect("assistant message should exist");
+-
+-        assert_eq!(
+-            assistant_message.content.len(),
+-            2,
+-            "Both the signed thinking block and text should be preserved"
+-        );
+-        assert!(matches!(
+-            &assistant_message.content[0],
+-            RequestContent::Thinking { thinking, signature, .. }
+-                if thinking == "Completed thinking" && signature == "valid-signature"
+-        ));
+-    }
+-
+-    #[test]
+-    fn test_only_unsigned_thinking_block_omits_entire_message() {
+-        let result = request_with_assistant_content(vec![MessageContent::Thinking {
+-            text: "Cancelled before any text or signature".to_string(),
+-            signature: None,
+-        }]);
+-
+-        let assistant_messages: Vec<_> = result
+-            .messages
+-            .iter()
+-            .filter(|m| m.role == crate::Role::Assistant)
+-            .collect();
+-
+-        assert_eq!(
+-            assistant_messages.len(),
+-            0,
+-            "An assistant message whose only content was an unsigned thinking block \
+-             should be omitted entirely"
+-        );
+-    }
+-}
+diff --git a/crates/bedrock/Cargo.toml b/crates/bedrock/Cargo.toml
+deleted file mode 100644
+index f8f6fa4601..0000000000
+--- a/crates/bedrock/Cargo.toml
++++ /dev/null
+@@ -1,27 +0,0 @@
+-[package]
+-name = "bedrock"
+-version = "0.1.0"
+-edition.workspace = true
+-publish.workspace = true
+-license = "GPL-3.0-or-later"
+-
+-[lints]
+-workspace = true
+-
+-[lib]
+-path = "src/bedrock.rs"
+-
+-[features]
+-default = []
+-schemars = ["dep:schemars"]
+-
+-[dependencies]
+-anyhow.workspace = true
+-aws-sdk-bedrockruntime = { workspace = true, features = ["behavior-version-latest"] }
+-aws-smithy-types = {workspace = true}
+-futures.workspace = true
+-schemars = { workspace = true, optional = true }
+-serde.workspace = true
+-serde_json.workspace = true
+-strum.workspace = true
+-thiserror.workspace = true
+diff --git a/crates/bedrock/LICENSE-GPL b/crates/bedrock/LICENSE-GPL
+deleted file mode 120000
+index 89e542f750..0000000000
+--- a/crates/bedrock/LICENSE-GPL
++++ /dev/null
+@@ -1 +0,0 @@
+-../../LICENSE-GPL
+\ No newline at end of file
+diff --git a/crates/bedrock/src/bedrock.rs b/crates/bedrock/src/bedrock.rs
+deleted file mode 100644
+index f3102b2d39..0000000000
+--- a/crates/bedrock/src/bedrock.rs
++++ /dev/null
+@@ -1,241 +0,0 @@
+-mod models;
+-
+-use anyhow::{Result, anyhow};
+-use aws_sdk_bedrockruntime as bedrock;
+-pub use aws_sdk_bedrockruntime as bedrock_client;
+-pub use aws_sdk_bedrockruntime::types::{
+-    AnyToolChoice as BedrockAnyToolChoice, AutoToolChoice as BedrockAutoToolChoice,
+-    ContentBlock as BedrockInnerContent, Tool as BedrockTool, ToolChoice as BedrockToolChoice,
+-    ToolConfiguration as BedrockToolConfig, ToolInputSchema as BedrockToolInputSchema,
+-    ToolSpecification as BedrockToolSpec,
+-};
+-use aws_sdk_bedrockruntime::types::{GuardrailStreamConfiguration, InferenceConfiguration};
+-pub use aws_smithy_types::Blob as BedrockBlob;
+-use aws_smithy_types::{Document, Number as AwsNumber};
+-pub use bedrock::operation::converse_stream::ConverseStreamInput as BedrockStreamingRequest;
+-pub use bedrock::types::{
+-    ContentBlock as BedrockRequestContent, ConversationRole as BedrockRole,
+-    ConverseOutput as BedrockResponse, ConverseStreamOutput as BedrockStreamingResponse,
+-    ImageBlock as BedrockImageBlock, ImageFormat as BedrockImageFormat,
+-    ImageSource as BedrockImageSource, Message as BedrockMessage,
+-    ReasoningContentBlock as BedrockThinkingBlock, ReasoningTextBlock as BedrockThinkingTextBlock,
+-    ResponseStream as BedrockResponseStream, SystemContentBlock as BedrockSystemContentBlock,
+-    ToolResultBlock as BedrockToolResultBlock,
+-    ToolResultContentBlock as BedrockToolResultContentBlock,
+-    ToolResultStatus as BedrockToolResultStatus, ToolUseBlock as BedrockToolUseBlock,
+-};
+-use futures::stream::{self, BoxStream};
+-use serde::{Deserialize, Serialize};
+-use serde_json::{Number, Value};
+-use std::collections::HashMap;
+-use thiserror::Error;
+-
+-pub use crate::models::*;
+-
+-pub async fn stream_completion(
+-    client: bedrock::Client,
+-    request: Request,
+-) -> Result<BoxStream<'static, Result<BedrockStreamingResponse, anyhow::Error>>, BedrockError> {
+-    let mut response = bedrock::Client::converse_stream(&client)
+-        .model_id(request.model.clone())
+-        .set_messages(request.messages.into());
+-
+-    let mut additional_fields: HashMap<String, Document> = HashMap::new();
+-
+-    match request.thinking {
+-        Some(Thinking::Enabled {
+-            budget_tokens: Some(budget_tokens),
+-        }) => {
+-            let thinking_config = HashMap::from([
+-                ("type".to_string(), Document::String("enabled".to_string())),
+-                (
+-                    "budget_tokens".to_string(),
+-                    Document::Number(AwsNumber::PosInt(budget_tokens)),
+-                ),
+-            ]);
+-            additional_fields.insert("thinking".to_string(), Document::from(thinking_config));
+-        }
+-        Some(Thinking::Adaptive { effort: _ }) => {
+-            let thinking_config = HashMap::from([
+-                ("type".to_string(), Document::String("adaptive".to_string())),
+-                (
+-                    "display".to_string(),
+-                    Document::String("summarized".to_string()),
+-                ),
+-            ]);
+-            additional_fields.insert("thinking".to_string(), Document::from(thinking_config));
+-        }
+-        _ => {}
+-    }
+-
+-    if !additional_fields.is_empty() {
+-        response = response.additional_model_request_fields(Document::Object(additional_fields));
+-    }
+-
+-    if request.tools.as_ref().is_some_and(|t| !t.tools.is_empty()) {
+-        response = response.set_tool_config(request.tools);
+-    }
+-
+-    let inference_config = InferenceConfiguration::builder()
+-        .max_tokens(request.max_tokens as i32)
+-        .set_temperature(request.temperature)
+-        .set_top_p(request.top_p)
+-        .build();
+-
+-    response = response.inference_config(inference_config);
+-
+-    for system_block in request.system {
+-        response = response.system(system_block);
+-    }
+-
+-    if let Some(guardrail_id) = &request.guardrail_identifier {
+-        let version = request.guardrail_version.as_deref().unwrap_or("DRAFT");
+-
+-        response = response.guardrail_config(
+-            GuardrailStreamConfiguration::builder()
+-                .guardrail_identifier(guardrail_id)
+-                .guardrail_version(version)
+-                .build(),
+-        );
+-    }
+-
+-    let output = response.send().await.map_err(|err| match err {
+-        bedrock::error::SdkError::ServiceError(ctx) => {
+-            use bedrock::operation::converse_stream::ConverseStreamError;
+-            let err = ctx.into_err();
+-            match &err {
+-                ConverseStreamError::ValidationException(e) => {
+-                    BedrockError::Validation(e.message().unwrap_or("validation error").to_string())
+-                }
+-                ConverseStreamError::ThrottlingException(_) => BedrockError::RateLimited,
+-                ConverseStreamError::ServiceUnavailableException(_)
+-                | ConverseStreamError::ModelNotReadyException(_) => {
+-                    BedrockError::ServiceUnavailable
+-                }
+-                ConverseStreamError::AccessDeniedException(e) => {
+-                    BedrockError::AccessDenied(e.message().unwrap_or("access denied").to_string())
+-                }
+-                ConverseStreamError::InternalServerException(e) => BedrockError::InternalServer(
+-                    e.message().unwrap_or("internal server error").to_string(),
+-                ),
+-                _ => BedrockError::Other(err.into()),
+-            }
+-        }
+-        other => BedrockError::Other(other.into()),
+-    });
+-
+-    let stream = Box::pin(stream::unfold(
+-        output?.stream,
+-        move |mut stream| async move {
+-            match stream.recv().await {
+-                Ok(Some(output)) => Some((Ok(output), stream)),
+-                Ok(None) => None,
+-                Err(err) => Some((
+-                    Err(anyhow!(
+-                        "{}",
+-                        aws_sdk_bedrockruntime::error::DisplayErrorContext(err)
+-                    )),
+-                    stream,
+-                )),
+-            }
+-        },
+-    ));
+-
+-    Ok(stream)
+-}
+-
+-pub fn aws_document_to_value(document: &Document) -> Value {
+-    match document {
+-        Document::Null => Value::Null,
+-        Document::Bool(value) => Value::Bool(*value),
+-        Document::Number(value) => match *value {
+-            AwsNumber::PosInt(value) => Value::Number(Number::from(value)),
+-            AwsNumber::NegInt(value) => Value::Number(Number::from(value)),
+-            AwsNumber::Float(value) => Value::Number(Number::from_f64(value).unwrap()),
+-        },
+-        Document::String(value) => Value::String(value.clone()),
+-        Document::Array(array) => Value::Array(array.iter().map(aws_document_to_value).collect()),
+-        Document::Object(map) => Value::Object(
+-            map.iter()
+-                .map(|(key, value)| (key.clone(), aws_document_to_value(value)))
+-                .collect(),
+-        ),
+-    }
+-}
+-
+-pub fn value_to_aws_document(value: &Value) -> Document {
+-    match value {
+-        Value::Null => Document::Null,
+-        Value::Bool(value) => Document::Bool(*value),
+-        Value::Number(value) => {
+-            if let Some(value) = value.as_u64() {
+-                Document::Number(AwsNumber::PosInt(value))
+-            } else if let Some(value) = value.as_i64() {
+-                Document::Number(AwsNumber::NegInt(value))
+-            } else if let Some(value) = value.as_f64() {
+-                Document::Number(AwsNumber::Float(value))
+-            } else {
+-                Document::Null
+-            }
+-        }
+-        Value::String(value) => Document::String(value.clone()),
+-        Value::Array(array) => Document::Array(array.iter().map(value_to_aws_document).collect()),
+-        Value::Object(map) => Document::Object(
+-            map.iter()
+-                .map(|(key, value)| (key.clone(), value_to_aws_document(value)))
+-                .collect(),
+-        ),
+-    }
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub enum Thinking {
+-    Enabled {
+-        budget_tokens: Option<u64>,
+-    },
+-    Adaptive {
+-        effort: BedrockAdaptiveThinkingEffort,
+-    },
+-}
+-
+-#[derive(Debug)]
+-pub struct Request {
+-    pub model: String,
+-    pub max_tokens: u64,
+-    pub messages: Vec<BedrockMessage>,
+-    pub tools: Option<BedrockToolConfig>,
+-    pub thinking: Option<Thinking>,
+-    /// System content blocks in prefix order. Typically `[Text(...)]` or, when
+-    /// the model supports prompt caching, `[Text(...), CachePoint(...)]` so the
+-    /// system prompt anchors its own cache prefix independent of tools and
+-    /// messages.
+-    pub system: Vec<BedrockSystemContentBlock>,
+-    pub metadata: Option<Metadata>,
+-    pub stop_sequences: Vec<String>,
+-    pub temperature: Option<f32>,
+-    pub top_k: Option<u32>,
+-    pub top_p: Option<f32>,
+-    pub guardrail_identifier: Option<String>,
+-    pub guardrail_version: Option<String>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Metadata {
+-    pub user_id: Option<String>,
+-}
+-
+-#[derive(Error, Debug)]
+-pub enum BedrockError {
+-    #[error("{0}")]
+-    Validation(String),
+-    #[error("rate limited")]
+-    RateLimited,
+-    #[error("service unavailable")]
+-    ServiceUnavailable,
+-    #[error("{0}")]
+-    AccessDenied(String),
+-    #[error("{0}")]
+-    InternalServer(String),
+-    #[error(transparent)]
+-    Other(#[from] anyhow::Error),
+-}
+diff --git a/crates/bedrock/src/models.rs b/crates/bedrock/src/models.rs
+deleted file mode 100644
+index ee5d57ee80..0000000000
+--- a/crates/bedrock/src/models.rs
++++ /dev/null
+@@ -1,1038 +0,0 @@
+-use serde::{Deserialize, Serialize};
+-use strum::EnumIter;
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, PartialEq)]
+-pub enum BedrockAdaptiveThinkingEffort {
+-    Low,
+-    Medium,
+-    #[default]
+-    High,
+-    Max,
+-}
+-
+-impl BedrockAdaptiveThinkingEffort {
+-    pub fn as_str(&self) -> &'static str {
+-        match self {
+-            Self::Low => "low",
+-            Self::Medium => "medium",
+-            Self::High => "high",
+-            Self::Max => "max",
+-        }
+-    }
+-}
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+-pub enum BedrockModelMode {
+-    #[default]
+-    Default,
+-    Thinking {
+-        budget_tokens: Option<u64>,
+-    },
+-    AdaptiveThinking {
+-        effort: BedrockAdaptiveThinkingEffort,
+-    },
+-}
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+-pub struct BedrockModelCacheConfiguration {
+-    pub max_cache_anchors: usize,
+-    pub min_total_token: u64,
+-}
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, EnumIter)]
+-pub enum Model {
+-    // Anthropic Claude 4+ models
+-    #[serde(rename = "claude-haiku-4-5", alias = "claude-haiku-4-5-latest")]
+-    ClaudeHaiku4_5,
+-    #[serde(
+-        rename = "claude-sonnet-4",
+-        alias = "claude-sonnet-4-latest",
+-        alias = "claude-sonnet-4-thinking",
+-        alias = "claude-sonnet-4-thinking-latest"
+-    )]
+-    ClaudeSonnet4,
+-    #[default]
+-    #[serde(
+-        rename = "claude-sonnet-4-5",
+-        alias = "claude-sonnet-4-5-latest",
+-        alias = "claude-sonnet-4-5-thinking",
+-        alias = "claude-sonnet-4-5-thinking-latest"
+-    )]
+-    ClaudeSonnet4_5,
+-    #[serde(
+-        rename = "claude-opus-4-1",
+-        alias = "claude-opus-4-1-latest",
+-        alias = "claude-opus-4-1-thinking",
+-        alias = "claude-opus-4-1-thinking-latest"
+-    )]
+-    ClaudeOpus4_1,
+-    #[serde(
+-        rename = "claude-opus-4-5",
+-        alias = "claude-opus-4-5-latest",
+-        alias = "claude-opus-4-5-thinking",
+-        alias = "claude-opus-4-5-thinking-latest"
+-    )]
+-    ClaudeOpus4_5,
+-    #[serde(
+-        rename = "claude-opus-4-6",
+-        alias = "claude-opus-4-6-latest",
+-        alias = "claude-opus-4-6-thinking",
+-        alias = "claude-opus-4-6-thinking-latest"
+-    )]
+-    ClaudeOpus4_6,
+-    #[serde(
+-        rename = "claude-opus-4-7",
+-        alias = "claude-opus-4-7-latest",
+-        alias = "claude-opus-4-7-thinking",
+-        alias = "claude-opus-4-7-thinking-latest"
+-    )]
+-    ClaudeOpus4_7,
+-    #[serde(
+-        rename = "claude-sonnet-4-6",
+-        alias = "claude-sonnet-4-6-latest",
+-        alias = "claude-sonnet-4-6-thinking",
+-        alias = "claude-sonnet-4-6-thinking-latest"
+-    )]
+-    ClaudeSonnet4_6,
+-
+-    // Meta Llama 4 models
+-    #[serde(rename = "llama-4-scout-17b")]
+-    Llama4Scout17B,
+-    #[serde(rename = "llama-4-maverick-17b")]
+-    Llama4Maverick17B,
+-
+-    // Google Gemma 3 models
+-    #[serde(rename = "gemma-3-4b")]
+-    Gemma3_4B,
+-    #[serde(rename = "gemma-3-12b")]
+-    Gemma3_12B,
+-    #[serde(rename = "gemma-3-27b")]
+-    Gemma3_27B,
+-
+-    // Mistral models
+-    #[serde(rename = "magistral-small")]
+-    MagistralSmall,
+-    #[serde(rename = "mistral-large-3")]
+-    MistralLarge3,
+-    #[serde(rename = "pixtral-large")]
+-    PixtralLarge,
+-    #[serde(rename = "devstral-2-123b")]
+-    Devstral2_123B,
+-    #[serde(rename = "ministral-14b")]
+-    Ministral14B,
+-
+-    // Qwen models
+-    #[serde(rename = "qwen3-32b")]
+-    Qwen3_32B,
+-    #[serde(rename = "qwen3-vl-235b")]
+-    Qwen3VL235B,
+-    #[serde(rename = "qwen3-235b")]
+-    Qwen3_235B,
+-    #[serde(rename = "qwen3-next-80b")]
+-    Qwen3Next80B,
+-    #[serde(rename = "qwen3-coder-30b")]
+-    Qwen3Coder30B,
+-    #[serde(rename = "qwen3-coder-next")]
+-    Qwen3CoderNext,
+-    #[serde(rename = "qwen3-coder-480b")]
+-    Qwen3Coder480B,
+-
+-    // Amazon Nova models
+-    #[serde(rename = "nova-lite")]
+-    NovaLite,
+-    #[serde(rename = "nova-pro")]
+-    NovaPro,
+-    #[serde(rename = "nova-premier")]
+-    NovaPremier,
+-    #[serde(rename = "nova-2-lite")]
+-    Nova2Lite,
+-
+-    // OpenAI GPT OSS models
+-    #[serde(rename = "gpt-oss-20b")]
+-    GptOss20B,
+-    #[serde(rename = "gpt-oss-120b")]
+-    GptOss120B,
+-
+-    // NVIDIA Nemotron models
+-    #[serde(rename = "nemotron-super-3-120b")]
+-    NemotronSuper3_120B,
+-    #[serde(rename = "nemotron-nano-3-30b")]
+-    NemotronNano3_30B,
+-
+-    // MiniMax models
+-    #[serde(rename = "minimax-m2")]
+-    MiniMaxM2,
+-    #[serde(rename = "minimax-m2-1")]
+-    MiniMaxM2_1,
+-    #[serde(rename = "minimax-m2-5")]
+-    MiniMaxM2_5,
+-
+-    // Z.AI GLM models
+-    #[serde(rename = "glm-5")]
+-    GLM5,
+-    #[serde(rename = "glm-4-7")]
+-    GLM4_7,
+-    #[serde(rename = "glm-4-7-flash")]
+-    GLM4_7Flash,
+-
+-    // Moonshot models
+-    #[serde(rename = "kimi-k2-thinking")]
+-    KimiK2Thinking,
+-    #[serde(rename = "kimi-k2-5")]
+-    KimiK2_5,
+-
+-    // DeepSeek models
+-    #[serde(rename = "deepseek-r1")]
+-    DeepSeekR1,
+-    #[serde(rename = "deepseek-v3")]
+-    DeepSeekV3_1,
+-    #[serde(rename = "deepseek-v3-2")]
+-    DeepSeekV3_2,
+-
+-    #[serde(rename = "custom")]
+-    Custom {
+-        name: String,
+-        max_tokens: u64,
+-        display_name: Option<String>,
+-        max_output_tokens: Option<u64>,
+-        default_temperature: Option<f32>,
+-        cache_configuration: Option<BedrockModelCacheConfiguration>,
+-    },
+-}
+-
+-impl Model {
+-    pub fn default_fast(_region: &str) -> Self {
+-        Self::ClaudeHaiku4_5
+-    }
+-
+-    pub fn from_id(id: &str) -> anyhow::Result<Self> {
+-        if id.starts_with("claude-opus-4-7") {
+-            Ok(Self::ClaudeOpus4_7)
+-        } else if id.starts_with("claude-opus-4-6") {
+-            Ok(Self::ClaudeOpus4_6)
+-        } else if id.starts_with("claude-opus-4-5") {
+-            Ok(Self::ClaudeOpus4_5)
+-        } else if id.starts_with("claude-opus-4-1") {
+-            Ok(Self::ClaudeOpus4_1)
+-        } else if id.starts_with("claude-sonnet-4-6") {
+-            Ok(Self::ClaudeSonnet4_6)
+-        } else if id.starts_with("claude-sonnet-4-5") {
+-            Ok(Self::ClaudeSonnet4_5)
+-        } else if id.starts_with("claude-sonnet-4") {
+-            Ok(Self::ClaudeSonnet4)
+-        } else if id.starts_with("claude-haiku-4-5") {
+-            Ok(Self::ClaudeHaiku4_5)
+-        } else {
+-            anyhow::bail!("invalid model id {id}");
+-        }
+-    }
+-
+-    pub fn id(&self) -> &str {
+-        match self {
+-            Self::ClaudeHaiku4_5 => "claude-haiku-4-5",
+-            Self::ClaudeSonnet4 => "claude-sonnet-4",
+-            Self::ClaudeSonnet4_5 => "claude-sonnet-4-5",
+-            Self::ClaudeOpus4_1 => "claude-opus-4-1",
+-            Self::ClaudeOpus4_5 => "claude-opus-4-5",
+-            Self::ClaudeOpus4_6 => "claude-opus-4-6",
+-            Self::ClaudeOpus4_7 => "claude-opus-4-7",
+-            Self::ClaudeSonnet4_6 => "claude-sonnet-4-6",
+-            Self::Llama4Scout17B => "llama-4-scout-17b",
+-            Self::Llama4Maverick17B => "llama-4-maverick-17b",
+-            Self::Gemma3_4B => "gemma-3-4b",
+-            Self::Gemma3_12B => "gemma-3-12b",
+-            Self::Gemma3_27B => "gemma-3-27b",
+-            Self::MagistralSmall => "magistral-small",
+-            Self::MistralLarge3 => "mistral-large-3",
+-            Self::PixtralLarge => "pixtral-large",
+-            Self::Devstral2_123B => "devstral-2-123b",
+-            Self::Ministral14B => "ministral-14b",
+-            Self::Qwen3_32B => "qwen3-32b",
+-            Self::Qwen3VL235B => "qwen3-vl-235b",
+-            Self::Qwen3_235B => "qwen3-235b",
+-            Self::Qwen3Next80B => "qwen3-next-80b",
+-            Self::Qwen3Coder30B => "qwen3-coder-30b",
+-            Self::Qwen3CoderNext => "qwen3-coder-next",
+-            Self::Qwen3Coder480B => "qwen3-coder-480b",
+-            Self::NovaLite => "nova-lite",
+-            Self::NovaPro => "nova-pro",
+-            Self::NovaPremier => "nova-premier",
+-            Self::Nova2Lite => "nova-2-lite",
+-            Self::GptOss20B => "gpt-oss-20b",
+-            Self::GptOss120B => "gpt-oss-120b",
+-            Self::NemotronSuper3_120B => "nemotron-super-3-120b",
+-            Self::NemotronNano3_30B => "nemotron-nano-3-30b",
+-            Self::MiniMaxM2 => "minimax-m2",
+-            Self::MiniMaxM2_1 => "minimax-m2-1",
+-            Self::MiniMaxM2_5 => "minimax-m2-5",
+-            Self::GLM5 => "glm-5",
+-            Self::GLM4_7 => "glm-4-7",
+-            Self::GLM4_7Flash => "glm-4-7-flash",
+-            Self::KimiK2Thinking => "kimi-k2-thinking",
+-            Self::KimiK2_5 => "kimi-k2-5",
+-            Self::DeepSeekR1 => "deepseek-r1",
+-            Self::DeepSeekV3_1 => "deepseek-v3",
+-            Self::DeepSeekV3_2 => "deepseek-v3-2",
+-            Self::Custom { name, .. } => name,
+-        }
+-    }
+-
+-    pub fn request_id(&self) -> &str {
+-        match self {
+-            Self::ClaudeHaiku4_5 => "anthropic.claude-haiku-4-5-20251001-v1:0",
+-            Self::ClaudeSonnet4 => "anthropic.claude-sonnet-4-20250514-v1:0",
+-            Self::ClaudeSonnet4_5 => "anthropic.claude-sonnet-4-5-20250929-v1:0",
+-            Self::ClaudeOpus4_1 => "anthropic.claude-opus-4-1-20250805-v1:0",
+-            Self::ClaudeOpus4_5 => "anthropic.claude-opus-4-5-20251101-v1:0",
+-            Self::ClaudeOpus4_6 => "anthropic.claude-opus-4-6-v1",
+-            Self::ClaudeOpus4_7 => "anthropic.claude-opus-4-7",
+-            Self::ClaudeSonnet4_6 => "anthropic.claude-sonnet-4-6",
+-            Self::Llama4Scout17B => "meta.llama4-scout-17b-instruct-v1:0",
+-            Self::Llama4Maverick17B => "meta.llama4-maverick-17b-instruct-v1:0",
+-            Self::Gemma3_4B => "google.gemma-3-4b-it",
+-            Self::Gemma3_12B => "google.gemma-3-12b-it",
+-            Self::Gemma3_27B => "google.gemma-3-27b-it",
+-            Self::MagistralSmall => "mistral.magistral-small-2509",
+-            Self::MistralLarge3 => "mistral.mistral-large-3-675b-instruct",
+-            Self::PixtralLarge => "mistral.pixtral-large-2502-v1:0",
+-            Self::Devstral2_123B => "mistral.devstral-2-123b",
+-            Self::Ministral14B => "mistral.ministral-3-14b-instruct",
+-            Self::Qwen3VL235B => "qwen.qwen3-vl-235b-a22b",
+-            Self::Qwen3_32B => "qwen.qwen3-32b-v1:0",
+-            Self::Qwen3_235B => "qwen.qwen3-235b-a22b-2507-v1:0",
+-            Self::Qwen3Next80B => "qwen.qwen3-next-80b-a3b",
+-            Self::Qwen3Coder30B => "qwen.qwen3-coder-30b-a3b-v1:0",
+-            Self::Qwen3CoderNext => "qwen.qwen3-coder-next",
+-            Self::Qwen3Coder480B => "qwen.qwen3-coder-480b-a35b-v1:0",
+-            Self::NovaLite => "amazon.nova-lite-v1:0",
+-            Self::NovaPro => "amazon.nova-pro-v1:0",
+-            Self::NovaPremier => "amazon.nova-premier-v1:0",
+-            Self::Nova2Lite => "amazon.nova-2-lite-v1:0",
+-            Self::GptOss20B => "openai.gpt-oss-20b-1:0",
+-            Self::GptOss120B => "openai.gpt-oss-120b-1:0",
+-            Self::NemotronSuper3_120B => "nvidia.nemotron-super-3-120b",
+-            Self::NemotronNano3_30B => "nvidia.nemotron-nano-3-30b",
+-            Self::MiniMaxM2 => "minimax.minimax-m2",
+-            Self::MiniMaxM2_1 => "minimax.minimax-m2.1",
+-            Self::MiniMaxM2_5 => "minimax.minimax-m2.5",
+-            Self::GLM5 => "zai.glm-5",
+-            Self::GLM4_7 => "zai.glm-4.7",
+-            Self::GLM4_7Flash => "zai.glm-4.7-flash",
+-            Self::KimiK2Thinking => "moonshot.kimi-k2-thinking",
+-            Self::KimiK2_5 => "moonshotai.kimi-k2.5",
+-            Self::DeepSeekR1 => "deepseek.r1-v1:0",
+-            Self::DeepSeekV3_1 => "deepseek.v3-v1:0",
+-            Self::DeepSeekV3_2 => "deepseek.v3.2",
+-            Self::Custom { name, .. } => name,
+-        }
+-    }
+-
+-    pub fn display_name(&self) -> &str {
+-        match self {
+-            Self::ClaudeHaiku4_5 => "Claude Haiku 4.5",
+-            Self::ClaudeSonnet4 => "Claude Sonnet 4",
+-            Self::ClaudeSonnet4_5 => "Claude Sonnet 4.5",
+-            Self::ClaudeOpus4_1 => "Claude Opus 4.1",
+-            Self::ClaudeOpus4_5 => "Claude Opus 4.5",
+-            Self::ClaudeOpus4_6 => "Claude Opus 4.6",
+-            Self::ClaudeOpus4_7 => "Claude Opus 4.7",
+-            Self::ClaudeSonnet4_6 => "Claude Sonnet 4.6",
+-            Self::Llama4Scout17B => "Llama 4 Scout 17B",
+-            Self::Llama4Maverick17B => "Llama 4 Maverick 17B",
+-            Self::Gemma3_4B => "Gemma 3 4B",
+-            Self::Gemma3_12B => "Gemma 3 12B",
+-            Self::Gemma3_27B => "Gemma 3 27B",
+-            Self::MagistralSmall => "Magistral Small",
+-            Self::MistralLarge3 => "Mistral Large 3",
+-            Self::PixtralLarge => "Pixtral Large",
+-            Self::Devstral2_123B => "Devstral 2 123B",
+-            Self::Ministral14B => "Ministral 14B",
+-            Self::Qwen3VL235B => "Qwen3 VL 235B",
+-            Self::Qwen3_32B => "Qwen3 32B",
+-            Self::Qwen3_235B => "Qwen3 235B",
+-            Self::Qwen3Next80B => "Qwen3 Next 80B",
+-            Self::Qwen3Coder30B => "Qwen3 Coder 30B",
+-            Self::Qwen3CoderNext => "Qwen3 Coder Next",
+-            Self::Qwen3Coder480B => "Qwen3 Coder 480B",
+-            Self::NovaLite => "Amazon Nova Lite",
+-            Self::NovaPro => "Amazon Nova Pro",
+-            Self::NovaPremier => "Amazon Nova Premier",
+-            Self::Nova2Lite => "Amazon Nova 2 Lite",
+-            Self::GptOss20B => "GPT OSS 20B",
+-            Self::GptOss120B => "GPT OSS 120B",
+-            Self::NemotronSuper3_120B => "Nemotron Super 3 120B",
+-            Self::NemotronNano3_30B => "Nemotron Nano 3 30B",
+-            Self::MiniMaxM2 => "MiniMax M2",
+-            Self::MiniMaxM2_1 => "MiniMax M2.1",
+-            Self::MiniMaxM2_5 => "MiniMax M2.5",
+-            Self::GLM5 => "GLM 5",
+-            Self::GLM4_7 => "GLM 4.7",
+-            Self::GLM4_7Flash => "GLM 4.7 Flash",
+-            Self::KimiK2Thinking => "Kimi K2 Thinking",
+-            Self::KimiK2_5 => "Kimi K2.5",
+-            Self::DeepSeekR1 => "DeepSeek R1",
+-            Self::DeepSeekV3_1 => "DeepSeek V3.1",
+-            Self::DeepSeekV3_2 => "DeepSeek V3.2",
+-            Self::Custom {
+-                display_name, name, ..
+-            } => display_name.as_deref().unwrap_or(name.as_str()),
+-        }
+-    }
+-
+-    pub fn max_token_count(&self) -> u64 {
+-        match self {
+-            Self::ClaudeHaiku4_5
+-            | Self::ClaudeSonnet4
+-            | Self::ClaudeSonnet4_5
+-            | Self::ClaudeOpus4_5
+-            | Self::ClaudeOpus4_6
+-            | Self::ClaudeOpus4_7
+-            | Self::ClaudeSonnet4_6 => 1_000_000,
+-            Self::ClaudeOpus4_1 => 200_000,
+-            Self::Llama4Scout17B | Self::Llama4Maverick17B => 128_000,
+-            Self::Gemma3_4B | Self::Gemma3_12B | Self::Gemma3_27B => 128_000,
+-            Self::MagistralSmall | Self::MistralLarge3 | Self::PixtralLarge => 128_000,
+-            Self::Devstral2_123B | Self::Ministral14B => 256_000,
+-            Self::Qwen3_32B
+-            | Self::Qwen3VL235B
+-            | Self::Qwen3_235B
+-            | Self::Qwen3Next80B
+-            | Self::Qwen3Coder30B
+-            | Self::Qwen3CoderNext
+-            | Self::Qwen3Coder480B => 128_000,
+-            Self::NovaLite | Self::NovaPro => 300_000,
+-            Self::NovaPremier => 1_000_000,
+-            Self::Nova2Lite => 300_000,
+-            Self::GptOss20B | Self::GptOss120B => 128_000,
+-            Self::NemotronSuper3_120B | Self::NemotronNano3_30B => 262_000,
+-            Self::MiniMaxM2 | Self::MiniMaxM2_1 | Self::MiniMaxM2_5 => 196_000,
+-            Self::GLM5 | Self::GLM4_7 | Self::GLM4_7Flash => 203_000,
+-            Self::KimiK2Thinking | Self::KimiK2_5 => 128_000,
+-            Self::DeepSeekR1 | Self::DeepSeekV3_1 | Self::DeepSeekV3_2 => 128_000,
+-            Self::Custom { max_tokens, .. } => *max_tokens,
+-        }
+-    }
+-
+-    pub fn max_output_tokens(&self) -> u64 {
+-        match self {
+-            Self::ClaudeHaiku4_5
+-            | Self::ClaudeSonnet4
+-            | Self::ClaudeSonnet4_5
+-            | Self::ClaudeOpus4_5
+-            | Self::ClaudeSonnet4_6 => 64_000,
+-            Self::ClaudeOpus4_1 => 32_000,
+-            Self::ClaudeOpus4_6 | Self::ClaudeOpus4_7 => 128_000,
+-            Self::Llama4Scout17B
+-            | Self::Llama4Maverick17B
+-            | Self::Gemma3_4B
+-            | Self::Gemma3_12B
+-            | Self::Gemma3_27B
+-            | Self::MagistralSmall
+-            | Self::MistralLarge3
+-            | Self::PixtralLarge => 8_192,
+-            Self::Devstral2_123B | Self::Ministral14B => 131_000,
+-            Self::Qwen3_32B
+-            | Self::Qwen3VL235B
+-            | Self::Qwen3_235B
+-            | Self::Qwen3Next80B
+-            | Self::Qwen3Coder30B
+-            | Self::Qwen3CoderNext
+-            | Self::Qwen3Coder480B => 8_192,
+-            Self::NovaLite | Self::NovaPro | Self::NovaPremier | Self::Nova2Lite => 5_000,
+-            Self::GptOss20B | Self::GptOss120B => 16_000,
+-            Self::NemotronSuper3_120B | Self::NemotronNano3_30B => 131_000,
+-            Self::MiniMaxM2 | Self::MiniMaxM2_1 | Self::MiniMaxM2_5 => 98_000,
+-            Self::GLM5 | Self::GLM4_7 | Self::GLM4_7Flash => 101_000,
+-            Self::KimiK2Thinking | Self::KimiK2_5 => 16_000,
+-            Self::DeepSeekR1 | Self::DeepSeekV3_1 | Self::DeepSeekV3_2 => 16_000,
+-            Self::Custom {
+-                max_output_tokens, ..
+-            } => max_output_tokens.unwrap_or(4_096),
+-        }
+-    }
+-
+-    pub fn default_temperature(&self) -> f32 {
+-        match self {
+-            Self::ClaudeHaiku4_5
+-            | Self::ClaudeSonnet4
+-            | Self::ClaudeSonnet4_5
+-            | Self::ClaudeOpus4_1
+-            | Self::ClaudeOpus4_5
+-            | Self::ClaudeOpus4_6
+-            | Self::ClaudeOpus4_7
+-            | Self::ClaudeSonnet4_6 => 1.0,
+-            Self::Custom {
+-                default_temperature,
+-                ..
+-            } => default_temperature.unwrap_or(1.0),
+-            _ => 1.0,
+-        }
+-    }
+-
+-    pub fn supports_tool_use(&self) -> bool {
+-        match self {
+-            Self::ClaudeHaiku4_5
+-            | Self::ClaudeSonnet4
+-            | Self::ClaudeSonnet4_5
+-            | Self::ClaudeOpus4_1
+-            | Self::ClaudeOpus4_5
+-            | Self::ClaudeOpus4_6
+-            | Self::ClaudeOpus4_7
+-            | Self::ClaudeSonnet4_6 => true,
+-            Self::NovaLite | Self::NovaPro | Self::NovaPremier | Self::Nova2Lite => true,
+-            Self::MistralLarge3 | Self::PixtralLarge | Self::MagistralSmall => true,
+-            Self::Devstral2_123B | Self::Ministral14B => true,
+-            // Gemma accepts toolConfig without error but produces unreliable tool
+-            // calls -- malformed JSON args, hallucinated tool names, dropped calls.
+-            Self::Qwen3_32B
+-            | Self::Qwen3VL235B
+-            | Self::Qwen3_235B
+-            | Self::Qwen3Next80B
+-            | Self::Qwen3Coder30B
+-            | Self::Qwen3CoderNext
+-            | Self::Qwen3Coder480B => true,
+-            Self::MiniMaxM2 | Self::MiniMaxM2_1 | Self::MiniMaxM2_5 => true,
+-            Self::NemotronSuper3_120B | Self::NemotronNano3_30B => true,
+-            Self::GLM5 | Self::GLM4_7 | Self::GLM4_7Flash => true,
+-            Self::KimiK2Thinking | Self::KimiK2_5 => true,
+-            Self::DeepSeekR1 | Self::DeepSeekV3_1 | Self::DeepSeekV3_2 => true,
+-            _ => false,
+-        }
+-    }
+-
+-    pub fn supports_images(&self) -> bool {
+-        match self {
+-            Self::ClaudeHaiku4_5
+-            | Self::ClaudeSonnet4
+-            | Self::ClaudeSonnet4_5
+-            | Self::ClaudeOpus4_1
+-            | Self::ClaudeOpus4_5
+-            | Self::ClaudeOpus4_6
+-            | Self::ClaudeOpus4_7
+-            | Self::ClaudeSonnet4_6 => true,
+-            Self::NovaLite | Self::NovaPro => true,
+-            Self::PixtralLarge => true,
+-            Self::Qwen3VL235B => true,
+-            Self::KimiK2_5 => true,
+-            _ => false,
+-        }
+-    }
+-
+-    pub fn supports_caching(&self) -> bool {
+-        match self {
+-            Self::ClaudeHaiku4_5
+-            | Self::ClaudeSonnet4
+-            | Self::ClaudeSonnet4_5
+-            | Self::ClaudeOpus4_1
+-            | Self::ClaudeOpus4_5
+-            | Self::ClaudeOpus4_6
+-            | Self::ClaudeOpus4_7
+-            | Self::ClaudeSonnet4_6 => true,
+-            Self::Custom {
+-                cache_configuration,
+-                ..
+-            } => cache_configuration.is_some(),
+-            _ => false,
+-        }
+-    }
+-
+-    pub fn supports_thinking(&self) -> bool {
+-        matches!(
+-            self,
+-            Self::ClaudeHaiku4_5
+-                | Self::ClaudeSonnet4
+-                | Self::ClaudeSonnet4_5
+-                | Self::ClaudeOpus4_1
+-                | Self::ClaudeOpus4_5
+-                | Self::ClaudeOpus4_6
+-                | Self::ClaudeOpus4_7
+-                | Self::ClaudeSonnet4_6
+-        )
+-    }
+-
+-    pub fn supports_adaptive_thinking(&self) -> bool {
+-        matches!(
+-            self,
+-            Self::ClaudeOpus4_6 | Self::ClaudeOpus4_7 | Self::ClaudeSonnet4_6
+-        )
+-    }
+-
+-    pub fn thinking_mode(&self) -> BedrockModelMode {
+-        if self.supports_adaptive_thinking() {
+-            BedrockModelMode::AdaptiveThinking {
+-                effort: BedrockAdaptiveThinkingEffort::default(),
+-            }
+-        } else if self.supports_thinking() {
+-            BedrockModelMode::Thinking {
+-                budget_tokens: Some(4096),
+-            }
+-        } else {
+-            BedrockModelMode::Default
+-        }
+-    }
+-
+-    pub fn cross_region_inference_id(
+-        &self,
+-        region: &str,
+-        allow_global: bool,
+-    ) -> anyhow::Result<String> {
+-        let model_id = self.request_id();
+-
+-        let supports_global = matches!(
+-            self,
+-            Self::ClaudeHaiku4_5
+-                | Self::ClaudeSonnet4
+-                | Self::ClaudeSonnet4_5
+-                | Self::ClaudeOpus4_5
+-                | Self::ClaudeOpus4_6
+-                | Self::ClaudeOpus4_7
+-                | Self::ClaudeSonnet4_6
+-                | Self::Nova2Lite
+-        );
+-
+-        // Determine region group based on AWS region
+-        let region_group = if region.starts_with("us-gov-") {
+-            "us-gov"
+-        } else if region.starts_with("us-") || region.starts_with("sa-") {
+-            if allow_global && supports_global {
+-                "global"
+-            } else {
+-                "us"
+-            }
+-        } else if region.starts_with("ca-") {
+-            if allow_global && supports_global {
+-                "global"
+-            } else {
+-                "ca"
+-            }
+-        } else if region.starts_with("eu-") {
+-            if allow_global && supports_global {
+-                "global"
+-            } else {
+-                "eu"
+-            }
+-        } else if region == "ap-southeast-2" || region == "ap-southeast-4" {
+-            // Australia
+-            if allow_global && supports_global {
+-                "global"
+-            } else {
+-                "au"
+-            }
+-        } else if region == "ap-northeast-1" || region == "ap-northeast-3" {
+-            // Japan
+-            if allow_global && supports_global {
+-                "global"
+-            } else {
+-                "jp"
+-            }
+-        } else if region.starts_with("ap-") || region.starts_with("me-") {
+-            if allow_global && supports_global {
+-                "global"
+-            } else {
+-                "apac"
+-            }
+-        } else {
+-            anyhow::bail!("Unsupported Region {region}");
+-        };
+-
+-        match (self, region_group) {
+-            (Self::Custom { .. }, _) => Ok(model_id.into()),
+-
+-            // Global inference profiles
+-            (
+-                Self::ClaudeHaiku4_5
+-                | Self::ClaudeSonnet4
+-                | Self::ClaudeSonnet4_5
+-                | Self::ClaudeOpus4_5
+-                | Self::ClaudeOpus4_6
+-                | Self::ClaudeOpus4_7
+-                | Self::ClaudeSonnet4_6
+-                | Self::Nova2Lite,
+-                "global",
+-            ) => Ok(format!("{}.{}", region_group, model_id)),
+-
+-            // US Government region inference profiles
+-            (Self::ClaudeSonnet4_5, "us-gov") => Ok(format!("{}.{}", region_group, model_id)),
+-
+-            // US region inference profiles
+-            (
+-                Self::ClaudeHaiku4_5
+-                | Self::ClaudeSonnet4
+-                | Self::ClaudeSonnet4_5
+-                | Self::ClaudeOpus4_1
+-                | Self::ClaudeOpus4_5
+-                | Self::ClaudeOpus4_6
+-                | Self::ClaudeOpus4_7
+-                | Self::ClaudeSonnet4_6
+-                | Self::Llama4Scout17B
+-                | Self::Llama4Maverick17B
+-                | Self::NovaLite
+-                | Self::NovaPro
+-                | Self::NovaPremier
+-                | Self::Nova2Lite
+-                | Self::PixtralLarge
+-                | Self::DeepSeekR1,
+-                "us",
+-            ) => Ok(format!("{}.{}", region_group, model_id)),
+-
+-            // Canada region inference profiles
+-            (Self::NovaLite, "ca") => Ok(format!("{}.{}", region_group, model_id)),
+-
+-            // EU region inference profiles
+-            (
+-                Self::ClaudeHaiku4_5
+-                | Self::ClaudeSonnet4
+-                | Self::ClaudeSonnet4_5
+-                | Self::ClaudeOpus4_6
+-                | Self::ClaudeOpus4_7
+-                | Self::ClaudeSonnet4_6
+-                | Self::NovaLite
+-                | Self::NovaPro
+-                | Self::Nova2Lite,
+-                "eu",
+-            ) => Ok(format!("{}.{}", region_group, model_id)),
+-
+-            // Australia region inference profiles
+-            (
+-                Self::ClaudeHaiku4_5
+-                | Self::ClaudeSonnet4_5
+-                | Self::ClaudeOpus4_6
+-                | Self::ClaudeOpus4_7
+-                | Self::ClaudeSonnet4_6,
+-                "au",
+-            ) => Ok(format!("{}.{}", region_group, model_id)),
+-
+-            // Japan region inference profiles
+-            (
+-                Self::ClaudeHaiku4_5
+-                | Self::ClaudeSonnet4_5
+-                | Self::ClaudeSonnet4_6
+-                | Self::Nova2Lite,
+-                "jp",
+-            ) => Ok(format!("{}.{}", region_group, model_id)),
+-
+-            // APAC region inference profiles (other than AU/JP)
+-            (
+-                Self::ClaudeHaiku4_5
+-                | Self::ClaudeSonnet4
+-                | Self::ClaudeSonnet4_5
+-                | Self::NovaLite
+-                | Self::NovaPro
+-                | Self::Nova2Lite,
+-                "apac",
+-            ) => Ok(format!("{}.{}", region_group, model_id)),
+-
+-            // Default: use model ID directly
+-            _ => Ok(model_id.into()),
+-        }
+-    }
+-}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-
+-    #[test]
+-    fn test_us_region_inference_ids() -> anyhow::Result<()> {
+-        assert_eq!(
+-            Model::ClaudeSonnet4_5.cross_region_inference_id("us-east-1", false)?,
+-            "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+-        );
+-        assert_eq!(
+-            Model::ClaudeSonnet4.cross_region_inference_id("us-west-2", false)?,
+-            "us.anthropic.claude-sonnet-4-20250514-v1:0"
+-        );
+-        assert_eq!(
+-            Model::NovaPro.cross_region_inference_id("us-east-2", false)?,
+-            "us.amazon.nova-pro-v1:0"
+-        );
+-        assert_eq!(
+-            Model::DeepSeekR1.cross_region_inference_id("us-east-1", false)?,
+-            "us.deepseek.r1-v1:0"
+-        );
+-        Ok(())
+-    }
+-
+-    #[test]
+-    fn test_eu_region_inference_ids() -> anyhow::Result<()> {
+-        assert_eq!(
+-            Model::ClaudeSonnet4.cross_region_inference_id("eu-west-1", false)?,
+-            "eu.anthropic.claude-sonnet-4-20250514-v1:0"
+-        );
+-        assert_eq!(
+-            Model::ClaudeSonnet4_5.cross_region_inference_id("eu-west-1", false)?,
+-            "eu.anthropic.claude-sonnet-4-5-20250929-v1:0"
+-        );
+-        assert_eq!(
+-            Model::NovaLite.cross_region_inference_id("eu-north-1", false)?,
+-            "eu.amazon.nova-lite-v1:0"
+-        );
+-        assert_eq!(
+-            Model::ClaudeOpus4_6.cross_region_inference_id("eu-west-1", false)?,
+-            "eu.anthropic.claude-opus-4-6-v1"
+-        );
+-        assert_eq!(
+-            Model::ClaudeOpus4_7.cross_region_inference_id("eu-west-1", false)?,
+-            "eu.anthropic.claude-opus-4-7"
+-        );
+-        Ok(())
+-    }
+-
+-    #[test]
+-    fn test_apac_region_inference_ids() -> anyhow::Result<()> {
+-        assert_eq!(
+-            Model::ClaudeSonnet4_5.cross_region_inference_id("ap-south-1", false)?,
+-            "apac.anthropic.claude-sonnet-4-5-20250929-v1:0"
+-        );
+-        assert_eq!(
+-            Model::NovaLite.cross_region_inference_id("ap-south-1", false)?,
+-            "apac.amazon.nova-lite-v1:0"
+-        );
+-        Ok(())
+-    }
+-
+-    #[test]
+-    fn test_au_region_inference_ids() -> anyhow::Result<()> {
+-        assert_eq!(
+-            Model::ClaudeHaiku4_5.cross_region_inference_id("ap-southeast-2", false)?,
+-            "au.anthropic.claude-haiku-4-5-20251001-v1:0"
+-        );
+-        assert_eq!(
+-            Model::ClaudeSonnet4_5.cross_region_inference_id("ap-southeast-4", false)?,
+-            "au.anthropic.claude-sonnet-4-5-20250929-v1:0"
+-        );
+-        assert_eq!(
+-            Model::ClaudeOpus4_6.cross_region_inference_id("ap-southeast-2", false)?,
+-            "au.anthropic.claude-opus-4-6-v1"
+-        );
+-        assert_eq!(
+-            Model::ClaudeOpus4_7.cross_region_inference_id("ap-southeast-2", false)?,
+-            "au.anthropic.claude-opus-4-7"
+-        );
+-        Ok(())
+-    }
+-
+-    #[test]
+-    fn test_jp_region_inference_ids() -> anyhow::Result<()> {
+-        assert_eq!(
+-            Model::ClaudeHaiku4_5.cross_region_inference_id("ap-northeast-1", false)?,
+-            "jp.anthropic.claude-haiku-4-5-20251001-v1:0"
+-        );
+-        assert_eq!(
+-            Model::ClaudeSonnet4_5.cross_region_inference_id("ap-northeast-3", false)?,
+-            "jp.anthropic.claude-sonnet-4-5-20250929-v1:0"
+-        );
+-        assert_eq!(
+-            Model::Nova2Lite.cross_region_inference_id("ap-northeast-1", false)?,
+-            "jp.amazon.nova-2-lite-v1:0"
+-        );
+-        Ok(())
+-    }
+-
+-    #[test]
+-    fn test_ca_region_inference_ids() -> anyhow::Result<()> {
+-        assert_eq!(
+-            Model::NovaLite.cross_region_inference_id("ca-central-1", false)?,
+-            "ca.amazon.nova-lite-v1:0"
+-        );
+-        Ok(())
+-    }
+-
+-    #[test]
+-    fn test_gov_region_inference_ids() -> anyhow::Result<()> {
+-        assert_eq!(
+-            Model::ClaudeSonnet4_5.cross_region_inference_id("us-gov-east-1", false)?,
+-            "us-gov.anthropic.claude-sonnet-4-5-20250929-v1:0"
+-        );
+-        assert_eq!(
+-            Model::ClaudeSonnet4_5.cross_region_inference_id("us-gov-west-1", false)?,
+-            "us-gov.anthropic.claude-sonnet-4-5-20250929-v1:0"
+-        );
+-        Ok(())
+-    }
+-
+-    #[test]
+-    fn test_global_inference_ids() -> anyhow::Result<()> {
+-        assert_eq!(
+-            Model::ClaudeSonnet4.cross_region_inference_id("us-east-1", true)?,
+-            "global.anthropic.claude-sonnet-4-20250514-v1:0"
+-        );
+-        assert_eq!(
+-            Model::ClaudeSonnet4_5.cross_region_inference_id("eu-west-1", true)?,
+-            "global.anthropic.claude-sonnet-4-5-20250929-v1:0"
+-        );
+-        assert_eq!(
+-            Model::ClaudeHaiku4_5.cross_region_inference_id("ap-south-1", true)?,
+-            "global.anthropic.claude-haiku-4-5-20251001-v1:0"
+-        );
+-        assert_eq!(
+-            Model::ClaudeOpus4_6.cross_region_inference_id("us-east-1", true)?,
+-            "global.anthropic.claude-opus-4-6-v1"
+-        );
+-        assert_eq!(
+-            Model::ClaudeOpus4_7.cross_region_inference_id("us-east-1", true)?,
+-            "global.anthropic.claude-opus-4-7"
+-        );
+-        assert_eq!(
+-            Model::Nova2Lite.cross_region_inference_id("us-east-1", true)?,
+-            "global.amazon.nova-2-lite-v1:0"
+-        );
+-
+-        // Models without global support fall back to regional
+-        assert_eq!(
+-            Model::NovaPro.cross_region_inference_id("us-east-1", true)?,
+-            "us.amazon.nova-pro-v1:0"
+-        );
+-        Ok(())
+-    }
+-
+-    #[test]
+-    fn test_models_without_cross_region() -> anyhow::Result<()> {
+-        // Models without cross-region support return their request_id directly
+-        assert_eq!(
+-            Model::Gemma3_4B.cross_region_inference_id("us-east-1", false)?,
+-            "google.gemma-3-4b-it"
+-        );
+-        assert_eq!(
+-            Model::MistralLarge3.cross_region_inference_id("eu-west-1", false)?,
+-            "mistral.mistral-large-3-675b-instruct"
+-        );
+-        assert_eq!(
+-            Model::Qwen3VL235B.cross_region_inference_id("ap-south-1", false)?,
+-            "qwen.qwen3-vl-235b-a22b"
+-        );
+-        assert_eq!(
+-            Model::GptOss120B.cross_region_inference_id("us-east-1", false)?,
+-            "openai.gpt-oss-120b-1:0"
+-        );
+-        assert_eq!(
+-            Model::MiniMaxM2.cross_region_inference_id("us-east-1", false)?,
+-            "minimax.minimax-m2"
+-        );
+-        assert_eq!(
+-            Model::KimiK2Thinking.cross_region_inference_id("us-east-1", false)?,
+-            "moonshot.kimi-k2-thinking"
+-        );
+-        Ok(())
+-    }
+-
+-    #[test]
+-    fn test_custom_model_inference_ids() -> anyhow::Result<()> {
+-        let custom_model = Model::Custom {
+-            name: "custom.my-model-v1:0".to_string(),
+-            max_tokens: 100000,
+-            display_name: Some("My Custom Model".to_string()),
+-            max_output_tokens: Some(8192),
+-            default_temperature: Some(0.7),
+-            cache_configuration: None,
+-        };
+-
+-        assert_eq!(
+-            custom_model.cross_region_inference_id("us-east-1", false)?,
+-            "custom.my-model-v1:0"
+-        );
+-        assert_eq!(
+-            custom_model.cross_region_inference_id("eu-west-1", true)?,
+-            "custom.my-model-v1:0"
+-        );
+-        Ok(())
+-    }
+-
+-    #[test]
+-    fn test_friendly_id_vs_request_id() {
+-        assert_eq!(Model::ClaudeSonnet4_5.id(), "claude-sonnet-4-5");
+-        assert_eq!(Model::NovaLite.id(), "nova-lite");
+-        assert_eq!(Model::DeepSeekR1.id(), "deepseek-r1");
+-        assert_eq!(Model::Llama4Scout17B.id(), "llama-4-scout-17b");
+-
+-        assert_eq!(
+-            Model::ClaudeSonnet4_5.request_id(),
+-            "anthropic.claude-sonnet-4-5-20250929-v1:0"
+-        );
+-        assert_eq!(Model::NovaLite.request_id(), "amazon.nova-lite-v1:0");
+-        assert_eq!(Model::DeepSeekR1.request_id(), "deepseek.r1-v1:0");
+-        assert_eq!(
+-            Model::Llama4Scout17B.request_id(),
+-            "meta.llama4-scout-17b-instruct-v1:0"
+-        );
+-
+-        // Thinking aliases deserialize to the same model
+-        assert_eq!(Model::ClaudeSonnet4.id(), "claude-sonnet-4");
+-        assert_eq!(
+-            Model::from_id("claude-sonnet-4-thinking").unwrap().id(),
+-            "claude-sonnet-4"
+-        );
+-    }
+-
+-    #[test]
+-    fn test_thinking_modes() {
+-        assert!(Model::ClaudeHaiku4_5.supports_thinking());
+-        assert!(Model::ClaudeSonnet4.supports_thinking());
+-        assert!(Model::ClaudeSonnet4_5.supports_thinking());
+-        assert!(Model::ClaudeOpus4_6.supports_thinking());
+-
+-        assert!(!Model::ClaudeSonnet4.supports_adaptive_thinking());
+-        assert!(Model::ClaudeOpus4_6.supports_adaptive_thinking());
+-        assert!(Model::ClaudeSonnet4_6.supports_adaptive_thinking());
+-
+-        assert_eq!(
+-            Model::ClaudeSonnet4.thinking_mode(),
+-            BedrockModelMode::Thinking {
+-                budget_tokens: Some(4096)
+-            }
+-        );
+-        assert_eq!(
+-            Model::ClaudeOpus4_6.thinking_mode(),
+-            BedrockModelMode::AdaptiveThinking {
+-                effort: BedrockAdaptiveThinkingEffort::High
+-            }
+-        );
+-        assert_eq!(
+-            Model::ClaudeHaiku4_5.thinking_mode(),
+-            BedrockModelMode::Thinking {
+-                budget_tokens: Some(4096)
+-            }
+-        );
+-    }
+-
+-    #[test]
+-    fn test_max_token_count() {
+-        assert_eq!(Model::ClaudeSonnet4_5.max_token_count(), 1_000_000);
+-        assert_eq!(Model::ClaudeOpus4_6.max_token_count(), 1_000_000);
+-        assert_eq!(Model::Llama4Scout17B.max_token_count(), 128_000);
+-        assert_eq!(Model::NovaPremier.max_token_count(), 1_000_000);
+-    }
+-
+-    #[test]
+-    fn test_max_output_tokens() {
+-        assert_eq!(Model::ClaudeSonnet4_5.max_output_tokens(), 64_000);
+-        assert_eq!(Model::ClaudeOpus4_6.max_output_tokens(), 128_000);
+-        assert_eq!(Model::ClaudeOpus4_1.max_output_tokens(), 32_000);
+-        assert_eq!(Model::Gemma3_4B.max_output_tokens(), 8_192);
+-    }
+-
+-    #[test]
+-    fn test_supports_tool_use() {
+-        assert!(Model::ClaudeSonnet4_5.supports_tool_use());
+-        assert!(Model::NovaPro.supports_tool_use());
+-        assert!(Model::MistralLarge3.supports_tool_use());
+-        assert!(!Model::Gemma3_4B.supports_tool_use());
+-        assert!(Model::Qwen3_32B.supports_tool_use());
+-        assert!(Model::MiniMaxM2.supports_tool_use());
+-        assert!(Model::KimiK2_5.supports_tool_use());
+-        assert!(Model::DeepSeekR1.supports_tool_use());
+-        assert!(!Model::Llama4Scout17B.supports_tool_use());
+-    }
+-
+-    #[test]
+-    fn test_supports_caching() {
+-        assert!(Model::ClaudeSonnet4_5.supports_caching());
+-        assert!(Model::ClaudeOpus4_6.supports_caching());
+-        assert!(!Model::Llama4Scout17B.supports_caching());
+-        assert!(!Model::NovaPro.supports_caching());
+-    }
+-}
+diff --git a/crates/deepseek/Cargo.toml b/crates/deepseek/Cargo.toml
+deleted file mode 100644
+index 25e8f2f25c..0000000000
+--- a/crates/deepseek/Cargo.toml
++++ /dev/null
+@@ -1,24 +0,0 @@
+-[package]
+-name = "deepseek"
+-version = "0.1.0"
+-edition.workspace = true
+-publish.workspace = true
+-license = "GPL-3.0-or-later"
+-
+-[lints]
+-workspace = true
+-
+-[lib]
+-path = "src/deepseek.rs"
+-
+-[features]
+-default = []
+-schemars = ["dep:schemars"]
+-
+-[dependencies]
+-anyhow.workspace = true
+-futures.workspace = true
+-http_client.workspace = true
+-schemars = { workspace = true, optional = true }
+-serde.workspace = true
+-serde_json.workspace = true
+diff --git a/crates/deepseek/LICENSE-GPL b/crates/deepseek/LICENSE-GPL
+deleted file mode 120000
+index 89e542f750..0000000000
+--- a/crates/deepseek/LICENSE-GPL
++++ /dev/null
+@@ -1 +0,0 @@
+-../../LICENSE-GPL
+\ No newline at end of file
+diff --git a/crates/deepseek/src/deepseek.rs b/crates/deepseek/src/deepseek.rs
+deleted file mode 100644
+index 56609a4749..0000000000
+--- a/crates/deepseek/src/deepseek.rs
++++ /dev/null
+@@ -1,338 +0,0 @@
+-use anyhow::{Result, anyhow};
+-use futures::{
+-    AsyncBufReadExt, AsyncReadExt,
+-    io::BufReader,
+-    stream::{BoxStream, StreamExt},
+-};
+-use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest};
+-use serde::{Deserialize, Serialize};
+-use serde_json::Value;
+-use std::convert::TryFrom;
+-
+-pub const DEEPSEEK_API_URL: &str = "https://api.deepseek.com/v1";
+-
+-#[derive(Clone, Copy, Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(rename_all = "lowercase")]
+-pub enum Role {
+-    User,
+-    Assistant,
+-    System,
+-    Tool,
+-}
+-
+-impl TryFrom<String> for Role {
+-    type Error = anyhow::Error;
+-
+-    fn try_from(value: String) -> Result<Self> {
+-        match value.as_str() {
+-            "user" => Ok(Self::User),
+-            "assistant" => Ok(Self::Assistant),
+-            "system" => Ok(Self::System),
+-            "tool" => Ok(Self::Tool),
+-            _ => anyhow::bail!("invalid role '{value}'"),
+-        }
+-    }
+-}
+-
+-impl From<Role> for String {
+-    fn from(val: Role) -> Self {
+-        match val {
+-            Role::User => "user".to_owned(),
+-            Role::Assistant => "assistant".to_owned(),
+-            Role::System => "system".to_owned(),
+-            Role::Tool => "tool".to_owned(),
+-        }
+-    }
+-}
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+-pub enum Model {
+-    #[serde(rename = "deepseek-v4-flash")]
+-    V4Flash,
+-    #[serde(rename = "deepseek-v4-pro")]
+-    #[default]
+-    V4Pro,
+-    #[serde(rename = "custom")]
+-    Custom {
+-        name: String,
+-        /// The name displayed in the UI, such as in the agent panel model dropdown menu.
+-        display_name: Option<String>,
+-        max_tokens: u64,
+-        max_output_tokens: Option<u64>,
+-    },
+-}
+-
+-impl Model {
+-    pub fn default_fast() -> Self {
+-        Model::V4Flash
+-    }
+-
+-    pub fn from_id(id: &str) -> Result<Self> {
+-        match id {
+-            "deepseek-v4-flash" => Ok(Self::V4Flash),
+-            "deepseek-v4-pro" => Ok(Self::V4Pro),
+-            _ => anyhow::bail!("invalid model id {id}"),
+-        }
+-    }
+-
+-    pub fn id(&self) -> &str {
+-        match self {
+-            Self::V4Flash => "deepseek-v4-flash",
+-            Self::V4Pro => "deepseek-v4-pro",
+-            Self::Custom { name, .. } => name,
+-        }
+-    }
+-
+-    pub fn display_name(&self) -> &str {
+-        match self {
+-            Self::V4Flash => "DeepSeek V4 Flash",
+-            Self::V4Pro => "DeepSeek V4 Pro",
+-            Self::Custom {
+-                name, display_name, ..
+-            } => display_name.as_ref().unwrap_or(name).as_str(),
+-        }
+-    }
+-
+-    pub fn max_token_count(&self) -> u64 {
+-        match self {
+-            Self::V4Flash | Self::V4Pro => 1_000_000,
+-            Self::Custom { max_tokens, .. } => *max_tokens,
+-        }
+-    }
+-
+-    pub fn max_output_tokens(&self) -> Option<u64> {
+-        match self {
+-            Self::V4Flash | Self::V4Pro => Some(384_000),
+-            Self::Custom {
+-                max_output_tokens, ..
+-            } => *max_output_tokens,
+-        }
+-    }
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Request {
+-    pub model: String,
+-    pub messages: Vec<RequestMessage>,
+-    pub stream: bool,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub max_tokens: Option<u64>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub temperature: Option<f32>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub thinking: Option<Thinking>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub reasoning_effort: Option<ReasoningEffort>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub response_format: Option<ResponseFormat>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub tool_choice: Option<ToolChoice>,
+-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-    pub tools: Vec<ToolDefinition>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Thinking {
+-    #[serde(rename = "type")]
+-    pub kind: ThinkingType,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize, Clone, Copy, Eq, PartialEq)]
+-#[serde(rename_all = "lowercase")]
+-pub enum ThinkingType {
+-    Enabled,
+-    Disabled,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize, Clone, Copy, Eq, PartialEq)]
+-#[serde(rename_all = "lowercase")]
+-pub enum ReasoningEffort {
+-    High,
+-    Max,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(rename_all = "snake_case")]
+-pub enum ResponseFormat {
+-    Text,
+-    #[serde(rename = "json_object")]
+-    JsonObject,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize, Clone, Copy, Eq, PartialEq)]
+-#[serde(rename_all = "lowercase")]
+-pub enum ToolChoice {
+-    None,
+-    Auto,
+-    Required,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(tag = "type", rename_all = "snake_case")]
+-pub enum ToolDefinition {
+-    Function { function: FunctionDefinition },
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct FunctionDefinition {
+-    pub name: String,
+-    pub description: Option<String>,
+-    pub parameters: Option<Value>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(tag = "role", rename_all = "lowercase")]
+-pub enum RequestMessage {
+-    Assistant {
+-        content: Option<String>,
+-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-        tool_calls: Vec<ToolCall>,
+-        #[serde(default, skip_serializing_if = "Option::is_none")]
+-        reasoning_content: Option<String>,
+-    },
+-    User {
+-        content: String,
+-    },
+-    System {
+-        content: String,
+-    },
+-    Tool {
+-        content: String,
+-        tool_call_id: String,
+-    },
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-pub struct ToolCall {
+-    pub id: String,
+-    #[serde(flatten)]
+-    pub content: ToolCallContent,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(tag = "type", rename_all = "lowercase")]
+-pub enum ToolCallContent {
+-    Function { function: FunctionContent },
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-pub struct FunctionContent {
+-    pub name: String,
+-    pub arguments: String,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct Response {
+-    pub id: String,
+-    pub object: String,
+-    pub created: u64,
+-    pub model: String,
+-    pub choices: Vec<Choice>,
+-    pub usage: Usage,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub reasoning_content: Option<String>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct Usage {
+-    pub prompt_tokens: u64,
+-    pub completion_tokens: u64,
+-    pub total_tokens: u64,
+-    #[serde(default)]
+-    pub prompt_cache_hit_tokens: u64,
+-    #[serde(default)]
+-    pub prompt_cache_miss_tokens: u64,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct Choice {
+-    pub index: u32,
+-    pub message: RequestMessage,
+-    pub finish_reason: Option<String>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct StreamResponse {
+-    pub id: String,
+-    pub object: String,
+-    pub created: u64,
+-    pub model: String,
+-    pub choices: Vec<StreamChoice>,
+-    pub usage: Option<Usage>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct StreamChoice {
+-    pub index: u32,
+-    pub delta: StreamDelta,
+-    pub finish_reason: Option<String>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct StreamDelta {
+-    pub role: Option<Role>,
+-    pub content: Option<String>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub tool_calls: Option<Vec<ToolCallChunk>>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub reasoning_content: Option<String>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct ToolCallChunk {
+-    pub index: usize,
+-    pub id: Option<String>,
+-    pub function: Option<FunctionChunk>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct FunctionChunk {
+-    pub name: Option<String>,
+-    pub arguments: Option<String>,
+-}
+-
+-pub async fn stream_completion(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-    request: Request,
+-) -> Result<BoxStream<'static, Result<StreamResponse>>> {
+-    let uri = format!("{api_url}/chat/completions");
+-    let request_builder = HttpRequest::builder()
+-        .method(Method::POST)
+-        .uri(uri)
+-        .header("Content-Type", "application/json")
+-        .header("Authorization", format!("Bearer {}", api_key.trim()));
+-
+-    let request = request_builder.body(AsyncBody::from(serde_json::to_string(&request)?))?;
+-    let mut response = client.send(request).await?;
+-
+-    if response.status().is_success() {
+-        let reader = BufReader::new(response.into_body());
+-        Ok(reader
+-            .lines()
+-            .filter_map(|line| async move {
+-                match line {
+-                    Ok(line) => {
+-                        let line = line.strip_prefix("data: ")?;
+-                        if line == "[DONE]" {
+-                            None
+-                        } else {
+-                            Some(serde_json::from_str(line).map_err(Into::into))
+-                        }
+-                    }
+-                    Err(error) => Some(Err(anyhow!(error))),
+-                }
+-            })
+-            .boxed())
+-    } else {
+-        let mut body = String::new();
+-        response.body_mut().read_to_string(&mut body).await?;
+-        anyhow::bail!(
+-            "Failed to connect to DeepSeek API: {} {}",
+-            response.status(),
+-            body,
+-        );
+-    }
+-}
+diff --git a/crates/mistral/Cargo.toml b/crates/mistral/Cargo.toml
+deleted file mode 100644
+index c4d475f014..0000000000
+--- a/crates/mistral/Cargo.toml
++++ /dev/null
+@@ -1,25 +0,0 @@
+-[package]
+-name = "mistral"
+-version = "0.1.0"
+-edition.workspace = true
+-publish.workspace = true
+-license = "GPL-3.0-or-later"
+-
+-[lints]
+-workspace = true
+-
+-[lib]
+-path = "src/mistral.rs"
+-
+-[features]
+-default = []
+-schemars = ["dep:schemars"]
+-
+-[dependencies]
+-anyhow.workspace = true
+-futures.workspace = true
+-http_client.workspace = true
+-schemars = { workspace = true, optional = true }
+-serde.workspace = true
+-serde_json.workspace = true
+-strum.workspace = true
+diff --git a/crates/mistral/LICENSE-GPL b/crates/mistral/LICENSE-GPL
+deleted file mode 120000
+index 89e542f750..0000000000
+--- a/crates/mistral/LICENSE-GPL
++++ /dev/null
+@@ -1 +0,0 @@
+-../../LICENSE-GPL
+\ No newline at end of file
+diff --git a/crates/mistral/src/mistral.rs b/crates/mistral/src/mistral.rs
+deleted file mode 100644
+index e7a3ee421e..0000000000
+--- a/crates/mistral/src/mistral.rs
++++ /dev/null
+@@ -1,472 +0,0 @@
+-use anyhow::{Result, anyhow};
+-use futures::{AsyncBufReadExt, AsyncReadExt, StreamExt, io::BufReader, stream::BoxStream};
+-use http_client::{AsyncBody, HttpClient, HttpRequestExt, Method, Request as HttpRequest};
+-use serde::{Deserialize, Serialize};
+-use serde_json::Value;
+-use std::convert::TryFrom;
+-use strum::EnumIter;
+-
+-pub const MISTRAL_API_URL: &str = "https://api.mistral.ai/v1";
+-
+-#[derive(Clone, Copy, Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(rename_all = "lowercase")]
+-pub enum Role {
+-    User,
+-    Assistant,
+-    System,
+-    Tool,
+-}
+-
+-impl TryFrom<String> for Role {
+-    type Error = anyhow::Error;
+-
+-    fn try_from(value: String) -> Result<Self> {
+-        match value.as_str() {
+-            "user" => Ok(Self::User),
+-            "assistant" => Ok(Self::Assistant),
+-            "system" => Ok(Self::System),
+-            "tool" => Ok(Self::Tool),
+-            _ => anyhow::bail!("invalid role '{value}'"),
+-        }
+-    }
+-}
+-
+-impl From<Role> for String {
+-    fn from(val: Role) -> Self {
+-        match val {
+-            Role::User => "user".to_owned(),
+-            Role::Assistant => "assistant".to_owned(),
+-            Role::System => "system".to_owned(),
+-            Role::Tool => "tool".to_owned(),
+-        }
+-    }
+-}
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, EnumIter)]
+-pub enum Model {
+-    #[serde(rename = "codestral-latest", alias = "codestral-latest")]
+-    #[default]
+-    CodestralLatest,
+-
+-    #[serde(rename = "mistral-large-latest", alias = "mistral-large-latest")]
+-    MistralLargeLatest,
+-    #[serde(rename = "mistral-medium-latest", alias = "mistral-medium-latest")]
+-    MistralMediumLatest,
+-    #[serde(rename = "mistral-small-latest", alias = "mistral-small-latest")]
+-    MistralSmallLatest,
+-
+-    #[serde(rename = "magistral-medium-latest", alias = "magistral-medium-latest")]
+-    MagistralMediumLatest,
+-
+-    #[serde(rename = "open-mistral-nemo", alias = "open-mistral-nemo")]
+-    OpenMistralNemo,
+-
+-    #[serde(rename = "devstral-medium-latest", alias = "devstral-medium-latest")]
+-    DevstralMediumLatest,
+-
+-    #[serde(rename = "ministral-3b-latest", alias = "ministral-3b-latest")]
+-    Ministral3bLatest,
+-    #[serde(rename = "ministral-8b-latest", alias = "ministral-8b-latest")]
+-    Ministral8bLatest,
+-    #[serde(rename = "ministral-14b-latest", alias = "ministral-14b-latest")]
+-    Ministral14bLatest,
+-
+-    #[serde(rename = "custom")]
+-    Custom {
+-        name: String,
+-        /// The name displayed in the UI, such as in the agent panel model dropdown menu.
+-        display_name: Option<String>,
+-        max_tokens: u64,
+-        max_output_tokens: Option<u64>,
+-        max_completion_tokens: Option<u64>,
+-        supports_tools: Option<bool>,
+-        supports_images: Option<bool>,
+-        supports_thinking: Option<bool>,
+-    },
+-}
+-
+-impl Model {
+-    pub fn default_fast() -> Self {
+-        Model::MistralSmallLatest
+-    }
+-
+-    pub fn from_id(id: &str) -> Result<Self> {
+-        match id {
+-            "codestral-latest" => Ok(Self::CodestralLatest),
+-            "mistral-large-latest" => Ok(Self::MistralLargeLatest),
+-            "mistral-medium-latest" => Ok(Self::MistralMediumLatest),
+-            "mistral-small-latest" => Ok(Self::MistralSmallLatest),
+-            "magistral-medium-latest" => Ok(Self::MagistralMediumLatest),
+-            "open-mistral-nemo" => Ok(Self::OpenMistralNemo),
+-            "devstral-medium-latest" => Ok(Self::DevstralMediumLatest),
+-            invalid_id => anyhow::bail!("invalid model id '{invalid_id}'"),
+-        }
+-    }
+-
+-    pub fn id(&self) -> &str {
+-        match self {
+-            Self::CodestralLatest => "codestral-latest",
+-            Self::MistralLargeLatest => "mistral-large-latest",
+-            Self::MistralMediumLatest => "mistral-medium-latest",
+-            Self::MistralSmallLatest => "mistral-small-latest",
+-            Self::MagistralMediumLatest => "magistral-medium-latest",
+-            Self::OpenMistralNemo => "open-mistral-nemo",
+-            Self::DevstralMediumLatest => "devstral-medium-latest",
+-            Self::Ministral3bLatest => "ministral-3b-latest",
+-            Self::Ministral8bLatest => "ministral-8b-latest",
+-            Self::Ministral14bLatest => "ministral-14b-latest",
+-            Self::Custom { name, .. } => name,
+-        }
+-    }
+-
+-    pub fn display_name(&self) -> &str {
+-        match self {
+-            Self::CodestralLatest => "codestral-latest",
+-            Self::MistralLargeLatest => "mistral-large-latest",
+-            Self::MistralMediumLatest => "mistral-medium-latest",
+-            Self::MistralSmallLatest => "mistral-small-latest",
+-            Self::MagistralMediumLatest => "magistral-medium-latest",
+-            Self::OpenMistralNemo => "open-mistral-nemo",
+-            Self::DevstralMediumLatest => "devstral-medium-latest",
+-            Self::Ministral3bLatest => "ministral-3b-latest",
+-            Self::Ministral8bLatest => "ministral-8b-latest",
+-            Self::Ministral14bLatest => "ministral-14b-latest",
+-            Self::Custom {
+-                name, display_name, ..
+-            } => display_name.as_ref().unwrap_or(name),
+-        }
+-    }
+-
+-    pub fn max_token_count(&self) -> u64 {
+-        match self {
+-            Self::CodestralLatest => 128000,
+-            Self::MistralLargeLatest => 256000,
+-            Self::MistralMediumLatest => 128000,
+-            Self::MistralSmallLatest => 256000,
+-            Self::MagistralMediumLatest => 128000,
+-            Self::OpenMistralNemo => 128000,
+-            Self::DevstralMediumLatest => 256000,
+-            Self::Ministral3bLatest => 256000,
+-            Self::Ministral8bLatest => 256000,
+-            Self::Ministral14bLatest => 256000,
+-            Self::Custom { max_tokens, .. } => *max_tokens,
+-        }
+-    }
+-
+-    pub fn max_output_tokens(&self) -> Option<u64> {
+-        match self {
+-            Self::Custom {
+-                max_output_tokens, ..
+-            } => *max_output_tokens,
+-            _ => None,
+-        }
+-    }
+-
+-    pub fn supports_tools(&self) -> bool {
+-        match self {
+-            Self::CodestralLatest
+-            | Self::MistralLargeLatest
+-            | Self::MistralMediumLatest
+-            | Self::MistralSmallLatest
+-            | Self::MagistralMediumLatest
+-            | Self::OpenMistralNemo
+-            | Self::DevstralMediumLatest
+-            | Self::Ministral3bLatest
+-            | Self::Ministral8bLatest
+-            | Self::Ministral14bLatest => true,
+-            Self::Custom { supports_tools, .. } => supports_tools.unwrap_or(false),
+-        }
+-    }
+-
+-    pub fn supports_images(&self) -> bool {
+-        match self {
+-            Self::MistralLargeLatest
+-            | Self::MistralMediumLatest
+-            | Self::MistralSmallLatest
+-            | Self::MagistralMediumLatest
+-            | Self::Ministral3bLatest
+-            | Self::Ministral8bLatest
+-            | Self::Ministral14bLatest => true,
+-            Self::CodestralLatest | Self::OpenMistralNemo | Self::DevstralMediumLatest => false,
+-            Self::Custom {
+-                supports_images, ..
+-            } => supports_images.unwrap_or(false),
+-        }
+-    }
+-
+-    pub fn supports_thinking(&self) -> bool {
+-        match self {
+-            Self::MagistralMediumLatest => true,
+-            Self::Custom {
+-                supports_thinking, ..
+-            } => supports_thinking.unwrap_or(false),
+-            _ => false,
+-        }
+-    }
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Request {
+-    pub model: String,
+-    pub messages: Vec<RequestMessage>,
+-    pub stream: bool,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub stream_options: Option<StreamOptions>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub max_tokens: Option<u64>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub temperature: Option<f32>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub response_format: Option<ResponseFormat>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub tool_choice: Option<ToolChoice>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub parallel_tool_calls: Option<bool>,
+-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-    pub tools: Vec<ToolDefinition>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct StreamOptions {
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub stream_tool_calls: Option<bool>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(rename_all = "snake_case")]
+-pub enum ResponseFormat {
+-    Text,
+-    #[serde(rename = "json_object")]
+-    JsonObject,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(tag = "type", rename_all = "snake_case")]
+-pub enum ToolDefinition {
+-    Function { function: FunctionDefinition },
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct FunctionDefinition {
+-    pub name: String,
+-    pub description: Option<String>,
+-    pub parameters: Option<Value>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(rename_all = "lowercase")]
+-pub enum ToolChoice {
+-    Auto,
+-    Required,
+-    None,
+-    Any,
+-    #[serde(untagged)]
+-    Function(ToolDefinition),
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(tag = "role", rename_all = "lowercase")]
+-pub enum RequestMessage {
+-    Assistant {
+-        #[serde(flatten)]
+-        #[serde(default, skip_serializing_if = "Option::is_none")]
+-        content: Option<MessageContent>,
+-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-        tool_calls: Vec<ToolCall>,
+-    },
+-    User {
+-        #[serde(flatten)]
+-        content: MessageContent,
+-    },
+-    System {
+-        #[serde(flatten)]
+-        content: MessageContent,
+-    },
+-    Tool {
+-        content: String,
+-        tool_call_id: String,
+-    },
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+-#[serde(untagged)]
+-pub enum MessageContent {
+-    #[serde(rename = "content")]
+-    Plain { content: String },
+-    #[serde(rename = "content")]
+-    Multipart { content: Vec<MessagePart> },
+-}
+-
+-impl MessageContent {
+-    pub fn empty() -> Self {
+-        Self::Plain {
+-            content: String::new(),
+-        }
+-    }
+-
+-    pub fn push_part(&mut self, part: MessagePart) {
+-        match self {
+-            Self::Plain { content } => match part {
+-                MessagePart::Text { text } => {
+-                    content.push_str(&text);
+-                }
+-                part => {
+-                    let mut parts = if content.is_empty() {
+-                        Vec::new()
+-                    } else {
+-                        vec![MessagePart::Text {
+-                            text: content.clone(),
+-                        }]
+-                    };
+-                    parts.push(part);
+-                    *self = Self::Multipart { content: parts };
+-                }
+-            },
+-            Self::Multipart { content } => {
+-                content.push(part);
+-            }
+-        }
+-    }
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+-#[serde(tag = "type", rename_all = "snake_case")]
+-pub enum MessagePart {
+-    Text { text: String },
+-    ImageUrl { image_url: String },
+-    Thinking { thinking: Vec<ThinkingPart> },
+-}
+-
+-// Backwards-compatibility alias for provider code that refers to ContentPart
+-pub type ContentPart = MessagePart;
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+-#[serde(tag = "type", rename_all = "snake_case")]
+-pub enum ThinkingPart {
+-    Text { text: String },
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-pub struct ToolCall {
+-    pub id: String,
+-    #[serde(flatten)]
+-    pub content: ToolCallContent,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(tag = "type", rename_all = "lowercase")]
+-pub enum ToolCallContent {
+-    Function { function: FunctionContent },
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-pub struct FunctionContent {
+-    pub name: String,
+-    pub arguments: String,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct Usage {
+-    pub prompt_tokens: u64,
+-    pub completion_tokens: u64,
+-    pub total_tokens: u64,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct StreamResponse {
+-    pub id: String,
+-    pub object: String,
+-    pub created: u64,
+-    pub model: String,
+-    pub choices: Vec<StreamChoice>,
+-    pub usage: Option<Usage>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct StreamChoice {
+-    pub index: u32,
+-    pub delta: StreamDelta,
+-    pub finish_reason: Option<String>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Clone)]
+-pub struct StreamDelta {
+-    pub role: Option<Role>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub content: Option<MessageContentDelta>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub tool_calls: Option<Vec<ToolCallChunk>>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+-#[serde(untagged)]
+-pub enum MessageContentDelta {
+-    Text(String),
+-    Parts(Vec<MessagePart>),
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+-pub struct ToolCallChunk {
+-    pub index: usize,
+-    pub id: Option<String>,
+-    pub function: Option<FunctionChunk>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq, Clone)]
+-pub struct FunctionChunk {
+-    pub name: Option<String>,
+-    pub arguments: Option<String>,
+-}
+-
+-pub async fn stream_completion(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-    request: Request,
+-    affinity: Option<String>,
+-) -> Result<BoxStream<'static, Result<StreamResponse>>> {
+-    let uri = format!("{api_url}/chat/completions");
+-    let request_builder = HttpRequest::builder()
+-        .method(Method::POST)
+-        .uri(uri)
+-        .header("Content-Type", "application/json")
+-        .header("Authorization", format!("Bearer {}", api_key.trim()))
+-        .when_some(affinity, |this, affinity| {
+-            this.header("x-affinity", affinity)
+-        });
+-
+-    let request = request_builder.body(AsyncBody::from(serde_json::to_string(&request)?))?;
+-    let mut response = client.send(request).await?;
+-
+-    if response.status().is_success() {
+-        let reader = BufReader::new(response.into_body());
+-        Ok(reader
+-            .lines()
+-            .filter_map(|line| async move {
+-                match line {
+-                    Ok(line) => {
+-                        let line = line.strip_prefix("data: ")?;
+-                        if line == "[DONE]" {
+-                            None
+-                        } else {
+-                            match serde_json::from_str(line) {
+-                                Ok(response) => Some(Ok(response)),
+-                                Err(error) => Some(Err(anyhow!(error))),
+-                            }
+-                        }
+-                    }
+-                    Err(error) => Some(Err(anyhow!(error))),
+-                }
+-            })
+-            .boxed())
+-    } else {
+-        let mut body = String::new();
+-        response.body_mut().read_to_string(&mut body).await?;
+-        anyhow::bail!(
+-            "Failed to connect to Mistral API: {} {}",
+-            response.status(),
+-            body,
+-        );
+-    }
+-}
+diff --git a/crates/open_router/Cargo.toml b/crates/open_router/Cargo.toml
+deleted file mode 100644
+index 2cc5d3d00e..0000000000
+--- a/crates/open_router/Cargo.toml
++++ /dev/null
+@@ -1,28 +0,0 @@
+-[package]
+-name = "open_router"
+-version = "0.1.0"
+-edition.workspace = true
+-publish.workspace = true
+-license = "GPL-3.0-or-later"
+-
+-[lints]
+-workspace = true
+-
+-[lib]
+-path = "src/open_router.rs"
+-
+-[features]
+-default = []
+-schemars = ["dep:schemars"]
+-
+-[dependencies]
+-anyhow.workspace = true
+-futures.workspace = true
+-http_client.workspace = true
+-language_model_core.workspace = true
+-schemars = { workspace = true, optional = true }
+-serde.workspace = true
+-serde_json.workspace = true
+-settings.workspace = true
+-strum.workspace = true
+-thiserror.workspace = true
+diff --git a/crates/open_router/LICENSE-GPL b/crates/open_router/LICENSE-GPL
+deleted file mode 120000
+index 89e542f750..0000000000
+--- a/crates/open_router/LICENSE-GPL
++++ /dev/null
+@@ -1 +0,0 @@
+-../../LICENSE-GPL
+\ No newline at end of file
+diff --git a/crates/open_router/src/open_router.rs b/crates/open_router/src/open_router.rs
+deleted file mode 100644
+index 306f2c22cb..0000000000
+--- a/crates/open_router/src/open_router.rs
++++ /dev/null
+@@ -1,814 +0,0 @@
+-use anyhow::{Result, anyhow};
+-use futures::{AsyncBufReadExt, AsyncReadExt, StreamExt, io::BufReader, stream::BoxStream};
+-use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest, http};
+-use serde::{Deserialize, Serialize};
+-use serde_json::Value;
+-pub use settings::DataCollection;
+-pub use settings::ModelMode;
+-pub use settings::OpenRouterAvailableModel as AvailableModel;
+-pub use settings::OpenRouterProvider as Provider;
+-use std::{convert::TryFrom, io, time::Duration};
+-use strum::EnumString;
+-use thiserror::Error;
+-
+-pub const OPEN_ROUTER_API_URL: &str = "https://openrouter.ai/api/v1";
+-
+-fn extract_retry_after(headers: &http::HeaderMap) -> Option<std::time::Duration> {
+-    if let Some(reset) = headers.get("X-RateLimit-Reset") {
+-        if let Ok(s) = reset.to_str() {
+-            if let Ok(epoch_ms) = s.parse::<u64>() {
+-                let now = std::time::SystemTime::now()
+-                    .duration_since(std::time::UNIX_EPOCH)
+-                    .unwrap_or_default()
+-                    .as_millis() as u64;
+-                if epoch_ms > now {
+-                    return Some(std::time::Duration::from_millis(epoch_ms - now));
+-                }
+-            }
+-        }
+-    }
+-    None
+-}
+-
+-fn is_none_or_empty<T: AsRef<[U]>, U>(opt: &Option<T>) -> bool {
+-    opt.as_ref().is_none_or(|v| v.as_ref().is_empty())
+-}
+-
+-#[derive(Clone, Copy, Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(rename_all = "lowercase")]
+-pub enum Role {
+-    User,
+-    Assistant,
+-    System,
+-    Tool,
+-}
+-
+-impl TryFrom<String> for Role {
+-    type Error = anyhow::Error;
+-
+-    fn try_from(value: String) -> Result<Self> {
+-        match value.as_str() {
+-            "user" => Ok(Self::User),
+-            "assistant" => Ok(Self::Assistant),
+-            "system" => Ok(Self::System),
+-            "tool" => Ok(Self::Tool),
+-            _ => Err(anyhow!("invalid role '{value}'")),
+-        }
+-    }
+-}
+-
+-impl From<Role> for String {
+-    fn from(val: Role) -> Self {
+-        match val {
+-            Role::User => "user".to_owned(),
+-            Role::Assistant => "assistant".to_owned(),
+-            Role::System => "system".to_owned(),
+-            Role::Tool => "tool".to_owned(),
+-        }
+-    }
+-}
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+-pub struct Model {
+-    pub name: String,
+-    pub display_name: Option<String>,
+-    pub max_tokens: u64,
+-    pub supports_tools: Option<bool>,
+-    pub supports_images: Option<bool>,
+-    #[serde(default)]
+-    pub mode: ModelMode,
+-    pub provider: Option<Provider>,
+-}
+-
+-impl Model {
+-    pub fn default() -> Self {
+-        Self::new(
+-            "openrouter/auto",
+-            Some("Auto Router"),
+-            Some(2000000),
+-            Some(true),
+-            Some(false),
+-            Some(ModelMode::Default),
+-            None,
+-        )
+-    }
+-
+-    pub fn new(
+-        name: &str,
+-        display_name: Option<&str>,
+-        max_tokens: Option<u64>,
+-        supports_tools: Option<bool>,
+-        supports_images: Option<bool>,
+-        mode: Option<ModelMode>,
+-        provider: Option<Provider>,
+-    ) -> Self {
+-        Self {
+-            name: name.to_owned(),
+-            display_name: display_name.map(|s| s.to_owned()),
+-            max_tokens: max_tokens.unwrap_or(2000000),
+-            supports_tools,
+-            supports_images,
+-            mode: mode.unwrap_or(ModelMode::Default),
+-            provider,
+-        }
+-    }
+-
+-    pub fn id(&self) -> &str {
+-        &self.name
+-    }
+-
+-    pub fn display_name(&self) -> &str {
+-        self.display_name.as_ref().unwrap_or(&self.name)
+-    }
+-
+-    pub fn max_token_count(&self) -> u64 {
+-        self.max_tokens
+-    }
+-
+-    pub fn max_output_tokens(&self) -> Option<u64> {
+-        None
+-    }
+-
+-    pub fn supports_tool_calls(&self) -> bool {
+-        self.supports_tools.unwrap_or(false)
+-    }
+-
+-    pub fn supports_parallel_tool_calls(&self) -> bool {
+-        false
+-    }
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Request {
+-    pub model: String,
+-    pub messages: Vec<RequestMessage>,
+-    pub stream: bool,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub max_tokens: Option<u64>,
+-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-    pub stop: Vec<String>,
+-    pub temperature: f32,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub tool_choice: Option<ToolChoice>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub parallel_tool_calls: Option<bool>,
+-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-    pub tools: Vec<ToolDefinition>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub reasoning: Option<Reasoning>,
+-    pub usage: RequestUsage,
+-    pub provider: Option<Provider>,
+-}
+-
+-#[derive(Debug, Default, Serialize, Deserialize)]
+-pub struct RequestUsage {
+-    pub include: bool,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-#[serde(rename_all = "lowercase")]
+-pub enum ToolChoice {
+-    Auto,
+-    Required,
+-    None,
+-    #[serde(untagged)]
+-    Other(ToolDefinition),
+-}
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Deserialize, Serialize, Debug)]
+-#[serde(tag = "type", rename_all = "snake_case")]
+-pub enum ToolDefinition {
+-    #[allow(dead_code)]
+-    Function { function: FunctionDefinition },
+-}
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Debug, Serialize, Deserialize)]
+-pub struct FunctionDefinition {
+-    pub name: String,
+-    pub description: Option<String>,
+-    pub parameters: Option<Value>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct Reasoning {
+-    #[serde(skip_serializing_if = "Option::is_none")]
+-    pub effort: Option<String>,
+-    #[serde(skip_serializing_if = "Option::is_none")]
+-    pub max_tokens: Option<u32>,
+-    #[serde(skip_serializing_if = "Option::is_none")]
+-    pub exclude: Option<bool>,
+-    #[serde(skip_serializing_if = "Option::is_none")]
+-    pub enabled: Option<bool>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(tag = "role", rename_all = "lowercase")]
+-pub enum RequestMessage {
+-    Assistant {
+-        content: Option<MessageContent>,
+-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-        tool_calls: Vec<ToolCall>,
+-        #[serde(default, skip_serializing_if = "Option::is_none")]
+-        reasoning_details: Option<std::sync::Arc<serde_json::Value>>,
+-    },
+-    User {
+-        content: MessageContent,
+-    },
+-    System {
+-        content: MessageContent,
+-    },
+-    Tool {
+-        content: MessageContent,
+-        tool_call_id: String,
+-    },
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(untagged)]
+-pub enum MessageContent {
+-    Plain(String),
+-    Multipart(Vec<MessagePart>),
+-}
+-
+-impl MessageContent {
+-    pub fn empty() -> Self {
+-        Self::Plain(String::new())
+-    }
+-
+-    pub fn push_part(&mut self, part: MessagePart) {
+-        match self {
+-            Self::Plain(text) if text.is_empty() => {
+-                *self = Self::Multipart(vec![part]);
+-            }
+-            Self::Plain(text) => {
+-                let text_part = MessagePart::Text {
+-                    text: std::mem::take(text),
+-                };
+-                *self = Self::Multipart(vec![text_part, part]);
+-            }
+-            Self::Multipart(parts) => parts.push(part),
+-        }
+-    }
+-}
+-
+-impl From<Vec<MessagePart>> for MessageContent {
+-    fn from(parts: Vec<MessagePart>) -> Self {
+-        if parts.len() == 1
+-            && let MessagePart::Text { text } = &parts[0]
+-        {
+-            return Self::Plain(text.clone());
+-        }
+-        Self::Multipart(parts)
+-    }
+-}
+-
+-impl From<String> for MessageContent {
+-    fn from(text: String) -> Self {
+-        Self::Plain(text)
+-    }
+-}
+-
+-impl From<&str> for MessageContent {
+-    fn from(text: &str) -> Self {
+-        Self::Plain(text.to_string())
+-    }
+-}
+-
+-impl MessageContent {
+-    pub fn as_text(&self) -> Option<&str> {
+-        match self {
+-            Self::Plain(text) => Some(text),
+-            Self::Multipart(parts) if parts.len() == 1 => {
+-                if let MessagePart::Text { text } = &parts[0] {
+-                    Some(text)
+-                } else {
+-                    None
+-                }
+-            }
+-            _ => None,
+-        }
+-    }
+-
+-    pub fn to_text(&self) -> String {
+-        match self {
+-            Self::Plain(text) => text.clone(),
+-            Self::Multipart(parts) => parts
+-                .iter()
+-                .filter_map(|part| {
+-                    if let MessagePart::Text { text } = part {
+-                        Some(text.as_str())
+-                    } else {
+-                        None
+-                    }
+-                })
+-                .collect::<Vec<_>>()
+-                .join(""),
+-        }
+-    }
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(tag = "type", rename_all = "snake_case")]
+-pub enum MessagePart {
+-    Text {
+-        text: String,
+-    },
+-    #[serde(rename = "image_url")]
+-    Image {
+-        image_url: String,
+-    },
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-pub struct ToolCall {
+-    pub id: String,
+-    #[serde(flatten)]
+-    pub content: ToolCallContent,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-#[serde(tag = "type", rename_all = "lowercase")]
+-pub enum ToolCallContent {
+-    Function { function: FunctionContent },
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-pub struct FunctionContent {
+-    pub name: String,
+-    pub arguments: String,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub thought_signature: Option<String>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-pub struct ResponseMessageDelta {
+-    pub role: Option<Role>,
+-    pub content: Option<String>,
+-    pub reasoning: Option<String>,
+-    #[serde(default, skip_serializing_if = "is_none_or_empty")]
+-    pub tool_calls: Option<Vec<ToolCallChunk>>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub reasoning_details: Option<serde_json::Value>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-pub struct ToolCallChunk {
+-    pub index: usize,
+-    pub id: Option<String>,
+-    pub function: Option<FunctionChunk>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+-pub struct FunctionChunk {
+-    pub name: Option<String>,
+-    pub arguments: Option<String>,
+-    #[serde(default)]
+-    pub thought_signature: Option<String>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct Usage {
+-    pub prompt_tokens: u64,
+-    pub completion_tokens: u64,
+-    pub total_tokens: u64,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct ChoiceDelta {
+-    pub index: u32,
+-    pub delta: ResponseMessageDelta,
+-    pub finish_reason: Option<String>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct ResponseStreamEvent {
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub id: Option<String>,
+-    pub created: u32,
+-    pub model: String,
+-    pub choices: Vec<ChoiceDelta>,
+-    pub usage: Option<Usage>,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct Response {
+-    pub id: String,
+-    pub object: String,
+-    pub created: u64,
+-    pub model: String,
+-    pub choices: Vec<Choice>,
+-    pub usage: Usage,
+-}
+-
+-#[derive(Serialize, Deserialize, Debug)]
+-pub struct Choice {
+-    pub index: u32,
+-    pub message: RequestMessage,
+-    pub finish_reason: Option<String>,
+-}
+-
+-#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+-pub struct ListModelsResponse {
+-    pub data: Vec<ModelEntry>,
+-}
+-
+-#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+-pub struct ModelEntry {
+-    pub id: String,
+-    pub name: String,
+-    pub created: usize,
+-    pub description: String,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub context_length: Option<u64>,
+-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-    pub supported_parameters: Vec<String>,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub architecture: Option<ModelArchitecture>,
+-}
+-
+-#[derive(Default, Debug, Clone, PartialEq, Deserialize)]
+-pub struct ModelArchitecture {
+-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+-    pub input_modalities: Vec<String>,
+-}
+-
+-pub async fn stream_completion(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-    request: Request,
+-) -> Result<BoxStream<'static, Result<ResponseStreamEvent, OpenRouterError>>, OpenRouterError> {
+-    let uri = format!("{api_url}/chat/completions");
+-    let request_builder = HttpRequest::builder()
+-        .method(Method::POST)
+-        .uri(uri)
+-        .header("Content-Type", "application/json")
+-        .header("Authorization", format!("Bearer {}", api_key))
+-        .header("HTTP-Referer", "https://zed.dev")
+-        .header("X-Title", "Zed Editor");
+-
+-    let request = request_builder
+-        .body(AsyncBody::from(
+-            serde_json::to_string(&request).map_err(OpenRouterError::SerializeRequest)?,
+-        ))
+-        .map_err(OpenRouterError::BuildRequestBody)?;
+-    let mut response = client
+-        .send(request)
+-        .await
+-        .map_err(OpenRouterError::HttpSend)?;
+-
+-    if response.status().is_success() {
+-        let reader = BufReader::new(response.into_body());
+-        Ok(reader
+-            .lines()
+-            .filter_map(|line| async move {
+-                match line {
+-                    Ok(line) => {
+-                        if line.starts_with(':') {
+-                            return None;
+-                        }
+-
+-                        let line = line.strip_prefix("data: ")?;
+-                        if line == "[DONE]" {
+-                            None
+-                        } else {
+-                            match serde_json::from_str::<ResponseStreamEvent>(line) {
+-                                Ok(response) => Some(Ok(response)),
+-                                Err(error) => {
+-                                    if line.trim().is_empty() {
+-                                        None
+-                                    } else {
+-                                        Some(Err(OpenRouterError::DeserializeResponse(error)))
+-                                    }
+-                                }
+-                            }
+-                        }
+-                    }
+-                    Err(error) => Some(Err(OpenRouterError::ReadResponse(error))),
+-                }
+-            })
+-            .boxed())
+-    } else {
+-        let code = ApiErrorCode::from_status(response.status().as_u16());
+-
+-        let mut body = String::new();
+-        response
+-            .body_mut()
+-            .read_to_string(&mut body)
+-            .await
+-            .map_err(OpenRouterError::ReadResponse)?;
+-
+-        let error_response = match serde_json::from_str::<OpenRouterErrorResponse>(&body) {
+-            Ok(OpenRouterErrorResponse { error }) => error,
+-            Err(_) => OpenRouterErrorBody {
+-                code: response.status().as_u16(),
+-                message: body,
+-                metadata: None,
+-            },
+-        };
+-
+-        match code {
+-            ApiErrorCode::RateLimitError => {
+-                let retry_after = extract_retry_after(response.headers());
+-                Err(OpenRouterError::RateLimit {
+-                    retry_after: retry_after.unwrap_or_else(|| std::time::Duration::from_secs(60)),
+-                })
+-            }
+-            ApiErrorCode::OverloadedError => {
+-                let retry_after = extract_retry_after(response.headers());
+-                Err(OpenRouterError::ServerOverloaded { retry_after })
+-            }
+-            _ => Err(OpenRouterError::ApiError(ApiError {
+-                code: code,
+-                message: error_response.message,
+-            })),
+-        }
+-    }
+-}
+-
+-pub async fn list_models(
+-    client: &dyn HttpClient,
+-    api_url: &str,
+-    api_key: &str,
+-) -> Result<Vec<Model>, OpenRouterError> {
+-    let uri = format!("{api_url}/models/user");
+-    let request_builder = HttpRequest::builder()
+-        .method(Method::GET)
+-        .uri(uri)
+-        .header("Accept", "application/json")
+-        .header("Authorization", format!("Bearer {}", api_key))
+-        .header("HTTP-Referer", "https://zed.dev")
+-        .header("X-Title", "Zed Editor");
+-
+-    let request = request_builder
+-        .body(AsyncBody::default())
+-        .map_err(OpenRouterError::BuildRequestBody)?;
+-    let mut response = client
+-        .send(request)
+-        .await
+-        .map_err(OpenRouterError::HttpSend)?;
+-
+-    let mut body = String::new();
+-    response
+-        .body_mut()
+-        .read_to_string(&mut body)
+-        .await
+-        .map_err(OpenRouterError::ReadResponse)?;
+-
+-    if response.status().is_success() {
+-        let response: ListModelsResponse =
+-            serde_json::from_str(&body).map_err(OpenRouterError::DeserializeResponse)?;
+-
+-        let models = response
+-            .data
+-            .into_iter()
+-            .map(|entry| Model {
+-                name: entry.id,
+-                // OpenRouter returns display names in the format "provider_name: model_name".
+-                // When displayed in the UI, these names can get truncated from the right.
+-                // Since users typically already know the provider, we extract just the model name
+-                // portion (after the colon) to create a more concise and user-friendly label
+-                // for the model dropdown in the agent panel.
+-                display_name: Some(
+-                    entry
+-                        .name
+-                        .split(':')
+-                        .next_back()
+-                        .unwrap_or(&entry.name)
+-                        .trim()
+-                        .to_string(),
+-                ),
+-                max_tokens: entry.context_length.unwrap_or(2000000),
+-                supports_tools: Some(entry.supported_parameters.contains(&"tools".to_string())),
+-                supports_images: Some(
+-                    entry
+-                        .architecture
+-                        .as_ref()
+-                        .map(|arch| arch.input_modalities.contains(&"image".to_string()))
+-                        .unwrap_or(false),
+-                ),
+-                mode: if entry
+-                    .supported_parameters
+-                    .contains(&"reasoning".to_string())
+-                {
+-                    ModelMode::Thinking {
+-                        budget_tokens: Some(4_096),
+-                    }
+-                } else {
+-                    ModelMode::Default
+-                },
+-                provider: None,
+-            })
+-            .collect();
+-
+-        Ok(models)
+-    } else {
+-        let code = ApiErrorCode::from_status(response.status().as_u16());
+-
+-        let mut body = String::new();
+-        response
+-            .body_mut()
+-            .read_to_string(&mut body)
+-            .await
+-            .map_err(OpenRouterError::ReadResponse)?;
+-
+-        let error_response = match serde_json::from_str::<OpenRouterErrorResponse>(&body) {
+-            Ok(OpenRouterErrorResponse { error }) => error,
+-            Err(_) => OpenRouterErrorBody {
+-                code: response.status().as_u16(),
+-                message: body,
+-                metadata: None,
+-            },
+-        };
+-
+-        match code {
+-            ApiErrorCode::RateLimitError => {
+-                let retry_after = extract_retry_after(response.headers());
+-                Err(OpenRouterError::RateLimit {
+-                    retry_after: retry_after.unwrap_or_else(|| std::time::Duration::from_secs(60)),
+-                })
+-            }
+-            ApiErrorCode::OverloadedError => {
+-                let retry_after = extract_retry_after(response.headers());
+-                Err(OpenRouterError::ServerOverloaded { retry_after })
+-            }
+-            _ => Err(OpenRouterError::ApiError(ApiError {
+-                code: code,
+-                message: error_response.message,
+-            })),
+-        }
+-    }
+-}
+-
+-#[derive(Debug)]
+-pub enum OpenRouterError {
+-    /// Failed to serialize the HTTP request body to JSON
+-    SerializeRequest(serde_json::Error),
+-
+-    /// Failed to construct the HTTP request body
+-    BuildRequestBody(http::Error),
+-
+-    /// Failed to send the HTTP request
+-    HttpSend(anyhow::Error),
+-
+-    /// Failed to deserialize the response from JSON
+-    DeserializeResponse(serde_json::Error),
+-
+-    /// Failed to read from response stream
+-    ReadResponse(io::Error),
+-
+-    /// Rate limit exceeded
+-    RateLimit { retry_after: Duration },
+-
+-    /// Server overloaded
+-    ServerOverloaded { retry_after: Option<Duration> },
+-
+-    /// API returned an error response
+-    ApiError(ApiError),
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct OpenRouterErrorBody {
+-    pub code: u16,
+-    pub message: String,
+-    #[serde(default, skip_serializing_if = "Option::is_none")]
+-    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize)]
+-pub struct OpenRouterErrorResponse {
+-    pub error: OpenRouterErrorBody,
+-}
+-
+-#[derive(Debug, Serialize, Deserialize, Error)]
+-#[error("OpenRouter API Error: {code}: {message}")]
+-pub struct ApiError {
+-    pub code: ApiErrorCode,
+-    pub message: String,
+-}
+-
+-/// An OpenROuter API error code.
+-/// <https://openrouter.ai/docs/api-reference/errors#error-codes>
+-#[derive(Debug, PartialEq, Eq, Clone, Copy, EnumString, Serialize, Deserialize)]
+-#[strum(serialize_all = "snake_case")]
+-pub enum ApiErrorCode {
+-    /// 400: Bad Request (invalid or missing params, CORS)
+-    InvalidRequestError,
+-    /// 401: Invalid credentials (OAuth session expired, disabled/invalid API key)
+-    AuthenticationError,
+-    /// 402: Your account or API key has insufficient credits. Add more credits and retry the request.
+-    PaymentRequiredError,
+-    /// 403: Your chosen model requires moderation and your input was flagged
+-    PermissionError,
+-    /// 408: Your request timed out
+-    RequestTimedOut,
+-    /// 429: You are being rate limited
+-    RateLimitError,
+-    /// 502: Your chosen model is down or we received an invalid response from it
+-    ApiError,
+-    /// 503: There is no available model provider that meets your routing requirements
+-    OverloadedError,
+-}
+-
+-impl std::fmt::Display for ApiErrorCode {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        let s = match self {
+-            ApiErrorCode::InvalidRequestError => "invalid_request_error",
+-            ApiErrorCode::AuthenticationError => "authentication_error",
+-            ApiErrorCode::PaymentRequiredError => "payment_required_error",
+-            ApiErrorCode::PermissionError => "permission_error",
+-            ApiErrorCode::RequestTimedOut => "request_timed_out",
+-            ApiErrorCode::RateLimitError => "rate_limit_error",
+-            ApiErrorCode::ApiError => "api_error",
+-            ApiErrorCode::OverloadedError => "overloaded_error",
+-        };
+-        write!(f, "{s}")
+-    }
+-}
+-
+-impl ApiErrorCode {
+-    pub fn from_status(status: u16) -> Self {
+-        match status {
+-            400 => ApiErrorCode::InvalidRequestError,
+-            401 => ApiErrorCode::AuthenticationError,
+-            402 => ApiErrorCode::PaymentRequiredError,
+-            403 => ApiErrorCode::PermissionError,
+-            408 => ApiErrorCode::RequestTimedOut,
+-            429 => ApiErrorCode::RateLimitError,
+-            502 => ApiErrorCode::ApiError,
+-            503 => ApiErrorCode::OverloadedError,
+-            _ => ApiErrorCode::ApiError,
+-        }
+-    }
+-}
+-
+-// -- Conversions to `language_model_core` types --
+-
+-impl From<OpenRouterError> for language_model_core::LanguageModelCompletionError {
+-    fn from(error: OpenRouterError) -> Self {
+-        let provider = language_model_core::LanguageModelProviderName::new("OpenRouter");
+-        match error {
+-            OpenRouterError::SerializeRequest(error) => Self::SerializeRequest { provider, error },
+-            OpenRouterError::BuildRequestBody(error) => Self::BuildRequestBody { provider, error },
+-            OpenRouterError::HttpSend(error) => Self::HttpSend { provider, error },
+-            OpenRouterError::DeserializeResponse(error) => {
+-                Self::DeserializeResponse { provider, error }
+-            }
+-            OpenRouterError::ReadResponse(error) => Self::ApiReadResponseError { provider, error },
+-            OpenRouterError::RateLimit { retry_after } => Self::RateLimitExceeded {
+-                provider,
+-                retry_after: Some(retry_after),
+-            },
+-            OpenRouterError::ServerOverloaded { retry_after } => Self::ServerOverloaded {
+-                provider,
+-                retry_after,
+-            },
+-            OpenRouterError::ApiError(api_error) => api_error.into(),
+-        }
+-    }
+-}
+-
+-impl From<ApiError> for language_model_core::LanguageModelCompletionError {
+-    fn from(error: ApiError) -> Self {
+-        use ApiErrorCode::*;
+-        let provider = language_model_core::LanguageModelProviderName::new("OpenRouter");
+-        match error.code {
+-            InvalidRequestError => Self::BadRequestFormat {
+-                provider,
+-                message: error.message,
+-            },
+-            AuthenticationError => Self::AuthenticationError {
+-                provider,
+-                message: error.message,
+-            },
+-            PaymentRequiredError => Self::AuthenticationError {
+-                provider,
+-                message: format!("Payment required: {}", error.message),
+-            },
+-            PermissionError => Self::PermissionError {
+-                provider,
+-                message: error.message,
+-            },
+-            RequestTimedOut => Self::HttpResponseError {
+-                provider,
+-                status_code: http_client::StatusCode::REQUEST_TIMEOUT,
+-                message: error.message,
+-            },
+-            RateLimitError => Self::RateLimitExceeded {
+-                provider,
+-                retry_after: None,
+-            },
+-            ApiError => Self::ApiInternalServerError {
+-                provider,
+-                message: error.message,
+-            },
+-            OverloadedError => Self::ServerOverloaded {
+-                provider,
+-                retry_after: None,
+-            },
+-        }
+-    }
+-}
+diff --git a/crates/x_ai/Cargo.toml b/crates/x_ai/Cargo.toml
+deleted file mode 100644
+index 8ff020df8c..0000000000
+--- a/crates/x_ai/Cargo.toml
++++ /dev/null
+@@ -1,22 +0,0 @@
+-[package]
+-name = "x_ai"
+-version = "0.1.0"
+-edition.workspace = true
+-publish.workspace = true
+-license = "GPL-3.0-or-later"
+-
+-[lints]
+-workspace = true
+-
+-[lib]
+-path = "src/x_ai.rs"
+-
+-[features]
+-default = []
+-schemars = ["dep:schemars"]
+-
+-[dependencies]
+-anyhow.workspace = true
+-schemars = { workspace = true, optional = true }
+-serde.workspace = true
+-strum.workspace = true
+diff --git a/crates/x_ai/LICENSE-GPL b/crates/x_ai/LICENSE-GPL
+deleted file mode 120000
+index 89e542f750..0000000000
+--- a/crates/x_ai/LICENSE-GPL
++++ /dev/null
+@@ -1 +0,0 @@
+-../../LICENSE-GPL
+\ No newline at end of file
+diff --git a/crates/x_ai/src/x_ai.rs b/crates/x_ai/src/x_ai.rs
+deleted file mode 100644
+index 7ba13d8352..0000000000
+--- a/crates/x_ai/src/x_ai.rs
++++ /dev/null
+@@ -1,125 +0,0 @@
+-use anyhow::Result;
+-use serde::{Deserialize, Serialize};
+-use strum::EnumIter;
+-
+-pub const XAI_API_URL: &str = "https://api.x.ai/v1";
+-
+-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+-#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, EnumIter)]
+-pub enum Model {
+-    #[default]
+-    #[serde(rename = "grok-4.3", alias = "grok-4.3-latest")]
+-    Grok43,
+-    #[serde(rename = "grok-4.20-0309-reasoning")]
+-    Grok420Reasoning,
+-    #[serde(rename = "grok-4.20-0309-non-reasoning")]
+-    Grok420NonReasoning,
+-    #[serde(rename = "custom")]
+-    Custom {
+-        name: String,
+-        /// The name displayed in the UI, such as in the agent panel model dropdown menu.
+-        display_name: Option<String>,
+-        max_tokens: u64,
+-        max_output_tokens: Option<u64>,
+-        max_completion_tokens: Option<u64>,
+-        supports_images: Option<bool>,
+-        supports_tools: Option<bool>,
+-        parallel_tool_calls: Option<bool>,
+-    },
+-}
+-
+-impl Model {
+-    pub fn default_fast() -> Self {
+-        Self::Grok43
+-    }
+-
+-    pub fn from_id(id: &str) -> Result<Self> {
+-        match id {
+-            "grok-4.3" => Ok(Self::Grok43),
+-            "grok-4.20-0309-reasoning" => Ok(Self::Grok420Reasoning),
+-            "grok-4.20-0309-non-reasoning" => Ok(Self::Grok420NonReasoning),
+-            _ => anyhow::bail!("invalid model id '{id}'"),
+-        }
+-    }
+-
+-    pub fn id(&self) -> &str {
+-        match self {
+-            Self::Grok43 => "grok-4.3",
+-            Self::Grok420Reasoning => "grok-4.20-0309-reasoning",
+-            Self::Grok420NonReasoning => "grok-4.20-0309-non-reasoning",
+-            Self::Custom { name, .. } => name,
+-        }
+-    }
+-
+-    pub fn display_name(&self) -> &str {
+-        match self {
+-            Self::Grok43 => "Grok 4.3",
+-            Self::Grok420Reasoning => "Grok 4.20 Reasoning",
+-            Self::Grok420NonReasoning => "Grok 4.20 (Non-Reasoning)",
+-            Self::Custom {
+-                name, display_name, ..
+-            } => display_name.as_ref().unwrap_or(name),
+-        }
+-    }
+-
+-    pub fn max_token_count(&self) -> u64 {
+-        match self {
+-            Self::Grok43 => 1_000_000,
+-            Self::Grok420Reasoning | Self::Grok420NonReasoning => 2_000_000,
+-            Self::Custom { max_tokens, .. } => *max_tokens,
+-        }
+-    }
+-
+-    pub fn max_output_tokens(&self) -> Option<u64> {
+-        match self {
+-            Self::Grok43 | Self::Grok420Reasoning | Self::Grok420NonReasoning => Some(64_000),
+-            Self::Custom {
+-                max_output_tokens, ..
+-            } => *max_output_tokens,
+-        }
+-    }
+-
+-    pub fn supports_parallel_tool_calls(&self) -> bool {
+-        match self {
+-            Self::Grok43 | Self::Grok420Reasoning | Self::Grok420NonReasoning => true,
+-            Self::Custom {
+-                parallel_tool_calls: Some(support),
+-                ..
+-            } => *support,
+-            Model::Custom { .. } => false,
+-        }
+-    }
+-
+-    pub fn requires_json_schema_subset(&self) -> bool {
+-        match self {
+-            Self::Grok43 | Self::Grok420Reasoning | Self::Grok420NonReasoning => true,
+-            Self::Custom { .. } => false,
+-        }
+-    }
+-
+-    pub fn supports_prompt_cache_key(&self) -> bool {
+-        false
+-    }
+-
+-    pub fn supports_tool(&self) -> bool {
+-        match self {
+-            Self::Grok43 | Self::Grok420Reasoning | Self::Grok420NonReasoning => true,
+-            Self::Custom {
+-                supports_tools: Some(support),
+-                ..
+-            } => *support,
+-            Model::Custom { .. } => false,
+-        }
+-    }
+-
+-    pub fn supports_images(&self) -> bool {
+-        match self {
+-            Self::Grok43 | Self::Grok420Reasoning | Self::Grok420NonReasoning => true,
+-            Self::Custom {
+-                supports_images: Some(support),
+-                ..
+-            } => *support,
+-            Self::Custom { .. } => false,
+-        }
+-    }
+-}

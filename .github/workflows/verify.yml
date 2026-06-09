@@ -1,0 +1,50 @@
+name: verify
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: forbidden-strings + banned-crates (applied tree)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Fetch submodule tags + set git identity
+        run: |
+          # `just apply` resolves the baseline via `git describe --tags` and
+          # replays the series with `git am`; a clean runner has neither the
+          # submodule tags nor a committer identity, so both fail without this.
+          git -C zed fetch --tags --force origin || true
+          git config --global user.email "ci@zedium.local"
+          git config --global user.name "Zedium CI"
+
+      - name: Install ripgrep + just
+        run: |
+          if ! command -v rg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ripgrep
+          fi
+          rg --version | head -1
+          if ! command -v just >/dev/null; then
+            cargo install --locked just
+          fi
+          just --version
+
+      - name: Apply patches
+        run: just apply
+
+      - name: Verify
+        run: just verify

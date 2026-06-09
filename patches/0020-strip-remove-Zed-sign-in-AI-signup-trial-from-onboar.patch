@@ -1,0 +1,284 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sat, 30 May 2026 19:01:30 +0300
+Subject: [PATCH] strip: remove Zed sign-in / AI-signup / trial from onboarding
+
+Strips the Zed-account surface from the onboarding flow: the SignIn and
+OpenAccount actions + handlers, the "Zed Agent" onboarding button
+(sign-in / Start Free Trial / zed.dev account), and the dead plan/
+agent-state locals that fed the removed first-open telemetry event. The
+third-party agent-setup grid (claude-acp, codex-acp, copilot-cli, cursor)
+and the rest of onboarding (theme, keymap, vim, import, basics) are kept.
+UserStore/Plan/Client/zed_urls drop out of the onboarding crate entirely.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/onboarding/src/basics_page.rs | 84 ++--------------------------
+ crates/onboarding/src/onboarding.rs  | 63 +--------------------
+ 2 files changed, 6 insertions(+), 141 deletions(-)
+
+diff --git a/crates/onboarding/src/basics_page.rs b/crates/onboarding/src/basics_page.rs
+index 2968c08b6c..391c0532e5 100644
+--- a/crates/onboarding/src/basics_page.rs
++++ b/crates/onboarding/src/basics_page.rs
+@@ -1,8 +1,5 @@
+ use std::sync::Arc;
+-use std::time::Duration;
+ 
+-use client::{Client, UserStore, zed_urls};
+-use cloud_api_types::Plan;
+ use collections::HashMap;
+ use fs::Fs;
+ use gpui::{Action, Animation, AnimationExt, App, Entity, IntoElement, TaskExt, pulsating_between};
+@@ -475,77 +472,7 @@ fn render_registry_agent_button(
+         })
+ }
+ 
+-fn render_zed_agent_button(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoElement {
+-    let client = Client::global(cx);
+-    let status = *client.status().borrow();
+-
+-    let plan = user_store.read(cx).plan();
+-    let is_free = matches!(plan, Some(Plan::ZedFree) | None);
+-    let is_pro = matches!(plan, Some(Plan::ZedPro));
+-    let is_trial = matches!(plan, Some(Plan::ZedProTrial));
+-
+-    let is_signed_out = status.is_signed_out()
+-        || matches!(
+-            status,
+-            client::Status::AuthenticationError | client::Status::ConnectionError
+-        );
+-    let is_signing_in = status.is_signing_in();
+-    let is_signed_in = !is_signed_out;
+-
+-    let state_element = if is_signed_out {
+-        Label::new("Sign In")
+-            .size(LabelSize::XSmall)
+-            .color(Color::Muted)
+-            .into_any_element()
+-    } else if is_signing_in {
+-        Label::new("Signing In…")
+-            .size(LabelSize::XSmall)
+-            .color(Color::Muted)
+-            .with_animation(
+-                "signing-in",
+-                Animation::new(Duration::from_secs(2))
+-                    .repeat()
+-                    .with_easing(pulsating_between(0.4, 0.8)),
+-                |label, delta| label.alpha(delta),
+-            )
+-            .into_any_element()
+-    } else if is_signed_in && is_free {
+-        Label::new("Start Free Trial")
+-            .size(LabelSize::XSmall)
+-            .color(Color::Muted)
+-            .into_any_element()
+-    } else {
+-        Icon::new(IconName::Check)
+-            .size(IconSize::Small)
+-            .color(Color::Success)
+-            .into_any_element()
+-    };
+-
+-    AgentSetupButton::new("zed-agent-onboarding")
+-        .icon(
+-            Icon::new(IconName::ZedAgent)
+-                .size(IconSize::XSmall)
+-                .color(Color::Muted),
+-        )
+-        .name("Zed Agent")
+-        .state(state_element)
+-        .disabled(is_trial || is_pro)
+-        .map(|this| {
+-            if is_signed_in && is_free {
+-                this.on_click(move |_, _window, cx| {
+-                    cx.open_url(&zed_urls::start_trial_url(cx))
+-                })
+-            } else {
+-                this.on_click(move |_, _, cx| {
+-                    let client = Client::global(cx);
+-                    cx.spawn(async move |cx| client.sign_in_with_optional_connect(true, cx).await)
+-                        .detach_and_log_err(cx);
+-                })
+-            }
+-        })
+-}
+-
+-fn render_ai_section(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoElement {
++fn render_ai_section(cx: &mut App) -> impl IntoElement {
+     let registry_agents = AgentRegistryStore::try_global(cx)
+         .map(|store| store.read(cx).agents().to_vec())
+         .unwrap_or_default();
+@@ -555,7 +482,7 @@ fn render_ai_section(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoE
+         .get::<AllAgentServersSettings>(None)
+         .clone();
+ 
+-    let column_count = 1 + FEATURED_AGENT_IDS.len() as u16;
++    let column_count = FEATURED_AGENT_IDS.len() as u16;
+ 
+     let grid = FEATURED_AGENT_IDS.iter().fold(
+         div()
+@@ -563,8 +490,7 @@ fn render_ai_section(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoE
+             .mt_1p5()
+             .grid()
+             .grid_cols(column_count)
+-            .gap_2()
+-            .child(render_zed_agent_button(user_store, cx)),
++            .gap_2(),
+         |grid, agent_id| {
+             let Some(agent) = registry_agents
+                 .iter()
+@@ -587,7 +513,7 @@ fn render_ai_section(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoE
+         .child(grid)
+ }
+ 
+-pub(crate) fn render_basics_page(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoElement {
++pub(crate) fn render_basics_page(cx: &mut App) -> impl IntoElement {
+     let mut tab_index = 0;
+ 
+     v_flex()
+@@ -595,7 +521,7 @@ pub(crate) fn render_basics_page(user_store: &Entity<UserStore>, cx: &mut App) -
+         .gap_6()
+         .child(render_theme_section(&mut tab_index, cx))
+         .child(render_base_keymap_section(&mut tab_index, cx))
+-        .child(render_ai_section(user_store, cx))
++        .child(render_ai_section(cx))
+         .child(render_import_settings_section(&mut tab_index, cx))
+         .child(render_vim_mode_switch(&mut tab_index, cx))
+         .child(render_worktree_auto_trust_switch(&mut tab_index, cx))
+diff --git a/crates/onboarding/src/onboarding.rs b/crates/onboarding/src/onboarding.rs
+index 9da3da0945..839c272480 100644
+--- a/crates/onboarding/src/onboarding.rs
++++ b/crates/onboarding/src/onboarding.rs
+@@ -1,6 +1,4 @@
+ use crate::multibuffer_hint::MultibufferHint;
+-use client::{Client, UserStore, zed_urls};
+-use cloud_api_types::Plan;
+ use db::kvp::KeyValueStore;
+ use fs::Fs;
+ use gpui::{
+@@ -9,7 +7,6 @@ use gpui::{
+     Subscription, Task, WeakEntity, Window, actions,
+ };
+ use notifications::status_toast::StatusToast;
+-use project::agent_server_store::AllAgentServersSettings;
+ use schemars::JsonSchema;
+ use serde::Deserialize;
+ use settings::{SettingsStore, VsCodeSettingsSource};
+@@ -25,7 +22,6 @@ use workspace::{
+     AppState, Workspace, WorkspaceId,
+     dock::DockPosition,
+     item::{Item, ItemEvent},
+-    notifications::NotifyResultExt as _,
+     open_new, register_serializable_item, with_active_or_new_workspace,
+ };
+ use zed_actions::OpenOnboarding;
+@@ -60,10 +56,6 @@ actions!(
+     [
+         /// Finish the onboarding process.
+         Finish,
+-        /// Sign in while in the onboarding flow.
+-        SignIn,
+-        /// Open the user account in zed.dev while in the onboarding flow.
+-        OpenAccount,
+         /// Resets the welcome screen hints to their initial state.
+         ResetHints
+     ]
+@@ -207,7 +199,6 @@ pub fn show_onboarding_view(app_state: Arc<AppState>, cx: &mut App) -> Task<anyh
+ struct Onboarding {
+     workspace: WeakEntity<Workspace>,
+     focus_handle: FocusHandle,
+-    user_store: Entity<UserStore>,
+     scroll_handle: ScrollHandle,
+     _settings_subscription: Subscription,
+ }
+@@ -216,36 +207,6 @@ impl Onboarding {
+     fn new(workspace: &Workspace, cx: &mut App) -> Entity<Self> {
+         let font_family_cache = theme::FontFamilyCache::global(cx);
+ 
+-        let installed_agents = cx
+-            .global::<SettingsStore>()
+-            .get::<AllAgentServersSettings>(None)
+-            .clone();
+-        let client = Client::global(cx);
+-        let status = *client.status().borrow();
+-        let plan = workspace.user_store().read(cx).plan();
+-        let zed_agent_state = if status.is_signed_out()
+-            || matches!(
+-                status,
+-                client::Status::AuthenticationError | client::Status::ConnectionError
+-            ) {
+-            "signed_out"
+-        } else if status.is_signing_in() {
+-            "signing_in"
+-        } else {
+-            match plan {
+-                Some(Plan::ZedPro) => "pro",
+-                Some(Plan::ZedProTrial) => "trial",
+-                Some(Plan::ZedBusiness) => "business",
+-                Some(Plan::ZedStudent) => "student",
+-                Some(Plan::ZedFree) | None => "free",
+-            }
+-        };
+-        let agents_installed = basics_page::FEATURED_AGENT_IDS
+-            .iter()
+-            .filter(|id| installed_agents.contains_key(**id))
+-            .copied()
+-            .collect::<Vec<_>>();
+-
+         cx.new(|cx| {
+             cx.spawn(async move |this, cx| {
+                 font_family_cache.prefetch(cx).await;
+@@ -259,7 +220,6 @@ impl Onboarding {
+                 workspace: workspace.weak_handle(),
+                 focus_handle: cx.focus_handle(),
+                 scroll_handle: ScrollHandle::new(),
+-                user_store: workspace.user_store().clone(),
+                 _settings_subscription: cx
+                     .observe_global::<SettingsStore>(move |_, cx| cx.notify()),
+             }
+@@ -270,26 +230,8 @@ impl Onboarding {
+         go_to_welcome_page(cx);
+     }
+ 
+-    fn handle_sign_in(&mut self, _: &SignIn, window: &mut Window, cx: &mut Context<Self>) {
+-        let client = Client::global(cx);
+-        let workspace = self.workspace.clone();
+-
+-        window
+-            .spawn(cx, async move |mut cx| {
+-                client
+-                    .sign_in_with_optional_connect(true, &cx)
+-                    .await
+-                    .notify_workspace_async_err(workspace, &mut cx);
+-            })
+-            .detach();
+-    }
+-
+-    fn handle_open_account(_: &OpenAccount, _: &mut Window, cx: &mut App) {
+-        cx.open_url(&zed_urls::account_url(cx))
+-    }
+-
+     fn render_page(&mut self, cx: &mut Context<Self>) -> AnyElement {
+-        crate::basics_page::render_basics_page(&self.user_store, cx).into_any_element()
++        crate::basics_page::render_basics_page(cx).into_any_element()
+     }
+ }
+ 
+@@ -307,8 +249,6 @@ impl Render for Onboarding {
+             .size_full()
+             .bg(cx.theme().colors().editor_background)
+             .on_action(Self::on_finish)
+-            .on_action(cx.listener(Self::handle_sign_in))
+-            .on_action(Self::handle_open_account)
+             .on_action(cx.listener(|_, _: &menu::SelectNext, window, cx| {
+                 window.focus_next(cx);
+                 cx.notify();
+@@ -412,7 +352,6 @@ impl Item for Onboarding {
+     ) -> Task<Option<Entity<Self>>> {
+         Task::ready(Some(cx.new(|cx| Onboarding {
+             workspace: self.workspace.clone(),
+-            user_store: self.user_store.clone(),
+             scroll_handle: ScrollHandle::new(),
+             focus_handle: cx.focus_handle(),
+             _settings_subscription: cx.observe_global::<SettingsStore>(move |_, cx| cx.notify()),

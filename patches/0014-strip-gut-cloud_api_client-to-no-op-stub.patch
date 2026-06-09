@@ -1,0 +1,716 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Thu, 28 May 2026 23:17:31 +0300
+Subject: [PATCH] strip: gut cloud_api_client to no-op stub
+
+Replace the websocket/REST client to zed.dev with a stub that returns
+CloudDisabled / NotSignedIn for every method. Drop yawc, gpui_tokio,
+serde_json, and the websocket module so no network code remains in
+the crate. Preserve CloudApiClient + ClientApiError + LlmApiToken
+types so the kept call sites in the client crate continue to
+compile. This stub is intentionally retained as a type-only no-op
+handle and is never fully stripped (the later sign-in removal does
+not touch it).
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Cargo.lock                                    |  62 +--
+ crates/cloud_api_client/Cargo.toml            |   5 +-
+ .../cloud_api_client/src/cloud_api_client.rs  | 382 ++----------------
+ crates/cloud_api_client/src/websocket.rs      |  73 ----
+ 4 files changed, 51 insertions(+), 471 deletions(-)
+ delete mode 100644 crates/cloud_api_client/src/websocket.rs
+
+diff --git a/Cargo.lock b/Cargo.lock
+index e44f8fff58..a3aea1f5b7 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1365,7 +1365,7 @@ dependencies = [
+  "anyhow",
+  "arrayvec",
+  "log",
+- "nom 7.1.3",
++ "nom",
+  "num-rational",
+  "v_frame",
+ ]
+@@ -2797,7 +2797,7 @@ version = "0.6.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6fac387a98bb7c37292057cffc56d62ecb629900026402633ae9160df93a8766"
+ dependencies = [
+- "nom 7.1.3",
++ "nom",
+ ]
+ 
+ [[package]]
+@@ -3110,12 +3110,9 @@ dependencies = [
+  "cloud_api_types",
+  "futures 0.3.32",
+  "gpui",
+- "gpui_tokio",
+  "http_client",
+  "parking_lot",
+- "serde_json",
+  "thiserror 2.0.17",
+- "yawc",
+ ]
+ 
+ [[package]]
+@@ -8471,7 +8468,7 @@ dependencies = [
+  "byteorder",
+  "crossbeam-channel",
+  "flate2",
+- "nom 7.1.3",
++ "nom",
+  "num-traits",
+ ]
+ 
+@@ -11670,15 +11667,6 @@ dependencies = [
+  "minimal-lexical",
+ ]
+ 
+-[[package]]
+-name = "nom"
+-version = "8.0.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
+-dependencies = [
+- "memchr",
+-]
+-
+ [[package]]
+ name = "noop_proc_macro"
+ version = "0.3.0"
+@@ -13753,7 +13741,7 @@ version = "0.0.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a4a63d338dec139f56dacc692ca63ad35a6be6a797442479b55acd611d79e906"
+ dependencies = [
+- "nom 7.1.3",
++ "nom",
+ ]
+ 
+ [[package]]
+@@ -17441,7 +17429,7 @@ version = "0.2.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "7bba3a93db0cc4f7bdece8bb09e77e2e785c20bfebf79eb8340ed80708048790"
+ dependencies = [
+- "nom 7.1.3",
++ "nom",
+  "unicode_categories",
+ ]
+ 
+@@ -21017,7 +21005,7 @@ checksum = "1f8cbf8125142b9b30321ac8721f54c52fbcd6659f76cf863d5e2e38c07a3d7b"
+ dependencies = [
+  "const_format",
+  "itertools 0.14.0",
+- "nom 7.1.3",
++ "nom",
+  "pori",
+  "regex",
+  "thiserror 2.0.17",
+@@ -21175,15 +21163,6 @@ dependencies = [
+  "rustls-pki-types",
+ ]
+ 
+-[[package]]
+-name = "webpki-roots"
+-version = "0.26.8"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2210b291f7ea53617fbafcc4939f10914214ec15aace5ba62293a668f322c5c9"
+-dependencies = [
+- "rustls-pki-types",
+-]
+-
+ [[package]]
+ name = "webrtc-sys"
+ version = "0.3.23"
+@@ -22964,35 +22943,6 @@ version = "1.0.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
+ 
+-[[package]]
+-name = "yawc"
+-version = "0.2.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "19a5d82922135b4ae73a079a4ffb5501e9aadb4d785b8c660eaa0a8b899028c5"
+-dependencies = [
+- "base64 0.22.1",
+- "bytes 1.11.1",
+- "flate2",
+- "futures 0.3.32",
+- "http-body-util",
+- "hyper 1.7.0",
+- "hyper-util",
+- "js-sys",
+- "nom 8.0.0",
+- "pin-project",
+- "rand 0.8.6",
+- "sha1",
+- "thiserror 1.0.69",
+- "tokio",
+- "tokio-rustls 0.26.4",
+- "tokio-util",
+- "url",
+- "wasm-bindgen",
+- "wasm-bindgen-futures",
+- "web-sys",
+- "webpki-roots",
+-]
+-
+ [[package]]
+ name = "yazi"
+ version = "0.2.1"
+diff --git a/crates/cloud_api_client/Cargo.toml b/crates/cloud_api_client/Cargo.toml
+index 716276ccf4..6d7ab072c0 100644
+--- a/crates/cloud_api_client/Cargo.toml
++++ b/crates/cloud_api_client/Cargo.toml
+@@ -13,13 +13,10 @@ path = "src/cloud_api_client.rs"
+ 
+ [dependencies]
+ anyhow.workspace = true
++async-lock.workspace = true
+ cloud_api_types.workspace = true
+ futures.workspace = true
+ gpui.workspace = true
+-gpui_tokio.workspace = true
+ http_client.workspace = true
+ parking_lot.workspace = true
+-serde_json.workspace = true
+-async-lock.workspace = true
+ thiserror.workspace = true
+-yawc.workspace = true
+diff --git a/crates/cloud_api_client/src/cloud_api_client.rs b/crates/cloud_api_client/src/cloud_api_client.rs
+index dc00d001d3..eabaccb938 100644
+--- a/crates/cloud_api_client/src/cloud_api_client.rs
++++ b/crates/cloud_api_client/src/cloud_api_client.rs
+@@ -1,73 +1,56 @@
+ mod llm_token;
+-mod websocket;
+ 
+ use std::sync::Arc;
+ 
+-use anyhow::{Context, Result, anyhow};
+-use cloud_api_types::websocket_protocol::{PROTOCOL_VERSION, PROTOCOL_VERSION_HEADER_NAME};
++use anyhow::{Result, anyhow};
++use cloud_api_types::websocket_protocol::MessageToClient;
+ pub use cloud_api_types::*;
+-use futures::AsyncReadExt as _;
++use futures::Stream;
++use futures::stream;
+ use gpui::{App, Task};
+-use gpui_tokio::Tokio;
+-use http_client::http::request;
+-use http_client::{
+-    AsyncBody, HttpClientWithUrl, HttpRequestExt, Json, Method, Request, StatusCode,
+-};
+ use parking_lot::RwLock;
+ use thiserror::Error;
+-use yawc::WebSocket;
+-
+-use crate::websocket::Connection;
+ 
+ pub use llm_token::LlmApiToken;
+ 
+-struct Credentials {
+-    user_id: u32,
+-    access_token: String,
+-}
+-
+ #[derive(Debug, Error)]
+ pub enum ClientApiError {
+-    /// 401 — credentials are invalid or expired.
+     #[error("Unauthorized")]
+     Unauthorized,
+-    /// No credentials have been set on the client.
+     #[error("not signed in")]
+     NotSignedIn,
+-    /// Connection-level failure: DNS, TCP, TLS, timeout, etc.
+-    /// The HTTP request never received a response.
+-    #[error("connection to {host} failed")]
+-    ConnectionFailed {
+-        host: String,
+-        #[source]
+-        source: anyhow::Error,
+-    },
+-    /// Server returned a non-success HTTP status (other than 401).
+-    #[error("{host} returned {status}")]
+-    ServerError {
+-        host: String,
+-        status: StatusCode,
+-        body: String,
+-    },
+-    /// Failed to read or parse the response body after a successful HTTP status.
+-    #[error("invalid response")]
+-    InvalidResponse(#[source] anyhow::Error),
+-    /// Failed to build the HTTP request (URL construction, serialization, etc.).
+-    /// This typically indicates a programming error.
+-    #[error("failed to build request")]
+-    RequestBuildFailed(#[source] anyhow::Error),
++    #[error("cloud disabled")]
++    CloudDisabled,
+ }
+ 
+ pub struct CloudApiClient {
+     credentials: RwLock<Option<Credentials>>,
+-    http_client: Arc<HttpClientWithUrl>,
++}
++
++struct Credentials {
++    user_id: u32,
++    #[allow(dead_code)]
++    access_token: String,
++}
++
++pub struct Connection;
++
++impl Connection {
++    pub fn spawn(
++        self,
++        _cx: &App,
++    ) -> (
++        std::pin::Pin<Box<dyn Stream<Item = Result<MessageToClient>>>>,
++        Task<()>,
++    ) {
++        (Box::pin(stream::empty()), Task::ready(()))
++    }
+ }
+ 
+ impl CloudApiClient {
+-    pub fn new(http_client: Arc<HttpClientWithUrl>) -> Self {
++    pub fn new(_http_client: Arc<http_client::HttpClientWithUrl>) -> Self {
+         Self {
+             credentials: RwLock::new(None),
+-            http_client,
+         }
+     }
+ 
+@@ -86,333 +69,56 @@ impl CloudApiClient {
+         *self.credentials.write() = None;
+     }
+ 
+-    fn cloud_host(&self) -> String {
+-        self.http_client
+-            .build_zed_cloud_url("/")
+-            .ok()
+-            .and_then(|url| url.host_str().map(String::from))
+-            .unwrap_or_else(|| "cloud.zed.dev".into())
+-    }
+-
+-    fn build_request(
+-        &self,
+-        req: request::Builder,
+-        body: impl Into<AsyncBody>,
+-    ) -> Result<Request<AsyncBody>, ClientApiError> {
+-        let credentials = self.credentials.read();
+-        let credentials = credentials.as_ref().ok_or(ClientApiError::NotSignedIn)?;
+-        build_request(req, body, credentials).map_err(ClientApiError::RequestBuildFailed)
++    pub fn user_id(&self) -> Option<u32> {
++        self.credentials.read().as_ref().map(|c| c.user_id)
+     }
+ 
+     pub async fn get_authenticated_user(
+         &self,
+-        system_id: Option<String>,
++        _system_id: Option<String>,
+     ) -> Result<GetAuthenticatedUserResponse, ClientApiError> {
+-        let host = self.cloud_host();
+-        let request_builder = Request::builder()
+-            .method(Method::GET)
+-            .uri(
+-                self.http_client
+-                    .build_zed_cloud_url("/client/users/me")
+-                    .map_err(ClientApiError::RequestBuildFailed)?
+-                    .as_ref(),
+-            )
+-            .when_some(system_id, |builder, system_id| {
+-                builder.header(ZED_SYSTEM_ID_HEADER_NAME, system_id)
+-            });
+-
+-        let request = self.build_request(request_builder, AsyncBody::default())?;
+-
+-        let mut response = self.http_client.send(request).await.map_err(|source| {
+-            ClientApiError::ConnectionFailed {
+-                host: host.clone(),
+-                source,
+-            }
+-        })?;
+-
+-        if !response.status().is_success() {
+-            if response.status() == StatusCode::UNAUTHORIZED {
+-                return Err(ClientApiError::Unauthorized);
+-            }
+-
+-            let mut body = String::new();
+-            response.body_mut().read_to_string(&mut body).await.ok();
+-
+-            return Err(ClientApiError::ServerError {
+-                host,
+-                status: response.status(),
+-                body,
+-            });
+-        }
+-
+-        let mut body = String::new();
+-        response
+-            .body_mut()
+-            .read_to_string(&mut body)
+-            .await
+-            .map_err(|e| ClientApiError::InvalidResponse(e.into()))?;
+-
+-        serde_json::from_str(&body).map_err(|e| ClientApiError::InvalidResponse(e.into()))
++        Err(ClientApiError::CloudDisabled)
+     }
+ 
+-    pub fn connect(&self, cx: &App) -> Result<Task<Result<Connection>>> {
+-        let mut connect_url = self
+-            .http_client
+-            .build_zed_cloud_url("/client/users/connect")?;
+-        connect_url
+-            .set_scheme(match connect_url.scheme() {
+-                "https" => "wss",
+-                "http" => "ws",
+-                scheme => Err(anyhow!("invalid URL scheme: {scheme}"))?,
+-            })
+-            .map_err(|_| anyhow!("failed to set URL scheme"))?;
+-
+-        let credentials = self.credentials.read();
+-        let credentials = credentials.as_ref().context("no credentials provided")?;
+-        let authorization_header = format!("{} {}", credentials.user_id, credentials.access_token);
+-
+-        Ok(Tokio::spawn_result(cx, async move {
+-            let ws = WebSocket::connect(connect_url)
+-                .with_request(
+-                    request::Builder::new()
+-                        .header("Authorization", authorization_header)
+-                        .header(PROTOCOL_VERSION_HEADER_NAME, PROTOCOL_VERSION.to_string()),
+-                )
+-                .await?;
+-
+-            Ok(Connection::new(ws))
+-        }))
++    pub fn connect(&self, _cx: &App) -> Result<Task<Result<Connection>>> {
++        Err(anyhow!("Cloud is disabled in this Zedium build"))
+     }
+ 
+     pub async fn create_llm_token(
+         &self,
+-        system_id: Option<String>,
+-        organization_id: Option<OrganizationId>,
++        _system_id: Option<String>,
++        _organization_id: Option<OrganizationId>,
+     ) -> Result<CreateLlmTokenResponse, ClientApiError> {
+-        let host = self.cloud_host();
+-        let request_builder = Request::builder()
+-            .method(Method::POST)
+-            .uri(
+-                self.http_client
+-                    .build_zed_cloud_url("/client/llm_tokens")
+-                    .map_err(ClientApiError::RequestBuildFailed)?
+-                    .as_ref(),
+-            )
+-            .when_some(system_id, |builder, system_id| {
+-                builder.header(ZED_SYSTEM_ID_HEADER_NAME, system_id)
+-            });
+-
+-        let request = self.build_request(
+-            request_builder,
+-            Json(CreateLlmTokenBody { organization_id }),
+-        )?;
+-
+-        let mut response = self.http_client.send(request).await.map_err(|source| {
+-            ClientApiError::ConnectionFailed {
+-                host: host.clone(),
+-                source,
+-            }
+-        })?;
+-
+-        if !response.status().is_success() {
+-            if response.status() == StatusCode::UNAUTHORIZED {
+-                return Err(ClientApiError::Unauthorized);
+-            }
+-
+-            let mut body = String::new();
+-            response.body_mut().read_to_string(&mut body).await.ok();
+-
+-            return Err(ClientApiError::ServerError {
+-                host,
+-                status: response.status(),
+-                body,
+-            });
+-        }
+-
+-        let mut body = String::new();
+-        response
+-            .body_mut()
+-            .read_to_string(&mut body)
+-            .await
+-            .map_err(|e| ClientApiError::InvalidResponse(e.into()))?;
+-
+-        serde_json::from_str(&body).map_err(|e| ClientApiError::InvalidResponse(e.into()))
++        Err(ClientApiError::CloudDisabled)
+     }
+ 
+     pub async fn update_system_settings(
+         &self,
+-        system_id: String,
+-        body: UpdateSystemSettingsBody,
++        _system_id: String,
++        _body: UpdateSystemSettingsBody,
+     ) -> Result<SystemSettings, ClientApiError> {
+-        let host = self.cloud_host();
+-        let request_builder = Request::builder()
+-            .method(Method::PATCH)
+-            .uri(
+-                self.http_client
+-                    .build_zed_cloud_url("/client/system_settings")
+-                    .map_err(ClientApiError::RequestBuildFailed)?
+-                    .as_ref(),
+-            )
+-            .header(ZED_SYSTEM_ID_HEADER_NAME, system_id);
+-
+-        let request = self.build_request(request_builder, Json(body))?;
+-
+-        let mut response = self.http_client.send(request).await.map_err(|source| {
+-            ClientApiError::ConnectionFailed {
+-                host: host.clone(),
+-                source,
+-            }
+-        })?;
+-
+-        if !response.status().is_success() {
+-            if response.status() == StatusCode::UNAUTHORIZED {
+-                return Err(ClientApiError::Unauthorized);
+-            }
+-
+-            let mut body = String::new();
+-            response.body_mut().read_to_string(&mut body).await.ok();
+-
+-            return Err(ClientApiError::ServerError {
+-                host,
+-                status: response.status(),
+-                body,
+-            });
+-        }
+-
+-        let mut body = String::new();
+-        response
+-            .body_mut()
+-            .read_to_string(&mut body)
+-            .await
+-            .map_err(|e| ClientApiError::InvalidResponse(e.into()))?;
+-
+-        serde_json::from_str(&body).map_err(|e| ClientApiError::InvalidResponse(e.into()))
++        Err(ClientApiError::CloudDisabled)
+     }
+ 
+-    pub async fn validate_credentials(&self, user_id: u32, access_token: &str) -> Result<bool> {
+-        let request = build_request(
+-            Request::builder().method(Method::GET).uri(
+-                self.http_client
+-                    .build_zed_cloud_url("/client/users/me")?
+-                    .as_ref(),
+-            ),
+-            AsyncBody::default(),
+-            &Credentials {
+-                user_id,
+-                access_token: access_token.into(),
+-            },
+-        )?;
+-
+-        let mut response = self.http_client.send(request).await?;
+-
+-        if response.status().is_success() {
+-            Ok(true)
+-        } else {
+-            let mut body = String::new();
+-            response.body_mut().read_to_string(&mut body).await?;
+-            if response.status() == StatusCode::UNAUTHORIZED {
+-                Ok(false)
+-            } else {
+-                Err(anyhow!(
+-                    "Failed to get authenticated user.\nStatus: {:?}\nBody: {body}",
+-                    response.status()
+-                ))
+-            }
+-        }
++    pub async fn validate_credentials(&self, _user_id: u32, _access_token: &str) -> Result<bool> {
++        Ok(false)
+     }
+ 
+-    pub async fn submit_agent_feedback(&self, body: SubmitAgentThreadFeedbackBody) -> Result<()> {
+-        let request = self.build_request(
+-            Request::builder().method(Method::POST).uri(
+-                self.http_client
+-                    .build_zed_cloud_url("/client/feedback/agent_thread")?
+-                    .as_ref(),
+-            ),
+-            AsyncBody::from(serde_json::to_string(&body)?),
+-        )?;
+-
+-        let mut response = self.http_client.send(request).await?;
+-
+-        if !response.status().is_success() {
+-            let mut body = String::new();
+-            response.body_mut().read_to_string(&mut body).await?;
+-
+-            anyhow::bail!(
+-                "Failed to submit agent feedback.\nStatus: {:?}\nBody: {body}",
+-                response.status()
+-            )
+-        }
+-
++    pub async fn submit_agent_feedback(&self, _body: SubmitAgentThreadFeedbackBody) -> Result<()> {
+         Ok(())
+     }
+ 
+     pub async fn submit_agent_feedback_comments(
+         &self,
+-        body: SubmitAgentThreadFeedbackCommentsBody,
++        _body: SubmitAgentThreadFeedbackCommentsBody,
+     ) -> Result<()> {
+-        let request = self.build_request(
+-            Request::builder().method(Method::POST).uri(
+-                self.http_client
+-                    .build_zed_cloud_url("/client/feedback/agent_thread_comments")?
+-                    .as_ref(),
+-            ),
+-            AsyncBody::from(serde_json::to_string(&body)?),
+-        )?;
+-
+-        let mut response = self.http_client.send(request).await?;
+-
+-        if !response.status().is_success() {
+-            let mut body = String::new();
+-            response.body_mut().read_to_string(&mut body).await?;
+-
+-            anyhow::bail!(
+-                "Failed to submit agent feedback comments.\nStatus: {:?}\nBody: {body}",
+-                response.status()
+-            )
+-        }
+-
+         Ok(())
+     }
+ 
+     pub async fn submit_edit_prediction_feedback(
+         &self,
+-        body: SubmitEditPredictionFeedbackBody,
++        _body: SubmitEditPredictionFeedbackBody,
+     ) -> Result<()> {
+-        let request = self.build_request(
+-            Request::builder().method(Method::POST).uri(
+-                self.http_client
+-                    .build_zed_cloud_url("/client/feedback/edit_prediction")?
+-                    .as_ref(),
+-            ),
+-            AsyncBody::from(serde_json::to_string(&body)?),
+-        )?;
+-
+-        let mut response = self.http_client.send(request).await?;
+-
+-        if !response.status().is_success() {
+-            let mut body = String::new();
+-            response.body_mut().read_to_string(&mut body).await?;
+-
+-            anyhow::bail!(
+-                "Failed to submit edit prediction feedback.\nStatus: {:?}\nBody: {body}",
+-                response.status()
+-            )
+-        }
+-
+         Ok(())
+     }
+ }
+-
+-fn build_request(
+-    req: request::Builder,
+-    body: impl Into<AsyncBody>,
+-    credentials: &Credentials,
+-) -> Result<Request<AsyncBody>> {
+-    Ok(req
+-        .header("Content-Type", "application/json")
+-        .header(
+-            "Authorization",
+-            format!("{} {}", credentials.user_id, credentials.access_token),
+-        )
+-        .body(body.into())?)
+-}
+diff --git a/crates/cloud_api_client/src/websocket.rs b/crates/cloud_api_client/src/websocket.rs
+deleted file mode 100644
+index 48a628db78..0000000000
+--- a/crates/cloud_api_client/src/websocket.rs
++++ /dev/null
+@@ -1,73 +0,0 @@
+-use std::pin::Pin;
+-use std::time::Duration;
+-
+-use anyhow::Result;
+-use cloud_api_types::websocket_protocol::MessageToClient;
+-use futures::channel::mpsc::unbounded;
+-use futures::stream::{SplitSink, SplitStream};
+-use futures::{FutureExt as _, SinkExt as _, Stream, StreamExt as _, TryStreamExt as _, pin_mut};
+-use gpui::{App, BackgroundExecutor, Task};
+-use yawc::WebSocket;
+-use yawc::frame::{FrameView, OpCode};
+-
+-const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(1);
+-
+-pub type MessageStream = Pin<Box<dyn Stream<Item = Result<MessageToClient>>>>;
+-
+-pub struct Connection {
+-    tx: SplitSink<WebSocket, FrameView>,
+-    rx: SplitStream<WebSocket>,
+-}
+-
+-impl Connection {
+-    pub fn new(ws: WebSocket) -> Self {
+-        let (tx, rx) = ws.split();
+-
+-        Self { tx, rx }
+-    }
+-
+-    pub fn spawn(self, cx: &App) -> (MessageStream, Task<()>) {
+-        let (mut tx, rx) = (self.tx, self.rx);
+-
+-        let (message_tx, message_rx) = unbounded();
+-
+-        let handle_io = |executor: BackgroundExecutor| async move {
+-            // Send messages on this frequency so the connection isn't closed.
+-            let keepalive_timer = executor.timer(KEEPALIVE_INTERVAL).fuse();
+-            futures::pin_mut!(keepalive_timer);
+-
+-            let rx = rx.fuse();
+-            pin_mut!(rx);
+-
+-            loop {
+-                futures::select_biased! {
+-                    _ = keepalive_timer => {
+-                        let _ = tx.send(FrameView::ping(Vec::new())).await;
+-
+-                        keepalive_timer.set(executor.timer(KEEPALIVE_INTERVAL).fuse());
+-                    }
+-                    frame = rx.next() => {
+-                        let Some(frame) = frame else {
+-                            break;
+-                        };
+-
+-                        match frame.opcode {
+-                            OpCode::Binary => {
+-                                let message_result = MessageToClient::deserialize(&frame.payload);
+-                                message_tx.unbounded_send(message_result).ok();
+-                            }
+-                            OpCode::Close => {
+-                                break;
+-                            }
+-                            _ => {}
+-                        }
+-                    }
+-                }
+-            }
+-        };
+-
+-        let task = cx.spawn(async move |cx| handle_io(cx.background_executor().clone()).await);
+-
+-        (message_rx.into_stream().boxed(), task)
+-    }
+-}
