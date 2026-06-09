@@ -1,0 +1,15 @@
+# cargo-deny config for Zedium.
+#
+# Currently a placeholder. External dependency bans are added here as needed
+# during the strip patch series (e.g. if a stripped upstream crate is replaced
+# by something that pulls in a problematic transitive dep).
+#
+# Run: cargo deny check bans
+
+[graph]
+all-features = true
+
+[bans]
+multiple-versions = "allow"
+wildcards = "allow"
+deny = []

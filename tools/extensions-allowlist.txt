@@ -1,0 +1,61 @@
+# Curated default extension set for the air-gapped snapshot bundle.
+#
+# One Zed extension `id` per line (`#` comments / blank lines ignored). This is
+# the DEFAULT set `tools/snapshot-extensions.sh` bundles; pass `--full` to that
+# script to instead snapshot every registry extension compatible with the
+# shipped channel (larger asset, slower CI).
+#
+# Selection: the most-downloaded language/code extensions + popular theme and
+# icon-theme packs, as of the 2026-06 registry snapshot. All are served at a
+# wasm_api_version <= 0.7.0 build, which is what the `stable` channel loads.
+# Edit freely — air-gapped users get exactly what's listed here.
+
+# --- Languages / code extensions ---
+html
+java
+dockerfile
+php
+vue
+ruby
+scss
+csharp
+lua
+terraform
+elixir
+svelte
+dart
+swift
+kotlin
+emmet
+latex
+zig
+astro
+nix
+prisma
+powershell
+biome
+proto
+toml
+sql
+xml
+make
+log
+git-firefly
+
+# --- Themes ---
+catppuccin
+catppuccin-blur
+tokyo-night
+one-dark-pro
+github-theme
+dracula
+snazzy
+nvim-nightfox
+vscode-dark-modern
+macos-classic
+opencode
+
+# --- Icon themes ---
+catppuccin-icons
+material-icon-theme
+vscode-icons

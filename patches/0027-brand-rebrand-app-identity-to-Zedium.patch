@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 31 May 2026 12:55:08 +0300
+Subject: [PATCH] brand: rebrand app identity to Zedium
+
+- paths::APP_NAME Zed -> Zedium: isolates user data/config/cache dirs
+  (~/.config/zedium, ~/.local/share/zedium, Application Support/Zedium)
+  so a Zedium install never collides with upstream Zed.
+- Rename the main binary target zed -> zedium (default-run + [[bin]]),
+  satisfying the APP_NAME_LOWERCASE == CARGO_BIN_NAME fork assertion.
+- Bundle identifiers dev.zed.* -> dev.zedium.*, names Zed* -> Zedium*,
+  macOS URL scheme zed -> zedium.
+
+The internal cargo *package* stays 'zed' (build/workspace tooling keys on
+it). The cli crate's installed-app discovery names (zed-editor, Zed.exe)
+are install-layout concerns handled by the release packaging.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/paths/src/paths.rs |  2 +-
+ crates/zed/Cargo.toml     | 28 ++++++++++++++--------------
+ 2 files changed, 15 insertions(+), 15 deletions(-)
+
+diff --git a/crates/paths/src/paths.rs b/crates/paths/src/paths.rs
+index d222bd1c0c..a0a8df7934 100644
+--- a/crates/paths/src/paths.rs
++++ b/crates/paths/src/paths.rs
+@@ -15,7 +15,7 @@ pub const EDITORCONFIG_NAME: &str = ".editorconfig";
+ /// and state directory paths.
+ ///
+ /// Forks should change this to avoid colliding with Zed's user data.
+-pub const APP_NAME: &str = "Zed";
++pub const APP_NAME: &str = "Zedium";
+ 
+ /// Lowercased form of [`APP_NAME`], for use in XDG-style paths on
+ /// Linux/FreeBSD and the macOS `~/.config` fallback.
+diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
+index 6e8f380e46..b3ef235b17 100644
+--- a/crates/zed/Cargo.toml
++++ b/crates/zed/Cargo.toml
+@@ -6,7 +6,7 @@ version = "1.5.4"
+ publish.workspace = true
+ license = "GPL-3.0-or-later"
+ authors = ["Zedium contributors"]
+-default-run = "zed"
++default-run = "zedium"
+ 
+ [lints]
+ workspace = true
+@@ -54,7 +54,7 @@ visual-tests = [
+ ]
+ 
+ [[bin]]
+-name = "zed"
++name = "zedium"
+ path = "src/main.rs"
+ 
+ [[bin]]
+@@ -261,35 +261,35 @@ repl = { workspace = true, features = ["test-support"] }
+ 
+ [package.metadata.bundle-dev]
+ icon = ["resources/app-icon-dev@2x.png", "resources/app-icon-dev.png"]
+-identifier = "dev.zed.Zed-Dev"
+-name = "Zed Dev"
++identifier = "dev.zedium.Zedium-Dev"
++name = "Zedium Dev"
+ osx_minimum_system_version = "10.15.7"
+ osx_info_plist_exts = ["resources/info/*"]
+-osx_url_schemes = ["zed"]
++osx_url_schemes = ["zedium"]
+ 
+ [package.metadata.bundle-nightly]
+ icon = ["resources/app-icon-nightly@2x.png", "resources/app-icon-nightly.png"]
+-identifier = "dev.zed.Zed-Nightly"
+-name = "Zed Nightly"
++identifier = "dev.zedium.Zedium-Nightly"
++name = "Zedium Nightly"
+ osx_minimum_system_version = "10.15.7"
+ osx_info_plist_exts = ["resources/info/*"]
+-osx_url_schemes = ["zed"]
++osx_url_schemes = ["zedium"]
+ 
+ [package.metadata.bundle-preview]
+ icon = ["resources/app-icon-preview@2x.png", "resources/app-icon-preview.png"]
+-identifier = "dev.zed.Zed-Preview"
+-name = "Zed Preview"
++identifier = "dev.zedium.Zedium-Preview"
++name = "Zedium Preview"
+ osx_minimum_system_version = "10.15.7"
+ osx_info_plist_exts = ["resources/info/*"]
+-osx_url_schemes = ["zed"]
++osx_url_schemes = ["zedium"]
+ 
+ [package.metadata.bundle-stable]
+ icon = ["resources/app-icon@2x.png", "resources/app-icon.png"]
+-identifier = "dev.zed.Zed"
+-name = "Zed"
++identifier = "dev.zedium.Zedium"
++name = "Zedium"
+ osx_minimum_system_version = "10.15.7"
+ osx_info_plist_exts = ["resources/info/*"]
+-osx_url_schemes = ["zed"]
++osx_url_schemes = ["zedium"]
+ 
+ [package.metadata.cargo-machete]
+ ignored = ["profiling", "zstd", "tracing"]

@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Tue, 2 Jun 2026 13:52:14 +0300
+Subject: [PATCH] remote_connection: enable test-support dev-deps so tests
+ compile
+
+The RemoteConnectionOptions::Mock match arms (gated on any(test, feature=
+"test-support")) require the remote/project/workspace deps built with
+test-support. Add the standard dev-dependency wiring (mirrors crates/project)
+so 'cargo test -p remote_connection' compiles and runs without extra flags.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Cargo.lock                          | 2 ++
+ crates/remote_connection/Cargo.toml | 8 +++++++-
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 051a80c265..d08c605167 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -15190,8 +15190,10 @@ dependencies = [
+  "log",
+  "markdown",
+  "menu",
++ "project",
+  "release_channel",
+  "remote",
++ "remote_connection",
+  "semver",
+  "settings",
+  "theme_settings",
+diff --git a/crates/remote_connection/Cargo.toml b/crates/remote_connection/Cargo.toml
+index 870329f2ca..f830983237 100644
+--- a/crates/remote_connection/Cargo.toml
++++ b/crates/remote_connection/Cargo.toml
+@@ -30,4 +30,10 @@ settings.workspace = true
+ theme_settings.workspace = true
+ ui.workspace = true
+ ui_input.workspace = true
+-workspace.workspace = true
+\ No newline at end of file
++workspace.workspace = true
++
++[dev-dependencies]
++remote = { workspace = true, features = ["test-support"] }
++project = { workspace = true, features = ["test-support"] }
++workspace = { workspace = true, features = ["test-support"] }
++remote_connection = { workspace = true, features = ["test-support"] }
+\ No newline at end of file

@@ -1,0 +1,136 @@
+# Forbidden strings (regex patterns, one per line)
+#
+# Format: one regex per line. Lines starting with # are comments.
+# Each pattern is passed to `rg -e <pattern>`.
+#
+# Patterns get added here as strip patches land. Each strip commit should
+# (1) remove the matching code, and (2) add the corresponding pattern here
+# so future upstream merges that re-introduce it fail CI.
+#
+# See zedium/docs/DISCOVERY.md §12 for the full seed list.
+
+# Crash / minidump upload (Patch 0001 + 0004)
+MINIDUMP_ENDPOINT
+ZED_MINIDUMP_ENDPOINT
+sentry\[
+crashpad
+upload_minidump
+upload_previous_minidumps
+
+# Telemetry event reporting macros (Patch 0001)
+telemetry::event!
+
+# Zed-cloud LLM provider registration (Patch 0009)
+CloudLanguageModelProvider
+OpenAiSubscribedProvider
+
+# Cloud upload paths to Zed Sentry (Patch 0004)
+upload_build_timings
+
+# Cloud websocket / network reintroduction (Patch 0014)
+\.build_zed_cloud_url\(
+yawc::WebSocket
+WebSocket::connect
+
+# Admin-impersonation cloud egress (egress-strip patch)
+# authenticate_as_admin POSTed to cloud.zed.dev/internal/users/impersonate behind
+# ZED_IMPERSONATE + ZED_ADMIN_API_TOKEN. It survived the cloud strip because the
+# \.build_zed_cloud_url\( tripwire above was silently broken (verify.sh mangled the
+# regex backslashes). The egress + the orphaned build_zed_*_url builders are now
+# deleted; this pins the exact endpoint so a re-add fails the gate even via a
+# different URL builder.
+/internal/users/impersonate
+
+# Extension registry network reintroduction (Patch 0016)
+\.build_zed_api_url\(
+
+# Air-gapped prebuilt-extension install must stay network-free (Patch: prebuilt
+# install). The deleted registry installer downloaded over HTTP; the replacement
+# (install_prebuilt_extension) only reads local files. Ban the old network
+# installer symbol so a rebase can't quietly restore HTTP install.
+install_or_upgrade_extension_at_endpoint
+
+# WebRTC/libwebrtc reintroduction (Patch: strip libwebrtc from audio). libwebrtc
+# was pulled in only for the call/collab echo canceller; it is dropped (no WebRTC
+# in an air-gapped editor, and it broke the macOS build). Catch a re-add of the
+# native APM usage in a kept crate.
+libwebrtc::native
+
+# Client-side telemetry uploader reintroduction (Patch 0019)
+# These are the distinctive client::Telemetry uploader/producer methods that
+# were swept out; the crate-level guard is the compiler (telemetry.rs is gone),
+# these catch a re-add inside a kept crate.
+set_authenticated_user_info
+report_assistant_event
+report_discovered_project_type_events
+
+# Zed-cloud edit-prediction (Zeta) reintroduction (Patches 0023-0025)
+# Edit prediction is self-hosted-only now. These were the exclusive helpers /
+# endpoints of the Zed-hosted predict path; deleting them means a rebase that
+# re-adds cloud edit prediction fails to compile, and these catch a re-add.
+authenticated_llm_request
+global_llm_token
+\.build_zed_llm_url\(
+/predict_edits/v3
+/predict_edits/raw
+/predict_edits/accept
+/predict_edits/settled
+/predict_edits/reject
+/edit_prediction_experiments
+
+# Deleted vendor LLM provider endpoints (Patch 0026)
+# These crates were deleted (zero referrers after the cloud strip); their domains
+# are now absent from the tree. Banning makes a rebase that re-adds the provider
+# crate fail CI. NOT banned: api.openai.com / generativelanguage.googleapis.com /
+# codestral.mistral.ai — those remain as legit user-opt-in BYO defaults in the
+# kept open_ai / google_ai / codestral crates.
+api\.mistral\.ai
+api\.x\.ai
+api\.deepseek\.com
+openrouter\.ai
+
+# Zed brand-leak tripwires (Patches 0029-0033)
+# User-facing surfaces are rebranded to Zedium; these catch a regression that
+# re-introduces Zed brand strings, documentation links, the old app id, or the
+# Zed-Pro / Zed-AI product names. Per the brand-gate scope (user-facing +
+# identifiers; see docs/RELEASE_READINESS.md), the following are deliberately
+# NOT banned and stay in the tree: the back-compat "zed.dev" provider id
+# (settings_content / language_model / migrator), the theme $schema URL
+# (zed.dev/schema/themes), api.zed.dev / cloud.zed.dev cloud-transport
+# internals, and zed.dev example URLs in tests/fixtures. The eval fixture
+# corpus and Windows-only shell integration are exempt via the allowlist.
+Zed Pro\b
+Zed AI\b
+zed\.dev/docs
+zed\.dev/(jobs|account|start-trial|upgrade|blog)
+twitter\.com/zeddotdev
+dev\.zed\.Zed
+dev\.zed\.Oops
+
+# ACP agent registry network reintroduction (Patch 0035)
+# The Agent Client Protocol registry fetch (cdn.agentclientprotocol.com) was the
+# last unsolicited boot-time egress — caught by the strace air-gap smoke, not the
+# build/verify gates. The store is offline-only now: it loads agents from an
+# on-disk cache, never the network. These catch a rebase that re-adds the remote
+# registry index fetch or the registry icon downloads. NOT banned: the bare
+# agentclientprotocol.com "learn more" link in agent_configuration (opens a
+# browser only on explicit user click; no automatic egress).
+cdn\.agentclientprotocol\.com
+agentclientprotocol/registry
+
+# ACP agent registry — offline-only freeze (Patch 0035; revised for the v1.5.4 rebase)
+#
+# Patch 0036 originally *deleted* the registry subsystem (the empty "Add More
+# Agents" UI, the AgentRegistryStore, and the LocalRegistry archive/npx agents).
+# Upstream v1.5.4 then refactored this subsystem: it unified the old `Extension`
+# (keep) and `Registry` (strip) settings variants into a single `Registry`
+# variant (#[serde(alias = "extension")]) backed by AgentRegistryStore, with an
+# EXTENSION_TO_REGISTRY_IDS migration path. A literal replay of 0036's deletion
+# would break extension-provided agent support. So on the v1.5.4 rebase we keep
+# the model of patch 0035 (and the extension-registry freeze in 0016): the store
+# is frozen OFFLINE-ONLY rather than removed. AgentRegistryStore /
+# LocalRegistryArchiveAgent / LocalRegistryNpxAgent therefore remain in the tree,
+# but with their remote-fetch surface deleted (see 0035) — they resolve agents
+# only from the on-disk cache, which is never populated over the network. The
+# air-gap guard is the egress ban above (cdn.agentclientprotocol.com), not the
+# presence of these symbols, so the 0036 symbol tripwires are intentionally gone.

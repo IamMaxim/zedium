@@ -1,0 +1,353 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sat, 30 May 2026 20:59:05 +0300
+Subject: [PATCH] strip: remove the Zed (cloud) edit-prediction provider option
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Drop EditPredictionProvider::Zed — the only provider that routes edit
+prediction through Zed's hosted/authenticated endpoints. Edit prediction
+now requires a user-provided self-hosted model (Ollama / OpenAI-compatible
+private server) or a BYO-key provider (Mercury, Codestral). Stale
+"provider": "zed" settings migrate to None via fallible-options.
+
+Removes the variant + its account UI (sign-in/usage/data-collection arms
+gated on the Zed provider) from settings_content, the registry mapping,
+agent_ui, and the status-bar button. The store's cloud machinery is
+removed separately in the next patch.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/agent_ui/src/agent_ui.rs               |   9 +-
+ crates/edit_prediction/src/edit_prediction.rs |   5 +-
+ .../src/edit_prediction_button.rs             | 132 +-----------------
+ crates/settings_content/src/language.rs       |  13 --
+ .../zed/src/zed/edit_prediction_registry.rs   |   3 -
+ 5 files changed, 11 insertions(+), 151 deletions(-)
+
+diff --git a/crates/agent_ui/src/agent_ui.rs b/crates/agent_ui/src/agent_ui.rs
+index d140c720c3..a657d863af 100644
+--- a/crates/agent_ui/src/agent_ui.rs
++++ b/crates/agent_ui/src/agent_ui.rs
+@@ -726,8 +726,7 @@ fn update_command_palette_filter(cx: &mut App) {
+                     filter.hide_namespace("edit_prediction");
+                     filter.hide_action_types(&edit_prediction_actions);
+                 }
+-                EditPredictionProvider::Zed
+-                | EditPredictionProvider::Codestral
++                EditPredictionProvider::Codestral
+                 | EditPredictionProvider::Ollama
+                 | EditPredictionProvider::OpenAiCompatibleApi
+                 | EditPredictionProvider::Mercury => {
+@@ -944,7 +943,7 @@ mod tests {
+         });
+ 
+         // Test EditPredictionProvider
+-        // Enable EditPredictionProvider::Zed
++        // Enable EditPredictionProvider::Mercury
+         cx.update(|cx| {
+             cx.update_global::<SettingsStore, _>(|store, cx| {
+                 store.update_user_settings(cx, |s| {
+@@ -952,7 +951,7 @@ mod tests {
+                         .all_languages
+                         .edit_predictions
+                         .get_or_insert(Default::default())
+-                        .provider = Some(EditPredictionProvider::Zed);
++                        .provider = Some(EditPredictionProvider::Mercury);
+                 });
+             });
+             update_command_palette_filter(cx);
+@@ -962,7 +961,7 @@ mod tests {
+             let filter = CommandPaletteFilter::try_global(cx).unwrap();
+             assert!(
+                 !filter.is_hidden(&AcceptEditPrediction),
+-                "EditPrediction should be visible when provider is Zed"
++                "EditPrediction should be visible when provider is Mercury"
+             );
+         });
+ 
+diff --git a/crates/edit_prediction/src/edit_prediction.rs b/crates/edit_prediction/src/edit_prediction.rs
+index ef2f40d276..20bab97e20 100644
+--- a/crates/edit_prediction/src/edit_prediction.rs
++++ b/crates/edit_prediction/src/edit_prediction.rs
+@@ -2316,8 +2316,7 @@ fn currently_following(project: &Entity<Project>, cx: &App) -> bool {
+ 
+ fn is_ep_store_provider(provider: EditPredictionProvider) -> bool {
+     match provider {
+-        EditPredictionProvider::Zed
+-        | EditPredictionProvider::Mercury
++        EditPredictionProvider::Mercury
+         | EditPredictionProvider::Ollama
+         | EditPredictionProvider::OpenAiCompatibleApi => true,
+         EditPredictionProvider::None | EditPredictionProvider::Codestral => false,
+@@ -2353,7 +2352,7 @@ impl EditPredictionStore {
+ 
+         let (needs_acceptance_tracking, max_pending_predictions) =
+             match all_language_settings(None, cx).edit_predictions.provider {
+-                EditPredictionProvider::Zed | EditPredictionProvider::Mercury => (true, 2),
++                EditPredictionProvider::Mercury => (true, 2),
+                 EditPredictionProvider::Ollama => (false, 1),
+                 EditPredictionProvider::OpenAiCompatibleApi => (false, 2),
+                 EditPredictionProvider::None | EditPredictionProvider::Codestral => {
+diff --git a/crates/edit_prediction_ui/src/edit_prediction_button.rs b/crates/edit_prediction_ui/src/edit_prediction_button.rs
+index 4e9484774b..d9afc033ea 100644
+--- a/crates/edit_prediction_ui/src/edit_prediction_button.rs
++++ b/crates/edit_prediction_ui/src/edit_prediction_button.rs
+@@ -220,15 +220,12 @@ impl Render for EditPredictionButton {
+                         .with_handle(self.popover_menu_handle.clone()),
+                 )
+             }
+-            provider @ (EditPredictionProvider::Zed | EditPredictionProvider::Mercury) => {
++            provider @ EditPredictionProvider::Mercury => {
+                 let enabled = self.editor_enabled.unwrap_or(true);
+                 let file = self.file.clone();
+                 let language = self.language.clone();
+                 let project = self.project.clone();
+-                let provider_name: &'static str = match provider {
+-                    EditPredictionProvider::Zed => "zed",
+-                    _ => "unknown",
+-                };
++                let provider_name: &'static str = "unknown";
+                 let icons = self
+                     .edit_prediction_provider
+                     .as_ref()
+@@ -299,7 +296,6 @@ impl Render for EditPredictionButton {
+                 }
+ 
+                 let show_editor_predictions = self.editor_show_predictions;
+-                let user = self.user_store.read(cx).current_user();
+ 
+                 let mercury_has_error = matches!(provider, EditPredictionProvider::Mercury)
+                     && edit_prediction::EditPredictionStore::try_global(cx).is_some_and(
+@@ -318,8 +314,7 @@ impl Render for EditPredictionButton {
+                     None
+                 };
+ 
+-                let zed_cloud_needs_sign_in =
+-                    matches!(provider, EditPredictionProvider::Zed) && user.is_none();
++                let zed_cloud_needs_sign_in = false;
+                 let provider_unavailable =
+                     missing_token || mercury_has_error || zed_cloud_needs_sign_in;
+ 
+@@ -457,14 +452,6 @@ impl EditPredictionButton {
+         current_provider: EditPredictionProvider,
+         cx: &mut App,
+     ) -> ContextMenu {
+-        let organization_configuration = self
+-            .user_store
+-            .read(cx)
+-            .current_organization_configuration();
+-
+-        let is_zed_provider_disabled = organization_configuration
+-            .is_some_and(|configuration| !configuration.edit_prediction.is_enabled);
+-
+         let available_providers = get_available_providers(cx);
+ 
+         let providers: Vec<_> = available_providers
+@@ -480,20 +467,11 @@ impl EditPredictionButton {
+                     continue;
+                 };
+                 let is_current = provider == current_provider;
+-                let is_disabled_zed_provider =
+-                    provider == EditPredictionProvider::Zed && is_zed_provider_disabled;
+                 let fs = self.fs.clone();
+ 
+                 menu = menu.item(
+                     ContextMenuEntry::new(name)
+-                        .toggleable(IconPosition::Start, is_current && !is_disabled_zed_provider)
+-                        .disabled(is_disabled_zed_provider)
+-                        .when(is_disabled_zed_provider, |item| {
+-                            item.documentation_aside(DocumentationSide::Left, move |_cx| {
+-                                Label::new("Edit predictions are disabled for this organization.")
+-                                    .into_any_element()
+-                            })
+-                        })
++                        .toggleable(IconPosition::Start, is_current)
+                         .handler(move |_, cx| {
+                             set_completion_provider(fs.clone(), cx, provider);
+                         }),
+@@ -529,7 +507,6 @@ impl EditPredictionButton {
+         cx: &mut App,
+     ) -> ContextMenu {
+         let fs = self.fs.clone();
+-        let line_height = window.line_height();
+ 
+         menu = menu.header("Show Edit Predictions For");
+ 
+@@ -593,7 +570,6 @@ impl EditPredictionButton {
+             });
+         menu = menu.item(entry);
+ 
+-        let provider = settings.edit_predictions.provider;
+         let current_mode = settings.edit_predictions_mode();
+         let subtle_mode = matches!(current_mode, EditPredictionsMode::Subtle);
+         let eager_mode = matches!(current_mode, EditPredictionsMode::Eager);
+@@ -630,99 +606,6 @@ impl EditPredictionButton {
+ 
+         menu = menu.separator().header("Privacy");
+ 
+-        if matches!(provider, EditPredictionProvider::Zed) {
+-            if let Some(provider) = &self.edit_prediction_provider {
+-                let data_collection = provider.data_collection_state(cx);
+-
+-                if data_collection.is_supported() {
+-                    let provider = provider.clone();
+-                    let enabled = data_collection.is_enabled();
+-                    let is_open_source = data_collection.is_project_open_source();
+-                    let is_collecting = data_collection.is_enabled();
+-                    let (icon_name, icon_color) = if is_open_source && is_collecting {
+-                        (IconName::Check, Color::Success)
+-                    } else {
+-                        (IconName::Check, Color::Accent)
+-                    };
+-
+-                    menu = menu.item(
+-                        ContextMenuEntry::new("Training Data Collection")
+-                            .toggleable(IconPosition::Start, data_collection.is_enabled())
+-                            .icon(icon_name)
+-                            .icon_color(icon_color)
+-                            .disabled(!provider.can_toggle_data_collection(cx))
+-                            .documentation_aside(DocumentationSide::Left, move |cx| {
+-                                let (msg, label_color, icon_name, icon_color) = match (is_open_source, is_collecting) {
+-                                    (true, true) => (
+-                                        "Project identified as open source, and you're sharing data.",
+-                                        Color::Default,
+-                                        IconName::Check,
+-                                        Color::Success,
+-                                    ),
+-                                    (true, false) => (
+-                                        "Project identified as open source, but you're not sharing data.",
+-                                        Color::Muted,
+-                                        IconName::Close,
+-                                        Color::Muted,
+-                                    ),
+-                                    (false, true) => (
+-                                        "Project not identified as open source. No data captured.",
+-                                        Color::Muted,
+-                                        IconName::Close,
+-                                        Color::Muted,
+-                                    ),
+-                                    (false, false) => (
+-                                        "Project not identified as open source, and setting turned off.",
+-                                        Color::Muted,
+-                                        IconName::Close,
+-                                        Color::Muted,
+-                                    ),
+-                                };
+-                                v_flex()
+-                                    .gap_2()
+-                                    .child(
+-                                        Label::new(indoc!{
+-                                            "Help us improve our open dataset model by sharing data from open source repositories. \
+-                                            Zed must detect a license file in your repo for this setting to take effect. \
+-                                            Files with sensitive data and secrets are excluded by default."
+-                                        })
+-                                    )
+-                                    .child(
+-                                        h_flex()
+-                                            .items_start()
+-                                            .pt_2()
+-                                            .pr_1()
+-                                            .flex_1()
+-                                            .gap_1p5()
+-                                            .border_t_1()
+-                                            .border_color(cx.theme().colors().border_variant)
+-                                            .child(h_flex().flex_shrink_0().h(line_height).child(Icon::new(icon_name).size(IconSize::XSmall).color(icon_color)))
+-                                            .child(div().child(msg).w_full().text_sm().text_color(label_color.color(cx)))
+-                                    )
+-                                    .into_any_element()
+-                            })
+-                            .handler(move |_, cx| {
+-                                provider.toggle_data_collection(cx);
+-
+-                                if !enabled {
+-                                } else {
+-                                }
+-                            })
+-                    );
+-
+-                    if is_collecting && !is_open_source {
+-                        menu = menu.item(
+-                            ContextMenuEntry::new("No data captured.")
+-                                .disabled(true)
+-                                .icon(IconName::Close)
+-                                .icon_color(Color::Error)
+-                                .icon_size(IconSize::Small),
+-                        );
+-                    }
+-                }
+-            }
+-        }
+-
+         menu = menu.item(
+             ContextMenuEntry::new("Configure Excluded Files")
+                 .icon(IconName::LockOutlined)
+@@ -818,10 +701,7 @@ impl EditPredictionButton {
+             let user = self.user_store.read(cx).current_user();
+ 
+             let needs_sign_in = user.is_none()
+-                && matches!(
+-                    provider,
+-                    EditPredictionProvider::None | EditPredictionProvider::Zed
+-                );
++                && matches!(provider, EditPredictionProvider::None);
+ 
+             if needs_sign_in {
+                 menu = menu
+@@ -1172,8 +1052,6 @@ pub fn set_completion_provider(fs: Arc<dyn Fs>, cx: &mut App, provider: EditPred
+ pub fn get_available_providers(cx: &mut App) -> Vec<EditPredictionProvider> {
+     let mut providers = Vec::new();
+ 
+-    providers.push(EditPredictionProvider::Zed);
+-
+     if codestral::codestral_api_key(cx).is_some() {
+         providers.push(EditPredictionProvider::Codestral);
+     }
+diff --git a/crates/settings_content/src/language.rs b/crates/settings_content/src/language.rs
+index fb20375a0d..f2a5a53825 100644
+--- a/crates/settings_content/src/language.rs
++++ b/crates/settings_content/src/language.rs
+@@ -82,7 +82,6 @@ impl merge_from::MergeFrom for AllLanguageSettingsContent {
+ pub enum EditPredictionProvider {
+     #[default]
+     None,
+-    Zed,
+     Codestral,
+     Ollama,
+     OpenAiCompatibleApi,
+@@ -90,20 +89,8 @@ pub enum EditPredictionProvider {
+ }
+ 
+ impl EditPredictionProvider {
+-    pub fn is_zed(&self) -> bool {
+-        match self {
+-            EditPredictionProvider::Zed => true,
+-            EditPredictionProvider::None
+-            | EditPredictionProvider::Codestral
+-            | EditPredictionProvider::Ollama
+-            | EditPredictionProvider::OpenAiCompatibleApi
+-            | EditPredictionProvider::Mercury => false,
+-        }
+-    }
+-
+     pub fn display_name(&self) -> Option<&'static str> {
+         match self {
+-            EditPredictionProvider::Zed => Some("Zed AI"),
+             EditPredictionProvider::Codestral => Some("Codestral"),
+             EditPredictionProvider::Mercury => Some("Mercury"),
+             EditPredictionProvider::None => None,
+diff --git a/crates/zed/src/zed/edit_prediction_registry.rs b/crates/zed/src/zed/edit_prediction_registry.rs
+index d7c01b3f53..9c40ae6a10 100644
+--- a/crates/zed/src/zed/edit_prediction_registry.rs
++++ b/crates/zed/src/zed/edit_prediction_registry.rs
+@@ -109,9 +109,6 @@ fn edit_prediction_provider_config_for_settings(cx: &App) -> Option<EditPredicti
+     let provider = settings.provider;
+     match provider {
+         EditPredictionProvider::None => None,
+-        EditPredictionProvider::Zed => {
+-            Some(EditPredictionProviderConfig::Zed(EditPredictionModel::Zeta))
+-        }
+         EditPredictionProvider::Codestral => Some(EditPredictionProviderConfig::Codestral),
+         EditPredictionProvider::Ollama | EditPredictionProvider::OpenAiCompatibleApi => {
+             let custom_settings = if provider == EditPredictionProvider::Ollama {

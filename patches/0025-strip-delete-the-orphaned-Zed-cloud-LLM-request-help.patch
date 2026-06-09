@@ -1,0 +1,126 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sat, 30 May 2026 21:51:10 +0300
+Subject: [PATCH] strip: delete the orphaned Zed-cloud LLM request helpers
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+With edit prediction severed from the cloud, these helpers have no callers.
+Delete them so a rebase that re-introduces cloud edit prediction fails to
+compile:
+- client::Client::authenticated_llm_request + cached_llm_token
+- client::global_llm_token
+- HttpClient::build_zed_llm_url
+
+LlmApiToken, RefreshLlmTokenListener, and refresh_llm_token are kept — they
+are still used by the agent and third-party LLM providers.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/client/src/client.rs           | 45 ---------------------------
+ crates/client/src/llm_token.rs        |  7 -----
+ crates/http_client/src/http_client.rs | 16 ----------
+ 3 files changed, 68 deletions(-)
+
+diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
+index 963b2964bb..55e5f17ff9 100644
+--- a/crates/client/src/client.rs
++++ b/crates/client/src/client.rs
+@@ -1539,51 +1539,6 @@ impl Client {
+         })
+     }
+ 
+-    pub async fn cached_llm_token(
+-        &self,
+-        llm_token: &LlmApiToken,
+-        organization_id: Option<OrganizationId>,
+-    ) -> Result<String> {
+-        let system_id: Option<String> = None;
+-        let cloud_client = self.cloud_client();
+-        match llm_token
+-            .cached(&cloud_client, system_id, organization_id)
+-            .await
+-        {
+-            Ok(token) => Ok(token),
+-            Err(ClientApiError::Unauthorized) => {
+-                self.request_sign_out();
+-                Err(ClientApiError::Unauthorized).context("Failed to create LLM token")
+-            }
+-            Err(err) => Err(anyhow::Error::from(err)),
+-        }
+-    }
+-
+-    /// Sends an authenticated request to the Zed LLM service, retrying once
+-    /// with a refreshed token if the server signals that the cached LLM
+-    /// token is expired or otherwise rejected. Returns the raw response so
+-    /// callers can inspect headers and stream the body.
+-    pub async fn authenticated_llm_request(
+-        &self,
+-        llm_token: &LlmApiToken,
+-        organization_id: Option<OrganizationId>,
+-        build_request: impl Fn(&str) -> Result<http_client::Request<http_client::AsyncBody>>,
+-    ) -> Result<http_client::Response<http_client::AsyncBody>> {
+-        let http_client = self.http_client();
+-        let token = self
+-            .cached_llm_token(llm_token, organization_id.clone())
+-            .await?;
+-        let response = http_client.send(build_request(&token)?).await?;
+-        if !response.needs_llm_token_refresh()
+-            && response.status() != http_client::http::StatusCode::UNAUTHORIZED
+-        {
+-            return Ok(response);
+-        }
+-        log::info!("LLM token rejected; refreshing and retrying request");
+-        let token = self.refresh_llm_token(llm_token, organization_id).await?;
+-        http_client.send(build_request(&token)?).await
+-    }
+-
+     pub async fn refresh_llm_token(
+         &self,
+         llm_token: &LlmApiToken,
+diff --git a/crates/client/src/llm_token.rs b/crates/client/src/llm_token.rs
+index 058be7905f..6a5e31bc50 100644
+--- a/crates/client/src/llm_token.rs
++++ b/crates/client/src/llm_token.rs
+@@ -25,13 +25,6 @@ enum TokenRefreshMode {
+     ClearAndRefresh,
+ }
+ 
+-pub fn global_llm_token(cx: &App) -> LlmApiToken {
+-    RefreshLlmTokenListener::global(cx)
+-        .read(cx)
+-        .llm_api_token
+-        .clone()
+-}
+-
+ struct GlobalRefreshLlmTokenListener(Entity<RefreshLlmTokenListener>);
+ 
+ impl Global for GlobalRefreshLlmTokenListener {}
+diff --git a/crates/http_client/src/http_client.rs b/crates/http_client/src/http_client.rs
+index bbbe3b1a83..9228c2fe13 100644
+--- a/crates/http_client/src/http_client.rs
++++ b/crates/http_client/src/http_client.rs
+@@ -251,22 +251,6 @@ impl HttpClientWithUrl {
+         let query = serde_urlencoded::to_string(&query)?;
+         Ok(Url::parse(&format!("{}{}?{}", base_api_url, path, query))?)
+     }
+-
+-    /// Builds a Zed LLM URL using the given path.
+-    pub fn build_zed_llm_url(&self, path: &str, query: &[(&str, &str)]) -> Result<Url> {
+-        let base_url = self.base_url();
+-        let base_api_url = match base_url.as_ref() {
+-            "https://zed.dev" => "https://cloud.zed.dev",
+-            "https://staging.zed.dev" => "https://llm-staging.zed.dev",
+-            "http://localhost:3000" => "http://localhost:8787",
+-            other => other,
+-        };
+-
+-        Ok(Url::parse_with_params(
+-            &format!("{}{}", base_api_url, path),
+-            query,
+-        )?)
+-    }
+ }
+ 
+ impl HttpClient for HttpClientWithUrl {

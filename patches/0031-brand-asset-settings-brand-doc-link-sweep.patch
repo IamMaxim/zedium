@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 31 May 2026 14:49:59 +0300
+Subject: [PATCH] brand: asset + settings brand/doc-link sweep
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Repoint the // zed.dev/docs comment links in the seed settings/keymap
+  files (initial_*.json, keymaps) to the fork docs base.
+- default.json: replace the dead hosted agent default_model
+  (zed.dev / claude-sonnet-4) with a local Ollama default (overridable);
+  update the model_parameters example to a self-hosted provider; repoint the
+  vestigial server_url off zed.dev (nothing connects to it; the client just
+  requires a value).
+
+Bundled theme $schema URLs (zed.dev/schema/themes) are left as-is — they are
+theme-authoring metadata validated against Zed's compatible schema, not a
+user-facing surface, and the fork hosts no replacement schema.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ assets/keymaps/initial.json                   |  2 +-
+ assets/keymaps/linux/emacs.json               |  2 +-
+ assets/keymaps/macos/emacs.json               |  2 +-
+ assets/settings/default.json                  | 23 +++++++++----------
+ assets/settings/initial_debug_tasks.json      |  2 +-
+ .../settings/initial_local_debug_tasks.json   |  2 +-
+ assets/settings/initial_local_settings.json   |  2 +-
+ assets/settings/initial_server_settings.json  |  2 +-
+ assets/settings/initial_tasks.json            |  2 +-
+ assets/settings/initial_user_settings.json    |  2 +-
+ 10 files changed, 20 insertions(+), 21 deletions(-)
+
+diff --git a/assets/keymaps/initial.json b/assets/keymaps/initial.json
+index 3a8d7f382a..ae0d75a3af 100644
+--- a/assets/keymaps/initial.json
++++ b/assets/keymaps/initial.json
+@@ -1,7 +1,7 @@
+ // Zed keymap
+ //
+ // For information on binding keys, see the Zed
+-// documentation: https://zed.dev/docs/key-bindings
++// documentation: https://iammaxim.github.io/zedium/docs/key-bindings
+ //
+ // To see the default key bindings run `zed: open default keymap`
+ // from the command palette.
+diff --git a/assets/keymaps/linux/emacs.json b/assets/keymaps/linux/emacs.json
+index 5b6f841de0..6dae6d474a 100755
+--- a/assets/keymaps/linux/emacs.json
++++ b/assets/keymaps/linux/emacs.json
+@@ -1,4 +1,4 @@
+-// documentation: https://zed.dev/docs/key-bindings
++// documentation: https://iammaxim.github.io/zedium/docs/key-bindings
+ //
+ // To see the default key bindings run `zed: open default keymap`
+ // from the command palette.
+diff --git a/assets/keymaps/macos/emacs.json b/assets/keymaps/macos/emacs.json
+index 2f11e2ce00..acd551c886 100755
+--- a/assets/keymaps/macos/emacs.json
++++ b/assets/keymaps/macos/emacs.json
+@@ -1,4 +1,4 @@
+-// documentation: https://zed.dev/docs/key-bindings
++// documentation: https://iammaxim.github.io/zedium/docs/key-bindings
+ //
+ // To see the default key bindings run `zed: open default keymap`
+ // from the command palette.
+diff --git a/assets/settings/default.json b/assets/settings/default.json
+index 139afa5008..dcafd20dfd 100644
+--- a/assets/settings/default.json
++++ b/assets/settings/default.json
+@@ -1032,14 +1032,12 @@
+     // Maximum content width in pixels when limit_content_width is enabled.
+     // Content will be centered within the panel.
+     "max_content_width": 850,
+-    // The default model to use when creating new threads.
++    // The default model to use when creating new threads. Zedium ships no
++    // hosted model; this points at a local Ollama model by default. Change
++    // the provider/model to match your self-hosted or BYO-key setup.
+     "default_model": {
+-      // The provider to use.
+-      "provider": "zed.dev",
+-      // The model to use.
+-      "model": "claude-sonnet-4",
+-      // Whether thinking is enabled.
+-      "enable_thinking": false,
++      "provider": "ollama",
++      "model": "qwen2.5-coder",
+     },
+     // Additional parameters for language model requests. When making a request to a model, parameters will be taken
+     // from the last entry in this list that matches the model's provider and name. In each entry, both provider
+@@ -1058,8 +1056,8 @@
+       //
+       // To set parameters for a specific provider and model:
+       // {
+-      //   "provider": "zed.dev",
+-      //   "model": "claude-sonnet-4",
++      //   "provider": "ollama",
++      //   "model": "qwen2.5-coder",
+       //   "temperature": 1.0
+       // }
+     ],
+@@ -2521,9 +2519,10 @@
+     // Delay in milliseconds before showing the which-key popup.
+     "delay_ms": 1000,
+   },
+-  // The server to connect to. If the environment variable
+-  // ZED_SERVER_URL is set, it will override this setting.
+-  "server_url": "https://zed.dev",
++  // Vestigial server URL: the Zed-Cloud backend is removed in Zedium and
++  // nothing connects to it. Kept only because the client still requires a
++  // value. Overridable via the ZED_SERVER_URL environment variable.
++  "server_url": "https://github.com/IamMaxim/zedium",
+   // Settings overrides to use when using Zed Preview.
+   // Mostly useful for developers who are managing multiple instances of Zed.
+   "preview": {
+diff --git a/assets/settings/initial_debug_tasks.json b/assets/settings/initial_debug_tasks.json
+index 851289392a..e7f430dc77 100644
+--- a/assets/settings/initial_debug_tasks.json
++++ b/assets/settings/initial_debug_tasks.json
+@@ -1,7 +1,7 @@
+ // Some example tasks for common languages.
+ //
+ // For more documentation on how to configure debug tasks,
+-// see: https://zed.dev/docs/debugger
++// see: https://iammaxim.github.io/zedium/docs/debugger
+ [
+   {
+     "label": "Debug active Python file",
+diff --git a/assets/settings/initial_local_debug_tasks.json b/assets/settings/initial_local_debug_tasks.json
+index 4be1a903ab..18eb5a2e82 100644
+--- a/assets/settings/initial_local_debug_tasks.json
++++ b/assets/settings/initial_local_debug_tasks.json
+@@ -1,5 +1,5 @@
+ // Project-local debug tasks
+ //
+ // For more documentation on how to configure debug tasks,
+-// see: https://zed.dev/docs/debugger
++// see: https://iammaxim.github.io/zedium/docs/debugger
+ []
+diff --git a/assets/settings/initial_local_settings.json b/assets/settings/initial_local_settings.json
+index 79860b3a94..f66161a7b0 100644
+--- a/assets/settings/initial_local_settings.json
++++ b/assets/settings/initial_local_settings.json
+@@ -1,5 +1,5 @@
+ // Folder-specific settings
+ //
+ // For a full list of overridable settings, and general information on folder-specific settings,
+-// see the documentation: https://zed.dev/docs/configuring-zed#settings-files
++// see the documentation: https://iammaxim.github.io/zedium/docs/configuring-zed#settings-files
+ {}
+diff --git a/assets/settings/initial_server_settings.json b/assets/settings/initial_server_settings.json
+index 29aa569b10..0d18a48dd9 100644
+--- a/assets/settings/initial_server_settings.json
++++ b/assets/settings/initial_server_settings.json
+@@ -1,7 +1,7 @@
+ // Server-specific settings
+ //
+ // For a full list of overridable settings, and general information on settings,
+-// see the documentation: https://zed.dev/docs/configuring-zed#settings-files
++// see the documentation: https://iammaxim.github.io/zedium/docs/configuring-zed#settings-files
+ {
+   "lsp": {},
+ }
+diff --git a/assets/settings/initial_tasks.json b/assets/settings/initial_tasks.json
+index bb6c9c04ae..8e38ed3634 100644
+--- a/assets/settings/initial_tasks.json
++++ b/assets/settings/initial_tasks.json
+@@ -1,4 +1,4 @@
+-// Project tasks configuration. See https://zed.dev/docs/tasks for documentation.
++// Project tasks configuration. See https://iammaxim.github.io/zedium/docs/tasks for documentation.
+ //
+ // Example:
+ [
+diff --git a/assets/settings/initial_user_settings.json b/assets/settings/initial_user_settings.json
+index 8b57385489..496d336500 100644
+--- a/assets/settings/initial_user_settings.json
++++ b/assets/settings/initial_user_settings.json
+@@ -1,7 +1,7 @@
+ // Zed settings
+ //
+ // For information on how to configure Zed, see the Zed
+-// documentation: https://zed.dev/docs/configuring-zed
++// documentation: https://iammaxim.github.io/zedium/docs/configuring-zed
+ //
+ // To see all of Zed's default settings without changing your
+ // custom settings, run `zed: open default settings` from the

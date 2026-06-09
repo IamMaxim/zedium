@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 31 May 2026 15:11:25 +0300
+Subject: [PATCH] brand: rename edit-prediction OpenAI-compatible API-key env
+ var
+
+ZED_OPEN_AI_COMPATIBLE_EDIT_PREDICTION_API_KEY ->
+ZEDIUM_OPEN_AI_COMPATIBLE_EDIT_PREDICTION_API_KEY. This is the user-facing
+env var for configuring a self-hosted OpenAI-compatible edit-prediction
+endpoint. Other internal/dev ZED_* env vars are left as a follow-up.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/edit_prediction/src/open_ai_compatible.rs | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/crates/edit_prediction/src/open_ai_compatible.rs b/crates/edit_prediction/src/open_ai_compatible.rs
+index 9a11164822..ebc9da82d2 100644
+--- a/crates/edit_prediction/src/open_ai_compatible.rs
++++ b/crates/edit_prediction/src/open_ai_compatible.rs
+@@ -18,7 +18,7 @@ pub fn open_ai_compatible_api_url(cx: &App) -> SharedString {
+ 
+ pub const OPEN_AI_COMPATIBLE_CREDENTIALS_USERNAME: &str = "openai-compatible-api-token";
+ pub static OPEN_AI_COMPATIBLE_TOKEN_ENV_VAR: std::sync::LazyLock<EnvVar> =
+-    env_var!("ZED_OPEN_AI_COMPATIBLE_EDIT_PREDICTION_API_KEY");
++    env_var!("ZEDIUM_OPEN_AI_COMPATIBLE_EDIT_PREDICTION_API_KEY");
+ 
+ struct GlobalOpenAiCompatibleApiKey(Entity<ApiKeyState>);
+ 

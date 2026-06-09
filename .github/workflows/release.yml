@@ -1,0 +1,238 @@
+name: release
+
+# Triggered by fork-revision tags like v1.4.2-1.
+# Builds the `zedium` binary for each target, packages a plain archive, and
+# publishes a GitHub Release. No auto-update channel — users replace the archive.
+on:
+  push:
+    tags:
+      - "v*-*"
+  # Manual trigger to validate the build matrix without minting a public
+  # release tag. On a non-tag ref the `publish` job is skipped (see its `if`),
+  # so dispatch runs build+upload-artifact only.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.runs-on }}
+    # Some targets are allowed to fail without blocking the release (see
+    # macos-arm64 below); continue-on-error keeps `publish` (needs: build)
+    # running so the other binaries + the extension bundle still ship.
+    continue-on-error: ${{ matrix.experimental || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-x86_64
+            runs-on: ubuntu-latest
+            rust-target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+          - target: linux-aarch64
+            runs-on: ubuntu-24.04-arm
+            rust-target: aarch64-unknown-linux-gnu
+            archive: tar.gz
+          # Native arm64 is marked experimental: the ~160MB binary trips
+          # ld-prime's "B/BL out of range" branch-island bug for the ctor-crate
+          # constructors. We force the classic linker (-ld_classic) to work
+          # around it; if that ever stops working, the macos-x86_64 build runs on
+          # Apple Silicon via Rosetta 2, so all Macs stay covered.
+          - target: macos-arm64
+            runs-on: macos-14
+            rust-target: aarch64-apple-darwin
+            archive: zip
+            experimental: true
+            extra_rustflags: "-C link-arg=-Wl,-ld_classic"
+          # Intel Macs are cross-compiled from the Apple-Silicon runner: the
+          # macos-13 (Intel) image is retired, and the macOS SDK is universal so
+          # `--target x86_64-apple-darwin` links a working x86_64 binary.
+          - target: macos-x86_64
+            runs-on: macos-14
+            rust-target: x86_64-apple-darwin
+            archive: zip
+    steps:
+      - name: Checkout (with submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Free disk space (Linux)
+        if: startsWith(matrix.target, 'linux')
+        run: |
+          # Zed's release target/ is tens of GB; reclaim the preinstalled
+          # toolchains the runner ships so the build does not run out of disk.
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h /
+
+      - name: Fetch submodule tags + set git identity
+        run: |
+          # `just apply` resolves the baseline via `git describe --tags` and
+          # replays the series with `git am`; a clean runner has neither the
+          # submodule tags nor a committer identity, so both fail without this.
+          git -C zed fetch --tags --force origin || true
+          git config --global user.email "ci@zedium.local"
+          git config --global user.name "Zedium CI"
+
+      - name: Install just
+        run: cargo install --locked just || true
+
+      - name: Install Linux system deps
+        if: startsWith(matrix.target, 'linux')
+        run: |
+          if [ -x zed/script/linux ]; then
+            zed/script/linux
+          else
+            sudo apt-get update
+            sudo apt-get install -y libgtk-3-dev libssl-dev libasound2-dev \
+              libfontconfig-dev libwayland-dev libxkbcommon-dev libvulkan-dev \
+              libgit2-dev make clang cmake mold
+          fi
+
+      - name: Apply patches
+        run: just apply
+
+      - name: Verify (static gate)
+        run: just verify
+
+      - name: Add Rust target
+        # Run inside zed/ so the rust-toolchain.toml override (1.95.0) applies:
+        # the cross-target must be added to the toolchain cargo actually uses,
+        # not the runner's default, or the build fails with "can't find crate
+        # for `std`".
+        run: cd zed && rustup target add ${{ matrix.rust-target }}
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: zed
+          key: ${{ matrix.target }}
+
+      - name: Build release binary
+        # RELEASE_CHANNEL=stable makes build.rs embed the stable (teal) app icon
+        # and selects the dev.zedium.Zedium identity; without it the build
+        # defaults to the dev channel (amber icon, -Dev id).
+        env:
+          RELEASE_CHANNEL: stable
+        run: |
+          cd zed
+          # If a target needs extra rustflags (e.g. macos-arm64's -ld_classic),
+          # replicate the repo's .cargo/config.toml [build] rustflags and append
+          # them, since setting RUSTFLAGS via env fully overrides the config
+          # value (cargo does not merge the two).
+          extra='${{ matrix.extra_rustflags }}'
+          if [ -n "$extra" ]; then
+            export RUSTFLAGS="-C symbol-mangling-version=v0 --cfg tokio_unstable $extra"
+          fi
+          cargo build --release --target ${{ matrix.rust-target }} --package zed --bin zedium
+
+      - name: Package archive
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          stage="zedium-${tag}-${{ matrix.target }}"
+          mkdir -p "$stage/bin"
+          cp "zed/target/${{ matrix.rust-target }}/release/zedium" "$stage/bin/zedium"
+          cp -r zed/assets "$stage/assets" || true
+          cp docs/INSTALL.md docs/EDIT_PREDICTION.md "$stage/" || true
+          cp zed/LICENSE-GPL zed/LICENSE-AGPL zed/LICENSE-APACHE "$stage/" 2>/dev/null || true
+          if [ "${{ matrix.archive }}" = "zip" ]; then
+            # Ad-hoc sign the bare binary so Gatekeeper can run it after
+            # the user clears the quarantine attribute (see INSTALL.md).
+            codesign --force --sign - "$stage/bin/zedium" || true
+            zip -r "${stage}.zip" "$stage"
+            echo "asset=${stage}.zip" >> "$GITHUB_OUTPUT"
+          else
+            tar czf "${stage}.tar.gz" "$stage"
+            echo "asset=${stage}.tar.gz" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checksum
+        shell: bash
+        run: |
+          asset="${{ steps.package.outputs.asset }}"
+          if command -v sha256sum >/dev/null; then
+            sha256sum "$asset" > "$asset.sha256"
+          else
+            shasum -a 256 "$asset" > "$asset.sha256"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            ${{ steps.package.outputs.asset }}
+            ${{ steps.package.outputs.asset }}.sha256
+
+  snapshot_extensions:
+    name: snapshot extension bundle
+    # Build-time only: snapshots the public Zed extension registry into an
+    # offline-installable bundle. Never runs in the shipped binary. Independent
+    # of the build matrix, so it runs in parallel.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (no submodule needed)
+        uses: actions/checkout@v4
+
+      - name: Build offline extension bundle
+        run: |
+          # Derive the upstream Zed version from the tag (v1.5.4-1 -> v1.5.4) so
+          # the bundle is labelled with the Zed release it is compatible with.
+          ref="${GITHUB_REF_NAME:-dev}"
+          zed_version="${ref%-*}"
+          bash tools/snapshot-extensions.sh \
+            --out dist-extensions \
+            --channel stable \
+            --zed-version "$zed_version"
+
+      - name: Upload extension bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: extensions-bundle
+          path: |
+            dist-extensions/*.tar.gz
+            dist-extensions/*.tar.gz.sha256
+
+  publish:
+    name: publish release
+    needs: [build, snapshot_extensions]
+    # Only publish a GitHub Release for real release tags. workflow_dispatch
+    # runs (CI validation on a branch) build+upload artifacts but skip this.
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          generate_release_notes: true
+          body: |
+            Zedium ${{ github.ref_name }} — telemetry-free, cloud-free fork of Zed.
+
+            Install: see `INSTALL.md` in the archive (macOS users must clear the
+            quarantine attribute — the build is ad-hoc signed only).
+
+            No auto-update: replace the archive to upgrade. AI features are off
+            until you configure a self-hosted/BYO provider.
+
+            Offline extensions: `zedium-extensions-stable-*.tar.gz` is a snapshot
+            of the Zed extension registry for air-gapped installs. Carry it to the
+            target machine and install via "Install from File" in the Extensions
+            view (or the `zed: install prebuilt extension` command). See
+            `EXTENSIONS_OFFLINE.md`.

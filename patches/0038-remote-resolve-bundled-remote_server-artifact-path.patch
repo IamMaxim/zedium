@@ -1,0 +1,63 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Mon, 1 Jun 2026 00:40:25 +0300
+Subject: [PATCH] remote: resolve bundled remote_server artifact path
+
+Resolves the on-disk path of the bundled remote_server artifact:
+<exe_dir>/remote_servers/<name>.gz, with the directory overridable
+via ZED_REMOTE_SERVER_BUNDLE_DIR for development. Returns a
+descriptive error (naming the expected file and the build recipe)
+when no matching artifact is present, instead of a network download.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ .../src/remote_connection.rs                  | 36 +++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/crates/remote_connection/src/remote_connection.rs b/crates/remote_connection/src/remote_connection.rs
+index ff2665b590..a3c07096fc 100644
+--- a/crates/remote_connection/src/remote_connection.rs
++++ b/crates/remote_connection/src/remote_connection.rs
+@@ -681,6 +681,42 @@ fn bundled_server_artifact_name(platform: RemotePlatform) -> String {
+     )
+ }
+ 
++/// Directory holding bundled `remote_server` artifacts.
++///
++/// Resolved relative to the running executable (`<exe_dir>/remote_servers`), so it
++/// works from both the installed app bundle and a plain `cargo run`/`cargo build`
++/// layout. Overridable via `ZED_REMOTE_SERVER_BUNDLE_DIR` for development/testing.
++fn bundled_server_dir() -> Result<PathBuf> {
++    if let Ok(dir) = std::env::var("ZED_REMOTE_SERVER_BUNDLE_DIR") {
++        return Ok(PathBuf::from(dir));
++    }
++    let exe = std::env::current_exe()
++        .map_err(|e| anyhow!("locating current executable: {e}"))?;
++    let dir = exe
++        .parent()
++        .ok_or_else(|| anyhow!("current executable has no parent directory"))?
++        .join("remote_servers");
++    Ok(dir)
++}
++
++/// Locate the bundled `remote_server` artifact for `platform`, returning a
++/// descriptive error when it is absent.
++fn bundled_server_binary_path(platform: RemotePlatform) -> Result<PathBuf> {
++    let name = bundled_server_artifact_name(platform);
++    let dir = bundled_server_dir()?;
++    let path = dir.join(&name);
++    if path.exists() {
++        Ok(path)
++    } else {
++        Err(anyhow!(
++            "no bundled remote server for this host: expected `{name}` in {}. \
++             Build it with `just remote-servers`, or set ZED_REMOTE_SERVER_BUNDLE_DIR \
++             to a directory containing the artifact.",
++            dir.display(),
++        ))
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;

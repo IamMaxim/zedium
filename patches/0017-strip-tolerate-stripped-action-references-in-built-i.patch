@@ -1,0 +1,211 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sat, 30 May 2026 17:53:22 +0300
+Subject: [PATCH] strip: tolerate stripped-action references in built-in
+ keymaps
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+load_asset_allow_partial_failure gains a source: Option<KeybindSource>
+param and now log::warn!+drops danglers instead of bailing. The three
+load_default_keymap unwraps in zed.rs switch to it via .log_err() so a
+keymap referencing actions from a removed crate (collab, channel, …) no
+longer crashes startup. Test call sites updated for the new signature.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/agent_ui/src/agent_panel.rs         |  3 +-
+ crates/editor/src/edit_prediction_tests.rs |  1 +
+ crates/editor/src/editor_tests.rs          |  1 +
+ crates/search/src/buffer_search.rs         |  3 ++
+ crates/settings/src/keymap_file.rs         | 24 ++++++++++++++--
+ crates/vim/src/test/vim_test_context.rs    |  3 +-
+ crates/zed/src/zed.rs                      | 32 ++++++++++++++++------
+ 7 files changed, 55 insertions(+), 12 deletions(-)
+
+diff --git a/crates/agent_ui/src/agent_panel.rs b/crates/agent_ui/src/agent_panel.rs
+index a94a932ee8..cb0de6070e 100644
+--- a/crates/agent_ui/src/agent_panel.rs
++++ b/crates/agent_ui/src/agent_panel.rs
+@@ -8348,6 +8348,7 @@ mod tests {
+         cx.update(|cx| {
+             let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
+                 "keymaps/default-macos.json",
++                None,
+                 cx,
+             )
+             .unwrap();
+@@ -11380,7 +11381,7 @@ mod tests {
+ 
+             // Load vim keybindings
+             let mut vim_key_bindings =
+-                settings::KeymapFile::load_asset_allow_partial_failure("keymaps/vim.json", cx)
++                settings::KeymapFile::load_asset_allow_partial_failure("keymaps/vim.json", None, cx)
+                     .unwrap();
+             for key_binding in &mut vim_key_bindings {
+                 key_binding.set_meta(settings::KeybindSource::Vim.meta());
+diff --git a/crates/editor/src/edit_prediction_tests.rs b/crates/editor/src/edit_prediction_tests.rs
+index 80849c4b79..88f2f4b31f 100644
+--- a/crates/editor/src/edit_prediction_tests.rs
++++ b/crates/editor/src/edit_prediction_tests.rs
+@@ -912,6 +912,7 @@ fn load_default_keymap(cx: &mut gpui::TestAppContext) {
+         cx.bind_keys(
+             settings::KeymapFile::load_asset_allow_partial_failure(
+                 settings::DEFAULT_KEYMAP_PATH,
++                None,
+                 cx,
+             )
+             .expect("failed to load default keymap"),
+diff --git a/crates/editor/src/editor_tests.rs b/crates/editor/src/editor_tests.rs
+index 3eca954d6d..dbf620cc0d 100644
+--- a/crates/editor/src/editor_tests.rs
++++ b/crates/editor/src/editor_tests.rs
+@@ -27629,6 +27629,7 @@ async fn test_multi_buffer_navigation_with_folded_buffers(cx: &mut TestAppContex
+     cx.update(|cx| {
+         let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
+             "keymaps/default-linux.json",
++            None,
+             cx,
+         )
+         .unwrap();
+diff --git a/crates/search/src/buffer_search.rs b/crates/search/src/buffer_search.rs
+index ea03a1a7f9..10798852a4 100644
+--- a/crates/search/src/buffer_search.rs
++++ b/crates/search/src/buffer_search.rs
+@@ -2037,6 +2037,7 @@ mod tests {
+         let window = cx.add_window(|window, cx| {
+             let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
+                 "keymaps/default-macos.json",
++                None,
+                 cx,
+             )
+             .unwrap();
+@@ -2080,6 +2081,7 @@ mod tests {
+         let window = cx.add_window(|window, cx| {
+             let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
+                 "keymaps/default-macos.json",
++                None,
+                 cx,
+             )
+             .unwrap();
+@@ -3325,6 +3327,7 @@ mod tests {
+         let window = cx.add_window(|window, cx| {
+             let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
+                 "keymaps/default-macos.json",
++                None,
+                 cx,
+             )
+             .unwrap();
+diff --git a/crates/settings/src/keymap_file.rs b/crates/settings/src/keymap_file.rs
+index 82c6f6528b..ca507b05a3 100644
+--- a/crates/settings/src/keymap_file.rs
++++ b/crates/settings/src/keymap_file.rs
+@@ -203,8 +203,17 @@ impl KeymapFile {
+ 
+     pub fn load_asset_allow_partial_failure(
+         asset_path: &str,
++        source: Option<KeybindSource>,
+         cx: &App,
+     ) -> anyhow::Result<Vec<KeyBinding>> {
++        let apply_source = |mut key_bindings: Vec<KeyBinding>| {
++            if let Some(source) = source {
++                for key_binding in &mut key_bindings {
++                    key_binding.set_meta(source.meta());
++                }
++            }
++            key_bindings
++        };
+         match Self::load(asset_str::<SettingsAssets>(asset_path).as_ref(), cx) {
+             KeymapFileLoadResult::SomeFailedToLoad {
+                 key_bindings,
+@@ -213,8 +222,19 @@ impl KeymapFile {
+             } if key_bindings.is_empty() => {
+                 anyhow::bail!("Error loading built-in keymap \"{asset_path}\": {error_message}",)
+             }
+-            KeymapFileLoadResult::Success { key_bindings, .. }
+-            | KeymapFileLoadResult::SomeFailedToLoad { key_bindings, .. } => Ok(key_bindings),
++            KeymapFileLoadResult::Success { key_bindings, .. } => Ok(apply_source(key_bindings)),
++            // A built-in keymap may reference actions whose crates were removed from this
++            // build. Keep the bindings that did load and drop the danglers instead of
++            // failing the whole keymap (which would otherwise crash startup).
++            KeymapFileLoadResult::SomeFailedToLoad {
++                key_bindings,
++                error_message,
++            } => {
++                log::warn!(
++                    "Dropped unbindable entries from built-in keymap \"{asset_path}\": {error_message}"
++                );
++                Ok(apply_source(key_bindings))
++            }
+             KeymapFileLoadResult::JsonParseFailure { error } => {
+                 anyhow::bail!("JSON parse error in built-in keymap \"{asset_path}\": {error}")
+             }
+diff --git a/crates/vim/src/test/vim_test_context.rs b/crates/vim/src/test/vim_test_context.rs
+index 6f15450aa3..f24f13a076 100644
+--- a/crates/vim/src/test/vim_test_context.rs
++++ b/crates/vim/src/test/vim_test_context.rs
+@@ -101,6 +101,7 @@ impl VimTestContext {
+         });
+         let mut default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
+             "keymaps/default-macos.json",
++            None,
+             cx,
+         )
+         .unwrap();
+@@ -110,7 +111,7 @@ impl VimTestContext {
+         cx.bind_keys(default_key_bindings);
+         if enabled {
+             let mut vim_key_bindings =
+-                settings::KeymapFile::load_asset_allow_partial_failure("keymaps/vim.json", cx)
++                settings::KeymapFile::load_asset_allow_partial_failure("keymaps/vim.json", None, cx)
+                     .unwrap();
+             for key_binding in &mut vim_key_bindings {
+                 key_binding.set_meta(settings::KeybindSource::Vim.meta());
+diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
+index d610ad0445..92b2c4d3ef 100644
+--- a/crates/zed/src/zed.rs
++++ b/crates/zed/src/zed.rs
+@@ -2124,18 +2124,34 @@ pub fn load_default_keymap(cx: &mut App) {
+         return;
+     }
+ 
+-    cx.bind_keys(
+-        KeymapFile::load_asset(DEFAULT_KEYMAP_PATH, Some(KeybindSource::Default), cx).unwrap(),
+-    );
++    if let Some(key_bindings) = KeymapFile::load_asset_allow_partial_failure(
++        DEFAULT_KEYMAP_PATH,
++        Some(KeybindSource::Default),
++        cx,
++    )
++    .log_err()
++    {
++        cx.bind_keys(key_bindings);
++    }
+ 
+-    if let Some(asset_path) = base_keymap.asset_path() {
+-        cx.bind_keys(KeymapFile::load_asset(asset_path, Some(KeybindSource::Base), cx).unwrap());
++    if let Some(asset_path) = base_keymap.asset_path()
++        && let Some(key_bindings) =
++            KeymapFile::load_asset_allow_partial_failure(asset_path, Some(KeybindSource::Base), cx)
++                .log_err()
++    {
++        cx.bind_keys(key_bindings);
+     }
+ 
+     if VimModeSetting::get_global(cx).0 || vim_mode_setting::HelixModeSetting::get_global(cx).0 {
+-        cx.bind_keys(
+-            KeymapFile::load_asset(VIM_KEYMAP_PATH, Some(KeybindSource::Vim), cx).unwrap(),
+-        );
++        if let Some(key_bindings) = KeymapFile::load_asset_allow_partial_failure(
++            VIM_KEYMAP_PATH,
++            Some(KeybindSource::Vim),
++            cx,
++        )
++        .log_err()
++        {
++            cx.bind_keys(key_bindings);
++        }
+     }
+ }
+ 

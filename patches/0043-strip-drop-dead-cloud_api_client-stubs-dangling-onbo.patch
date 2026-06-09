@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Wed, 3 Jun 2026 23:40:14 +0300
+Subject: [PATCH] strip: drop dead cloud_api_client stubs + dangling onboarding
+ keybindings
+
+Residual dead surface left by earlier strips, removed now that the
+verify gate actually runs:
+
+- cloud_api_client.rs: delete update_system_settings and
+  submit_edit_prediction_feedback. Both are callerless no-op stubs
+  (return CloudDisabled / Ok). The kept methods (get_authenticated_user,
+  create_llm_token feeding LlmApiToken, submit_agent_feedback, etc.)
+  retain live callers and stay. All cloud_api_types re-exports are
+  preserved.
+- assets/keymaps/default-{linux,macos,windows}.json: remove the
+  onboarding::SignIn and onboarding::OpenAccount keybindings. Patch 0020
+  removed both actions but left these six bindings dangling. The
+  onboarding::Finish binding above each is still valid and stays.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ assets/keymaps/default-linux.json               |  2 --
+ assets/keymaps/default-macos.json               |  2 --
+ assets/keymaps/default-windows.json             |  2 --
+ crates/cloud_api_client/src/cloud_api_client.rs | 15 ---------------
+ 4 files changed, 21 deletions(-)
+
+diff --git a/assets/keymaps/default-linux.json b/assets/keymaps/default-linux.json
+index c66d20f13f..8965c91f1c 100644
+--- a/assets/keymaps/default-linux.json
++++ b/assets/keymaps/default-linux.json
+@@ -1370,8 +1370,6 @@
+       "ctrl--": ["zed::DecreaseUiFontSize", { "persist": false }],
+       "ctrl-0": ["zed::ResetUiFontSize", { "persist": false }],
+       "ctrl-enter": "onboarding::Finish",
+-      "alt-shift-l": "onboarding::SignIn",
+-      "alt-shift-a": "onboarding::OpenAccount",
+     },
+   },
+   {
+diff --git a/assets/keymaps/default-macos.json b/assets/keymaps/default-macos.json
+index 61e719d712..ec49c37ac7 100644
+--- a/assets/keymaps/default-macos.json
++++ b/assets/keymaps/default-macos.json
+@@ -1461,8 +1461,6 @@
+       "cmd--": ["zed::DecreaseUiFontSize", { "persist": false }],
+       "cmd-0": ["zed::ResetUiFontSize", { "persist": false }],
+       "cmd-enter": "onboarding::Finish",
+-      "alt-tab": "onboarding::SignIn",
+-      "alt-shift-a": "onboarding::OpenAccount",
+     },
+   },
+   {
+diff --git a/assets/keymaps/default-windows.json b/assets/keymaps/default-windows.json
+index 56a3bc4972..c8b2b346c2 100644
+--- a/assets/keymaps/default-windows.json
++++ b/assets/keymaps/default-windows.json
+@@ -1395,8 +1395,6 @@
+       "ctrl--": ["zed::DecreaseUiFontSize", { "persist": false }],
+       "ctrl-0": ["zed::ResetUiFontSize", { "persist": false }],
+       "ctrl-enter": "onboarding::Finish",
+-      "alt-shift-l": "onboarding::SignIn",
+-      "shift-alt-a": "onboarding::OpenAccount",
+     },
+   },
+   {
+diff --git a/crates/cloud_api_client/src/cloud_api_client.rs b/crates/cloud_api_client/src/cloud_api_client.rs
+index 767aec9700..727091eab6 100644
+--- a/crates/cloud_api_client/src/cloud_api_client.rs
++++ b/crates/cloud_api_client/src/cloud_api_client.rs
+@@ -114,14 +114,6 @@ impl CloudApiClient {
+         Err(ClientApiError::CloudDisabled)
+     }
+ 
+-    pub async fn update_system_settings(
+-        &self,
+-        _system_id: String,
+-        _body: UpdateSystemSettingsBody,
+-    ) -> Result<SystemSettings, ClientApiError> {
+-        Err(ClientApiError::CloudDisabled)
+-    }
+-
+     pub async fn validate_credentials(&self, _user_id: u32, _access_token: &str) -> Result<bool> {
+         Ok(false)
+     }
+@@ -136,11 +128,4 @@ impl CloudApiClient {
+     ) -> Result<()> {
+         Ok(())
+     }
+-
+-    pub async fn submit_edit_prediction_feedback(
+-        &self,
+-        _body: SubmitEditPredictionFeedbackBody,
+-    ) -> Result<()> {
+-        Ok(())
+-    }
+ }

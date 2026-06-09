@@ -1,0 +1,139 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Wed, 10 Jun 2026 01:12:54 +0300
+Subject: [PATCH] feature: 'Install from File' UI for prebuilt extensions
+
+Add the InstallPrebuiltExtension action (zed: install prebuilt extension) and an
+'Install from File' button beside 'Install Dev Extension' in the Extensions view.
+The picker accepts an extension directory or a .tar.gz; errors (incl. the air-gap
+'needs compilation' guard) are shown to the user verbatim.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/extensions_ui/src/extensions_ui.rs | 99 +++++++++++++++++++++--
+ 1 file changed, 92 insertions(+), 7 deletions(-)
+
+diff --git a/crates/extensions_ui/src/extensions_ui.rs b/crates/extensions_ui/src/extensions_ui.rs
+index 8a482f59ed..f8c30f7227 100644
+--- a/crates/extensions_ui/src/extensions_ui.rs
++++ b/crates/extensions_ui/src/extensions_ui.rs
+@@ -44,7 +44,11 @@ actions!(
+     zed,
+     [
+         /// Installs an extension from a local directory for development.
+-        InstallDevExtension
++        InstallDevExtension,
++        /// Installs a prebuilt extension from a local directory or `.tar.gz`
++        /// archive, with no network access and no compilation. Intended for
++        /// air-gapped environments (see the offline extension bundle).
++        InstallPrebuiltExtension
+     ]
+ );
+ 
+@@ -163,6 +167,67 @@ pub fn init(cx: &mut App) {
+                         Some(())
+                     })
+                     .detach();
++            })
++            .register_action(move |workspace, _: &InstallPrebuiltExtension, window, cx| {
++                let store = ExtensionStore::global(cx);
++                // Accept either an unpacked extension directory or a `.tar.gz`
++                // archive; `install_prebuilt_extension` auto-detects which.
++                let prompt = workspace.prompt_for_open_path(
++                    gpui::PathPromptOptions {
++                        files: true,
++                        directories: true,
++                        multiple: false,
++                        prompt: None,
++                    },
++                    DirectoryLister::Local(
++                        workspace.project().clone(),
++                        workspace.app_state().fs.clone(),
++                    ),
++                    window,
++                    cx,
++                );
++
++                let workspace_handle = cx.entity().downgrade();
++                window
++                    .spawn(cx, async move |cx| {
++                        let extension_path = match prompt.await.map_err(anyhow::Error::from) {
++                            Ok(Some(mut paths)) => paths.pop()?,
++                            Ok(None) => return None,
++                            Err(err) => {
++                                workspace_handle
++                                    .update(cx, |workspace, cx| {
++                                        workspace.show_portal_error(err.to_string(), cx);
++                                    })
++                                    .ok();
++                                return None;
++                            }
++                        };
++
++                        let install_task = store.update(cx, |store, cx| {
++                            store.install_prebuilt_extension(extension_path, cx)
++                        });
++
++                        match install_task.await {
++                            Ok(_) => {}
++                            Err(err) => {
++                                log::error!("Failed to install prebuilt extension: {:?}", err);
++                                workspace_handle
++                                    .update(cx, |workspace, cx| {
++                                        // Show the error verbatim: the air-gap guard
++                                        // message ("ships source but no compiled
++                                        // extension.wasm…") is user-actionable.
++                                        workspace.show_error(
++                                            &format!("Failed to install extension: {}", err),
++                                            cx,
++                                        );
++                                    })
++                                    .ok();
++                            }
++                        }
++
++                        Some(())
++                    })
++                    .detach();
+             });
+ 
+         cx.subscribe_in(workspace.project(), window, |_, _, event, window, cx| {
+@@ -1641,12 +1706,32 @@ impl Render for ExtensionsPage {
+                             .justify_between()
+                             .child(Headline::new("Extensions").size(HeadlineSize::Large))
+                             .child(
+-                                Button::new("install-dev-extension", "Install Dev Extension")
+-                                    .style(ButtonStyle::Outlined)
+-                                    .size(ButtonSize::Medium)
+-                                    .on_click(|_event, window, cx| {
+-                                        window.dispatch_action(Box::new(InstallDevExtension), cx)
+-                                    }),
++                                h_flex()
++                                    .gap_1p5()
++                                    .child(
++                                        // Air-gapped install: point at a local extension
++                                        // directory or `.tar.gz` from the offline bundle.
++                                        Button::new("install-from-file", "Install from File")
++                                            .style(ButtonStyle::Outlined)
++                                            .size(ButtonSize::Medium)
++                                            .on_click(|_event, window, cx| {
++                                                window.dispatch_action(
++                                                    Box::new(InstallPrebuiltExtension),
++                                                    cx,
++                                                )
++                                            }),
++                                    )
++                                    .child(
++                                        Button::new("install-dev-extension", "Install Dev Extension")
++                                            .style(ButtonStyle::Outlined)
++                                            .size(ButtonSize::Medium)
++                                            .on_click(|_event, window, cx| {
++                                                window.dispatch_action(
++                                                    Box::new(InstallDevExtension),
++                                                    cx,
++                                                )
++                                            }),
++                                    ),
+                             ),
+                     )
+                     .child(

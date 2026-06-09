@@ -1,0 +1,851 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 31 May 2026 16:14:58 +0300
+Subject: [PATCH] strip: sever ACP agent registry network fetch (offline-only)
+
+The strace air-gap smoke caught the last unsolicited boot-time egress:
+AgentRegistryStore::init_global fetched the Agent Client Protocol registry
+index from https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json
+(and downloaded agent icons from raw.githubusercontent.com) on first launch,
+before any user action.
+
+Make the registry offline-only, matching the extension-registry freeze in
+patch 0016. Delete the remote-fetch surface entirely (strip-by-deletion):
+REGISTRY_URL, fetch_registry_index, download_icon, fetch_url_body, refresh,
+refresh_if_stale, the is_fetching/fetch_error/pending_refresh/last_refresh
+state, and the resolve_icon_* helpers. The store now loads agents only from
+the on-disk cache (paths::external_agents_dir()/registry/registry.json), which
+is populated solely by placing a file there - never over the network.
+
+Update the callers that drove the fetch: AgentServerStore::settings_changed,
+custom agent launch, the agent_ui registry-page action, and the registry UI
+empty/error state. The registry page now shows a static "No agents available"
+instead of a connection-error/retry path.
+
+Replace the network-only test suite (timeout / icon-download concurrency,
+which can no longer happen) with one offline guard test: init_global with a
+FakeHttpClient that panics on any request must leave the store empty and make
+zero requests - so a rebase that re-adds a boot-time fetch fails the test.
+
+init_global keeps its http_client parameter (now unused) to avoid churning
+the shared call sites, including the remote_server binary the build gate does
+not compile.
+
+Verified: cargo build --package zed green; the offline guard test passes; and
+a fresh strace -f -e trace=connect,network run on a Plasma Wayland session
+(open a file, idle 33s, quit) shows zero non-loopback connect()/sendto and
+zero DNS - only loopback IPC (crash-handler :1234, Ollama probe :11434).
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/agent_servers/src/custom.rs            |   6 -
+ crates/agent_ui/src/agent_registry_ui.rs      |  76 +---
+ crates/agent_ui/src/agent_ui.rs               |   4 -
+ crates/extensions_ui/src/extensions_ui.rs     |  44 ---
+ crates/project/src/agent_registry_store.rs    | 351 +-----------------
+ crates/project/src/agent_server_store.rs      |   8 -
+ .../tests/integration/agent_registry_store.rs | 110 +-----
+ 7 files changed, 55 insertions(+), 544 deletions(-)
+
+diff --git a/crates/agent_servers/src/custom.rs b/crates/agent_servers/src/custom.rs
+index 77c9595f17..ed76e80c23 100644
+--- a/crates/agent_servers/src/custom.rs
++++ b/crates/agent_servers/src/custom.rs
+@@ -302,12 +302,6 @@ impl AgentServer for CustomAgentServer {
+                 .unwrap_or_default()
+         });
+ 
+-        if is_registry_agent {
+-            if let Some(registry_store) = project::AgentRegistryStore::try_global(cx) {
+-                registry_store.update(cx, |store, cx| store.refresh_if_stale(cx));
+-            }
+-        }
+-
+         let mut extra_env = load_proxy_env(cx);
+         if delegate.store.read(cx).no_browser() {
+             extra_env.insert("NO_BROWSER".to_owned(), "1".to_owned());
+diff --git a/crates/agent_ui/src/agent_registry_ui.rs b/crates/agent_ui/src/agent_registry_ui.rs
+index 7a0a4c7658..d8bc74058f 100644
+--- a/crates/agent_ui/src/agent_registry_ui.rs
++++ b/crates/agent_ui/src/agent_registry_ui.rs
+@@ -119,8 +119,6 @@ impl AgentRegistryPage {
+             };
+ 
+             this.reload_registry_agents(cx);
+-            this.registry_store
+-                .update(cx, |store, cx| store.refresh(cx));
+ 
+             this
+         })
+@@ -287,36 +285,27 @@ impl AgentRegistryPage {
+ 
+     fn render_empty_state(&self, cx: &mut Context<Self>) -> impl IntoElement {
+         let has_search = self.search_query(cx).is_some();
+-        let registry_store = self.registry_store.read(cx);
+-        let is_fetching = registry_store.is_fetching();
+-        let fetch_error = registry_store.fetch_error();
+-
+-        let message = if is_fetching {
+-            "Loading registry..."
+-        } else if fetch_error.is_some() {
+-            "Failed to load the agent registry. Please check your connection and try again."
+-        } else {
+-            match self.filter {
+-                RegistryFilter::All => {
+-                    if has_search {
+-                        "No agents match your search."
+-                    } else {
+-                        "No agents available."
+-                    }
++
++        let message = match self.filter {
++            RegistryFilter::All => {
++                if has_search {
++                    "No agents match your search."
++                } else {
++                    "No agents available."
+                 }
+-                RegistryFilter::Installed => {
+-                    if has_search {
+-                        "No installed agents match your search."
+-                    } else {
+-                        "No installed agents."
+-                    }
++            }
++            RegistryFilter::Installed => {
++                if has_search {
++                    "No installed agents match your search."
++                } else {
++                    "No installed agents."
+                 }
+-                RegistryFilter::NotInstalled => {
+-                    if has_search {
+-                        "No uninstalled agents match your search."
+-                    } else {
+-                        "No uninstalled agents."
+-                    }
++            }
++            RegistryFilter::NotInstalled => {
++                if has_search {
++                    "No uninstalled agents match your search."
++                } else {
++                    "No uninstalled agents."
+                 }
+             }
+         };
+@@ -327,38 +316,13 @@ impl AgentRegistryPage {
+             .w_full()
+             .gap_1p5()
+             .items_start()
+-            .when(fetch_error.is_some(), |this| {
+-                this.child(
+-                    Icon::new(IconName::Warning)
+-                        .size(IconSize::Small)
+-                        .color(Color::Warning),
+-                )
+-            })
+             .child(
+                 v_flex()
+                     .min_w_0()
+                     .flex_1()
+                     .gap_1()
+-                    .child(Label::new(message))
+-                    .when_some(fetch_error.clone(), |this, fetch_error| {
+-                        this.child(
+-                            Label::new(fetch_error)
+-                                .size(LabelSize::Small)
+-                                .color(Color::Muted),
+-                        )
+-                    }),
++                    .child(Label::new(message)),
+             )
+-            .when_some(fetch_error, |this, _| {
+-                let registry_store = self.registry_store.clone();
+-                this.child(
+-                    Button::new("retry-agent-registry", "Retry")
+-                        .style(ButtonStyle::Outlined)
+-                        .size(ButtonSize::Compact)
+-                        .on_click(move |_, _, cx| {
+-                            registry_store.update(cx, |store, cx| store.refresh(cx));
+-                        }),
+-                )
+-            })
+     }
+ 
+     fn render_agents(
+diff --git a/crates/agent_ui/src/agent_ui.rs b/crates/agent_ui/src/agent_ui.rs
+index a657d863af..02126c545d 100644
+--- a/crates/agent_ui/src/agent_ui.rs
++++ b/crates/agent_ui/src/agent_ui.rs
+@@ -581,10 +581,6 @@ pub fn init(
+                     .find_map(|item| item.downcast::<AgentRegistryPage>());
+ 
+                 if let Some(existing) = existing {
+-                    existing.update(cx, |_, cx| {
+-                        project::AgentRegistryStore::global(cx)
+-                            .update(cx, |store, cx| store.refresh(cx));
+-                    });
+                     workspace.activate_item(&existing, true, true, window, cx);
+                 } else {
+                     let registry_page = AgentRegistryPage::new(workspace, window, cx);
+diff --git a/crates/extensions_ui/src/extensions_ui.rs b/crates/extensions_ui/src/extensions_ui.rs
+index b38286fa84..8a482f59ed 100644
+--- a/crates/extensions_ui/src/extensions_ui.rs
++++ b/crates/extensions_ui/src/extensions_ui.rs
+@@ -1434,50 +1434,6 @@ impl ExtensionsPage {
+             }
+         }
+ 
+-        self.show_acp_registry_upsell = acp_registry_upsell_keywords()
+-            .iter()
+-            .any(|keyword| search_terms.iter().any(|term| keyword.contains(term)));
+-    }
+-
+-    fn render_acp_registry_upsell(&self, cx: &mut Context<Self>) -> impl IntoElement {
+-        let registry_url = zed_urls::acp_registry_blog();
+-
+-        let view_registry = Button::new("view_registry", "View Registry")
+-            .style(ButtonStyle::Tinted(ui::TintColor::Warning))
+-            .on_click({
+-                let registry_url = registry_url.clone();
+-                move |_, window, cx| {
+-                    window.dispatch_action(Box::new(zed_actions::AcpRegistry), cx)
+-                }
+-            });
+-        let open_registry_button = Button::new("open_registry", "Learn More")
+-            .end_icon(
+-                Icon::new(IconName::ArrowUpRight)
+-                    .size(IconSize::Small)
+-                    .color(Color::Muted),
+-            )
+-            .on_click({
+-                move |_event, _window, cx| {
+-                    cx.open_url(&registry_url)
+-                }
+-            });
+-
+-        div().pt_4().px_4().child(
+-            Banner::new()
+-                .severity(Severity::Warning)
+-                .child(
+-                    Label::new(
+-                        "Agent Server extensions will be deprecated in favor of the ACP registry.",
+-                    )
+-                    .mt_0p5(),
+-                )
+-                .action_slot(
+-                    h_flex()
+-                        .gap_1()
+-                        .child(open_registry_button)
+-                        .child(view_registry),
+-                ),
+-        )
+     }
+ 
+     fn render_feature_upsell_banner(
+diff --git a/crates/project/src/agent_registry_store.rs b/crates/project/src/agent_registry_store.rs
+index 8cfba22f6d..40f099651e 100644
+--- a/crates/project/src/agent_registry_store.rs
++++ b/crates/project/src/agent_registry_store.rs
+@@ -1,29 +1,16 @@
+-use std::path::{Path, PathBuf};
++use std::path::PathBuf;
+ use std::sync::Arc;
+-use std::time::{Duration, Instant};
+ 
+-use anyhow::{Context as _, Result, anyhow, bail};
++use anyhow::{Context as _, Result};
+ use collections::HashMap;
+ use fs::Fs;
+-use futures::{AsyncReadExt, future::join_all};
+-use gpui::{
+-    App, AppContext as _, BackgroundExecutor, Context, Entity, FutureExt as _, Global,
+-    SharedString, Task, TaskExt,
+-};
+-use http_client::{AsyncBody, HttpClient, StatusCode};
++use gpui::{App, AppContext as _, Context, Entity, Global, SharedString, TaskExt as _};
++use http_client::HttpClient;
+ use serde::Deserialize;
+ use settings::Settings as _;
+-use util::ResultExt;
+ 
+ use crate::{AgentId, DisableAiSettings};
+ 
+-const REGISTRY_URL: &str = "https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json";
+-const REFRESH_THROTTLE_DURATION: Duration = Duration::from_secs(60 * 60);
+-// Bound the full request lifecycle, including response body reads; the shared
+-// HTTP client only has a connect timeout.
+-const REGISTRY_FETCH_TIMEOUT: Duration = Duration::from_secs(30);
+-const REGISTRY_ICON_FETCH_TIMEOUT: Duration = Duration::from_secs(10);
+-
+ #[derive(Clone, Debug)]
+ pub struct RegistryAgentMetadata {
+     pub id: AgentId,
+@@ -114,40 +101,27 @@ struct GlobalAgentRegistryStore(Entity<AgentRegistryStore>);
+ impl Global for GlobalAgentRegistryStore {}
+ 
+ pub struct AgentRegistryStore {
+-    fs: Arc<dyn Fs>,
+-    http_client: Arc<dyn HttpClient>,
+     agents: Vec<RegistryAgent>,
+-    is_fetching: bool,
+-    fetch_error: Option<SharedString>,
+-    pending_refresh: Option<Task<()>>,
+-    last_refresh: Option<Instant>,
+ }
+ 
+ impl AgentRegistryStore {
+     /// Initialize the global AgentRegistryStore.
+     ///
+-    /// This loads the cached registry from disk. If the cache is empty but there
+-    /// are registry agents configured in settings, it will trigger a network fetch.
+-    /// Otherwise, call `refresh()` explicitly when you need fresh data
+-    /// (e.g., when opening the Agent Registry page).
++    /// Zedium never fetches the ACP registry over the network, so this only
++    /// loads agents from an on-disk cache when one is present. The cache is
++    /// populated solely by placing a `registry.json` in the external agents
++    /// directory; on a fresh profile the store starts empty.
+     pub fn init_global(
+         cx: &mut App,
+         fs: Arc<dyn Fs>,
+-        http_client: Arc<dyn HttpClient>,
++        _http_client: Arc<dyn HttpClient>,
+     ) -> Entity<Self> {
+         if let Some(store) = Self::try_global(cx) {
+             return store;
+         }
+ 
+-        let store = cx.new(|cx| Self::new(fs, http_client, cx));
++        let store = cx.new(|cx| Self::new(fs, cx));
+         cx.set_global(GlobalAgentRegistryStore(store.clone()));
+-
+-        store.update(cx, |store, cx| {
+-            if store.agents.is_empty() {
+-                store.refresh(cx);
+-            }
+-        });
+-
+         store
+     }
+ 
+@@ -162,16 +136,7 @@ impl AgentRegistryStore {
+ 
+     #[cfg(any(test, feature = "test-support"))]
+     pub fn init_test_global(cx: &mut App, agents: Vec<RegistryAgent>) -> Entity<Self> {
+-        let fs: Arc<dyn Fs> = fs::FakeFs::new(cx.background_executor().clone());
+-        let store = cx.new(|_cx| Self {
+-            fs,
+-            http_client: http_client::FakeHttpClient::with_404_response(),
+-            agents,
+-            is_fetching: false,
+-            fetch_error: None,
+-            pending_refresh: None,
+-            last_refresh: None,
+-        });
++        let store = cx.new(|_cx| Self { agents });
+         cx.set_global(GlobalAgentRegistryStore(store.clone()));
+         store
+     }
+@@ -190,110 +155,17 @@ impl AgentRegistryStore {
+         self.agents.iter().find(|agent| agent.id() == id)
+     }
+ 
+-    pub fn is_fetching(&self) -> bool {
+-        self.is_fetching
+-    }
+-
+-    pub fn fetch_error(&self) -> Option<SharedString> {
+-        self.fetch_error.clone()
+-    }
+-
+-    /// Refresh the registry from the network.
+-    ///
+-    /// This will fetch the latest registry data and update the cache.
+-    pub fn refresh(&mut self, cx: &mut Context<Self>) {
+-        if self.pending_refresh.is_some() {
+-            return;
+-        }
+-
+-        if DisableAiSettings::get_global(cx).disable_ai {
+-            return;
+-        }
+-
+-        self.is_fetching = true;
+-        self.fetch_error = None;
+-        self.last_refresh = Some(Instant::now());
+-        cx.notify();
+-
+-        let fs = self.fs.clone();
+-        let http_client = self.http_client.clone();
+-        let executor = cx.background_executor().clone();
+-
+-        self.pending_refresh = Some(cx.spawn(async move |this, cx| {
+-            let result = match fetch_registry_index(http_client.clone(), &executor).await {
+-                Ok(data) => {
+-                    build_registry_agents(
+-                        fs.clone(),
+-                        http_client,
+-                        data.index,
+-                        data.raw_body,
+-                        true,
+-                        &executor,
+-                    )
+-                    .await
+-                }
+-                Err(error) => {
+-                    log::error!("AgentRegistryStore::refresh: fetch failed: {error:#}");
+-                    Err(error)
+-                }
+-            };
+-
+-            this.update(cx, |this, cx| {
+-                this.pending_refresh = None;
+-                this.is_fetching = false;
+-                match result {
+-                    Ok(agents) => {
+-                        this.agents = agents;
+-                        this.fetch_error = None;
+-                    }
+-                    Err(error) => {
+-                        this.fetch_error = Some(SharedString::from(format!("{error:#}")));
+-                    }
+-                }
+-                cx.notify();
+-            })
+-            .ok();
+-        }));
+-    }
+-
+-    /// Refresh the registry if it hasn't been refreshed recently.
+-    ///
+-    /// This is useful to call when using a registry-based agent to check for
+-    /// updates without making too many network requests. The refresh is
+-    /// throttled to at most once per hour.
+-    pub fn refresh_if_stale(&mut self, cx: &mut Context<Self>) {
+-        let should_refresh = self
+-            .last_refresh
+-            .map(|last| last.elapsed() >= REFRESH_THROTTLE_DURATION)
+-            .unwrap_or(true);
+-
+-        if should_refresh {
+-            self.refresh(cx);
+-        }
+-    }
+-
+-    fn new(fs: Arc<dyn Fs>, http_client: Arc<dyn HttpClient>, cx: &mut Context<Self>) -> Self {
++    fn new(fs: Arc<dyn Fs>, cx: &mut Context<Self>) -> Self {
+         let mut store = Self {
+-            fs: fs.clone(),
+-            http_client,
+             agents: Vec::new(),
+-            is_fetching: false,
+-            fetch_error: None,
+-            pending_refresh: None,
+-            last_refresh: None,
+         };
+ 
+-        store.load_cached_registry(fs, store.http_client.clone(), cx);
++        store.load_cached_registry(fs, cx);
+ 
+         store
+     }
+ 
+-    fn load_cached_registry(
+-        &mut self,
+-        fs: Arc<dyn Fs>,
+-        http_client: Arc<dyn HttpClient>,
+-        cx: &mut Context<Self>,
+-    ) {
++    fn load_cached_registry(&mut self, fs: Arc<dyn Fs>, cx: &mut Context<Self>) {
+         if DisableAiSettings::get_global(cx).disable_ai {
+             return;
+         }
+@@ -311,9 +183,7 @@ impl AgentRegistryStore {
+             let index: RegistryIndex =
+                 serde_json::from_slice(&bytes).context("parsing cached registry")?;
+ 
+-            let executor = cx.background_executor().clone();
+-            let agents =
+-                build_registry_agents(fs, http_client, index, bytes, false, &executor).await?;
++            let agents = build_registry_agents(index);
+ 
+             this.update(cx, |this, cx| {
+                 this.agents = agents;
+@@ -326,69 +196,11 @@ impl AgentRegistryStore {
+     }
+ }
+ 
+-struct RegistryFetchResult {
+-    index: RegistryIndex,
+-    raw_body: Vec<u8>,
+-}
+-
+-async fn fetch_registry_index(
+-    http_client: Arc<dyn HttpClient>,
+-    executor: &BackgroundExecutor,
+-) -> Result<RegistryFetchResult> {
+-    let (status, body) =
+-        fetch_url_body(http_client, REGISTRY_URL, REGISTRY_FETCH_TIMEOUT, executor)
+-            .await
+-            .context("fetching ACP registry")?;
+-
+-    if status.is_client_error() {
+-        let text = String::from_utf8_lossy(body.as_slice());
+-        bail!(
+-            "registry status error {}, response: {text:?}",
+-            status.as_u16()
+-        );
+-    }
+-
+-    let index: RegistryIndex = serde_json::from_slice(&body).context("parsing ACP registry")?;
+-    Ok(RegistryFetchResult {
+-        index,
+-        raw_body: body,
+-    })
+-}
+-
+-async fn build_registry_agents(
+-    fs: Arc<dyn Fs>,
+-    http_client: Arc<dyn HttpClient>,
+-    index: RegistryIndex,
+-    raw_body: Vec<u8>,
+-    update_cache: bool,
+-    executor: &BackgroundExecutor,
+-) -> Result<Vec<RegistryAgent>> {
+-    let cache_dir = registry_cache_dir();
+-    fs.create_dir(&cache_dir).await?;
+-
+-    let cache_path = cache_dir.join("registry.json");
+-    if update_cache {
+-        fs.write(&cache_path, &raw_body).await?;
+-    }
+-
+-    let icons_dir = cache_dir.join("icons");
+-    if update_cache {
+-        fs.create_dir(&icons_dir).await?;
+-    }
+-
++fn build_registry_agents(index: RegistryIndex) -> Vec<RegistryAgent> {
+     let current_platform = current_platform_key();
+-    let icon_paths = resolve_icon_paths(
+-        &index.agents,
+-        &icons_dir,
+-        update_cache,
+-        fs.clone(),
+-        http_client.clone(),
+-        executor,
+-    )
+-    .await;
+ 
+     let mut agents = Vec::new();
+-    for (entry, icon_path) in index.agents.into_iter().zip(icon_paths) {
++    for entry in index.agents {
+         let metadata = RegistryAgentMetadata {
+             id: AgentId::new(entry.id),
+             name: entry.name.into(),
+@@ -396,7 +208,7 @@ async fn build_registry_agents(
+             version: entry.version.into(),
+             repository: entry.repository.map(Into::into),
+             website: entry.website.map(Into::into),
+-            icon_path,
++            icon_path: None,
+         };
+ 
+         let binary_agent = entry.distribution.binary.as_ref().and_then(|binary| {
+@@ -452,130 +264,7 @@ async fn build_registry_agents(
+         agents.push(agent);
+     }
+ 
+-    Ok(agents)
+-}
+-
+-async fn resolve_icon_paths(
+-    entries: &[RegistryEntry],
+-    icons_dir: &Path,
+-    update_cache: bool,
+-    fs: Arc<dyn Fs>,
+-    http_client: Arc<dyn HttpClient>,
+-    executor: &BackgroundExecutor,
+-) -> Vec<Option<SharedString>> {
+-    join_all(entries.iter().map(|entry| {
+-        let fs = fs.clone();
+-        let http_client = http_client.clone();
+-        async move {
+-            resolve_icon_path(entry, icons_dir, update_cache, fs, http_client, executor)
+-                .await
+-                .log_err()
+-                .flatten()
+-        }
+-    }))
+-    .await
+-}
+-
+-async fn resolve_icon_path(
+-    entry: &RegistryEntry,
+-    icons_dir: &Path,
+-    update_cache: bool,
+-    fs: Arc<dyn Fs>,
+-    http_client: Arc<dyn HttpClient>,
+-    executor: &BackgroundExecutor,
+-) -> Result<Option<SharedString>> {
+-    let icon_url = resolve_icon_url(entry);
+-    let Some(icon_url) = icon_url else {
+-        return Ok(None);
+-    };
+-
+-    let icon_path = icons_dir.join(format!("{}.svg", entry.id));
+-    if update_cache && !fs.is_file(&icon_path).await {
+-        if let Err(error) = download_icon(fs.clone(), http_client, &icon_url, entry, executor).await
+-        {
+-            log::warn!(
+-                "Failed to download ACP registry icon for {}: {error:#}",
+-                entry.id
+-            );
+-        }
+-    }
+-
+-    if fs.is_file(&icon_path).await {
+-        Ok(Some(SharedString::from(
+-            icon_path.to_string_lossy().into_owned(),
+-        )))
+-    } else {
+-        Ok(None)
+-    }
+-}
+-
+-async fn download_icon(
+-    fs: Arc<dyn Fs>,
+-    http_client: Arc<dyn HttpClient>,
+-    icon_url: &str,
+-    entry: &RegistryEntry,
+-    executor: &BackgroundExecutor,
+-) -> Result<()> {
+-    let (status, body) =
+-        fetch_url_body(http_client, icon_url, REGISTRY_ICON_FETCH_TIMEOUT, executor)
+-            .await
+-            .with_context(|| format!("fetching icon for {}", entry.id))?;
+-
+-    if status.is_client_error() {
+-        let text = String::from_utf8_lossy(body.as_slice());
+-        bail!("icon status error {}, response: {text:?}", status.as_u16());
+-    }
+-
+-    let icon_path = registry_cache_dir()
+-        .join("icons")
+-        .join(format!("{}.svg", entry.id));
+-    fs.write(&icon_path, &body).await?;
+-    Ok(())
+-}
+-
+-async fn fetch_url_body(
+-    http_client: Arc<dyn HttpClient>,
+-    url: &str,
+-    timeout: Duration,
+-    executor: &BackgroundExecutor,
+-) -> Result<(StatusCode, Vec<u8>)> {
+-    async {
+-        let mut response = http_client
+-            .get(url, AsyncBody::default(), true)
+-            .await
+-            .with_context(|| format!("requesting {url}"))?;
+-
+-        let status = response.status();
+-        let mut body = Vec::new();
+-        response
+-            .body_mut()
+-            .read_to_end(&mut body)
+-            .await
+-            .with_context(|| format!("reading response from {url}"))?;
+-
+-        Ok((status, body))
+-    }
+-    .with_timeout(timeout, executor)
+-    .await
+-    .map_err(|_| {
+-        anyhow!(
+-            "timed out after {}s while fetching {url}",
+-            timeout.as_secs()
+-        )
+-    })?
+-}
+-
+-fn resolve_icon_url(entry: &RegistryEntry) -> Option<String> {
+-    let icon = entry.icon.as_ref()?;
+-    if icon.starts_with("https://") || icon.starts_with("http://") {
+-        return Some(icon.to_string());
+-    }
+-
+-    let relative_icon = icon.trim_start_matches("./");
+-    Some(format!(
+-        "https://raw.githubusercontent.com/agentclientprotocol/registry/main/{}/{relative_icon}",
+-        entry.id
+-    ))
++    agents
+ }
+ 
+ fn current_platform_key() -> Option<&'static str> {
+@@ -642,8 +331,6 @@ struct RegistryEntry {
+     repository: Option<String>,
+     #[serde(default)]
+     website: Option<String>,
+-    #[serde(default)]
+-    icon: Option<String>,
+     distribution: RegistryDistribution,
+ }
+ 
+diff --git a/crates/project/src/agent_server_store.rs b/crates/project/src/agent_server_store.rs
+index a61975faef..bfeb50af13 100644
+--- a/crates/project/src/agent_server_store.rs
++++ b/crates/project/src/agent_server_store.rs
+@@ -307,15 +307,7 @@ impl AgentServerStore {
+             .get::<AllAgentServersSettings>(None)
+             .clone();
+ 
+-        // If we don't have agents from the registry loaded yet, trigger a
+-        // refresh, which will cause this function to be called again
+         let registry_store = AgentRegistryStore::try_global(cx);
+-        if new_settings.has_registry_agents()
+-            && let Some(registry) = registry_store.as_ref()
+-        {
+-            registry.update(cx, |registry, cx| registry.refresh_if_stale(cx));
+-        }
+-
+         let registry_agents_by_id = registry_store
+             .as_ref()
+             .map(|store| {
+diff --git a/crates/project/tests/integration/agent_registry_store.rs b/crates/project/tests/integration/agent_registry_store.rs
+index a9935e6072..110d617d37 100644
+--- a/crates/project/tests/integration/agent_registry_store.rs
++++ b/crates/project/tests/integration/agent_registry_store.rs
+@@ -1,115 +1,37 @@
+-use std::{future, sync::Arc, time::Duration};
++use std::sync::Arc;
+ 
+ use fs::FakeFs;
+ use gpui::TestAppContext;
+-use http_client::{AsyncBody, FakeHttpClient, HttpClient, Response};
++use http_client::{FakeHttpClient, HttpClient};
+ use project::AgentRegistryStore;
+-use serde_json::json;
+ 
+ use crate::init_test;
+ 
++// Zedium severs the ACP registry network fetch (see agent_registry_store.rs):
++// the registry is loaded only from an on-disk cache, never from the network.
++// Initializing the store on a fresh profile must therefore make zero HTTP
++// requests and leave the store empty. The fake client panics if anything tries
++// to fetch, so reintroducing a boot-time fetch fails this test.
+ #[gpui::test]
+-async fn registry_refresh_times_out_when_fetch_never_completes(cx: &mut TestAppContext) {
+-    init_test(cx);
+-
+-    let fs = FakeFs::new(cx.executor());
+-    let http_client =
+-        FakeHttpClient::create(|_| future::pending::<anyhow::Result<Response<AsyncBody>>>())
+-            as Arc<dyn HttpClient>;
+-
+-    let registry_store =
+-        cx.update(|cx| AgentRegistryStore::init_global(cx, fs.clone(), http_client));
+-    cx.run_until_parked();
+-
+-    cx.executor().advance_clock(Duration::from_secs(31));
+-    cx.run_until_parked();
+-
+-    registry_store.update(cx, |store, _| {
+-        assert!(!store.is_fetching());
+-        assert!(
+-            store
+-                .fetch_error()
+-                .is_some_and(|error| error.contains("timed out after 30s")),
+-            "expected registry fetch timeout error, got {:?}",
+-            store.fetch_error()
+-        );
+-    });
+-}
+-
+-#[gpui::test]
+-async fn registry_refresh_does_not_block_sequentially_on_hung_icon_downloads(
+-    cx: &mut TestAppContext,
+-) {
++async fn registry_init_does_not_touch_the_network(cx: &mut TestAppContext) {
+     init_test(cx);
+ 
+     let fs = FakeFs::new(cx.executor());
+     let http_client = FakeHttpClient::create(|request| async move {
+-        if request.uri().to_string().contains("registry.json") {
+-            Ok(Response::builder()
+-                .status(200)
+-                .body(AsyncBody::from(
+-                    serde_json::to_string(&json!({
+-                        "version": "1",
+-                        "agents": [
+-                            {
+-                                "id": "slow-icon-a",
+-                                "name": "Slow Icon A",
+-                                "version": "1.0.0",
+-                                "description": "An agent with a slow icon.",
+-                                "icon": "https://example.test/slow-icon-a.svg",
+-                                "distribution": {
+-                                    "npx": {
+-                                        "package": "slow-icon-a"
+-                                    }
+-                                }
+-                            },
+-                            {
+-                                "id": "slow-icon-b",
+-                                "name": "Slow Icon B",
+-                                "version": "1.0.0",
+-                                "description": "Another agent with a slow icon.",
+-                                "icon": "https://example.test/slow-icon-b.svg",
+-                                "distribution": {
+-                                    "npx": {
+-                                        "package": "slow-icon-b"
+-                                    }
+-                                }
+-                            },
+-                            {
+-                                "id": "slow-icon-c",
+-                                "name": "Slow Icon C",
+-                                "version": "1.0.0",
+-                                "description": "A third agent with a slow icon.",
+-                                "icon": "https://example.test/slow-icon-c.svg",
+-                                "distribution": {
+-                                    "npx": {
+-                                        "package": "slow-icon-c"
+-                                    }
+-                                }
+-                            }
+-                        ]
+-                    }))
+-                    .unwrap(),
+-                ))
+-                .unwrap())
+-        } else {
+-            future::pending::<anyhow::Result<Response<AsyncBody>>>().await
+-        }
++        panic!(
++            "AgentRegistryStore must not make network requests, but requested {}",
++            request.uri()
++        )
+     }) as Arc<dyn HttpClient>;
+ 
+     let registry_store =
+         cx.update(|cx| AgentRegistryStore::init_global(cx, fs.clone(), http_client));
+     cx.run_until_parked();
+ 
+-    cx.executor().advance_clock(Duration::from_secs(11));
+-    cx.run_until_parked();
+-
+     registry_store.update(cx, |store, _| {
+-        assert!(!store.is_fetching());
+-        assert_eq!(store.agents().len(), 3);
+-        assert_eq!(store.agents()[0].id().as_ref(), "slow-icon-a");
+-        assert_eq!(store.agents()[1].id().as_ref(), "slow-icon-b");
+-        assert_eq!(store.agents()[2].id().as_ref(), "slow-icon-c");
+-        assert_eq!(store.fetch_error(), None);
++        assert!(
++            store.agents().is_empty(),
++            "expected no registry agents without an on-disk cache"
++        );
+     });
+ }

@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Thu, 28 May 2026 23:23:25 +0300
+Subject: [PATCH] strip: neuter sign_in_with_optional_connect to no-op
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Sign-in to zed.dev is no longer a feature of Zedium. Make the entry
+point a no-op returning Ok(()), which means ~10 UI call sites
+(title_bar sign-in button, onboarding cards, edit_prediction_button,
+ai_onboarding, --sign-in CLI flag) compile and execute without
+contacting any remote service. The buttons remain in the UI; clicking
+them is harmless. UI cleanup to remove the buttons themselves is
+deferred — the network behaviour is what mattered.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/client/src/client.rs | 50 ++++---------------------------------
+ 1 file changed, 5 insertions(+), 45 deletions(-)
+
+diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
+index a2b4ebbcc2..6ea00eac90 100644
+--- a/crates/client/src/client.rs
++++ b/crates/client/src/client.rs
+@@ -1033,55 +1033,15 @@ impl Client {
+         Ok(())
+     }
+ 
+-    /// Performs a sign-in and also (optionally) connects to Collab.
++    /// Sign-in is disabled in Zedium (telemetry-free fork).
+     ///
+-    /// Only Zed staff automatically connect to Collab.
++    /// Returns Ok immediately without contacting any remote service. UI entry
++    /// points that call this still compile but do nothing.
+     pub async fn sign_in_with_optional_connect(
+         self: &Arc<Self>,
+-        try_provider: bool,
+-        cx: &AsyncApp,
++        _try_provider: bool,
++        _cx: &AsyncApp,
+     ) -> Result<()> {
+-        // Don't try to sign in again if we're already connected to Collab, as it will temporarily disconnect us.
+-        if self.status().borrow().is_connected() {
+-            return Ok(());
+-        }
+-
+-        let (is_staff_tx, is_staff_rx) = oneshot::channel::<bool>();
+-        let mut is_staff_tx = Some(is_staff_tx);
+-        cx.update(|cx| {
+-            cx.on_flags_ready(move |state, _cx| {
+-                if let Some(is_staff_tx) = is_staff_tx.take() {
+-                    is_staff_tx.send(state.is_staff).log_err();
+-                }
+-            })
+-            .detach();
+-        });
+-
+-        let credentials = self.sign_in(try_provider, cx).await?;
+-
+-        self.connect_to_cloud(cx);
+-
+-        cx.update(move |cx| {
+-            cx.spawn({
+-                let client = self.clone();
+-                async move |cx| {
+-                    let is_staff = is_staff_rx.await?;
+-                    if is_staff {
+-                        match client.connect_with_credentials(credentials, cx).await {
+-                            ConnectionResult::Timeout => Err(anyhow!("connection timed out")),
+-                            ConnectionResult::ConnectionReset => Err(anyhow!("connection reset")),
+-                            ConnectionResult::Result(result) => {
+-                                result.context("client auth and connect")
+-                            }
+-                        }
+-                    } else {
+-                        Ok(())
+-                    }
+-                }
+-            })
+-            .detach_and_log_err(cx);
+-        });
+-
+         Ok(())
+     }
+ 
