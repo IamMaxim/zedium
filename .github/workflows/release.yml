@@ -39,17 +39,21 @@ jobs:
             runs-on: ubuntu-24.04-arm
             rust-target: aarch64-unknown-linux-gnu
             archive: tar.gz
-          # Native arm64 is marked experimental: the ~160MB binary trips
-          # ld-prime's "B/BL out of range" branch-island bug for the ctor-crate
-          # constructors. We force the classic linker (-ld_classic) to work
-          # around it; if that ever stops working, the macos-x86_64 build runs on
-          # Apple Silicon via Rosetta 2, so all Macs stay covered.
+          # Native arm64: the ~160MB binary's __text exceeds arm64's ±128MB B/BL
+          # branch range, and the ctor-crate constructors (gpui build_classes,
+          # placed in __text_startup at the end of __TEXT) branch >128MB back to
+          # cocoa encode helpers near the start of __text. Apple's ld64 — both
+          # ld-prime and -ld_classic — REFUSES to insert range-extension thunks
+          # for these, so the link fails. LLVM's ld64.lld DOES insert them, so we
+          # link arm64 with lld (installed below). This keeps opt-level=3 (no perf
+          # regression) and links the full-size binary. Verified by the
+          # arm64-link-probe experiment (lld linked the same 160MB __text that
+          # ld64 rejected). NOT experimental anymore — arm64 is a blocking target.
           - target: macos-arm64
             runs-on: macos-14
             rust-target: aarch64-apple-darwin
             archive: zip
-            experimental: true
-            extra_rustflags: "-C link-arg=-Wl,-ld_classic"
+            use_lld: true
           # Intel Macs are cross-compiled from the Apple-Silicon runner: the
           # macos-13 (Intel) image is retired, and the macOS SDK is universal so
           # `--target x86_64-apple-darwin` links a working x86_64 binary.
@@ -110,6 +114,13 @@ jobs:
         # for `std`".
         run: cd zed && rustup target add ${{ matrix.rust-target }}
 
+      - name: Install lld (macOS arm64 link-island workaround)
+        # ld64.lld inserts the ARM64 range-extension thunks Apple's ld64 won't,
+        # which the ~160MB arm64 __text needs to link. See the macos-arm64
+        # matrix comment.
+        if: matrix.use_lld
+        run: brew install lld
+
       - name: Cache cargo build
         uses: Swatinem/rust-cache@v2
         with:
@@ -124,11 +135,15 @@ jobs:
           RELEASE_CHANNEL: stable
         run: |
           cd zed
-          # If a target needs extra rustflags (e.g. macos-arm64's -ld_classic),
+          # If a target needs extra rustflags (e.g. macos-arm64's lld linker),
           # replicate the repo's .cargo/config.toml [build] rustflags and append
           # them, since setting RUSTFLAGS via env fully overrides the config
           # value (cargo does not merge the two).
           extra='${{ matrix.extra_rustflags }}'
+          if [ "${{ matrix.use_lld }}" = "true" ]; then
+            # Resolve the brewed ld64.lld path at build time and route cc to it.
+            extra="-C link-arg=-fuse-ld=$(brew --prefix lld)/bin/ld64.lld"
+          fi
           if [ -n "$extra" ]; then
             export RUSTFLAGS="-C symbol-mangling-version=v0 --cfg tokio_unstable $extra"
           fi
