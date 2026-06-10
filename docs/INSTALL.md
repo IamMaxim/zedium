@@ -9,8 +9,8 @@ It ships as a plain archive — there is no auto-updater and no account.
 |---|---|
 | Linux x86_64 | `zedium-<tag>-linux-x86_64.tar.gz` |
 | Linux aarch64 | `zedium-<tag>-linux-aarch64.tar.gz` |
-| macOS arm64 | `Zedium-<tag>-arm64.zip` |
-| macOS x86_64 | `Zedium-<tag>-x86_64.zip` |
+| macOS arm64 | `zedium-<tag>-macos-arm64.zip` (contains `Zedium.app`) |
+| macOS x86_64 | `zedium-<tag>-macos-x86_64.zip` (contains `Zedium.app`) |
 
 Tags use the form `v1.4.2-1` (upstream tag + fork revision).
 
@@ -36,13 +36,21 @@ The app is **ad-hoc signed** (no Apple Developer ID). Gatekeeper will quarantine
 launch. Remove the quarantine attribute:
 
 ```sh
-unzip Zedium-<tag>-arm64.zip
-xattr -d com.apple.quarantine Zedium.app
-open Zedium.app
+unzip zedium-<tag>-macos-arm64.zip
+xattr -dr com.apple.quarantine Zedium.app   # -r: clear the whole bundle
+open Zedium.app                              # or drag Zedium.app into /Applications
 ```
 
 Bundle identifier: `dev.zedium.Zedium`. User data: `~/Library/Application Support/Zedium`,
 config `~/.config/zedium`.
+
+## Remote development (SSH / Docker / WSL)
+
+Remoting works **offline**: the pre-compiled `remote_server` daemons for Linux (x86_64 +
+aarch64) and macOS (arm64) ship inside the app, next to the editor binary
+(`Zedium.app/Contents/MacOS/remote_servers/` on macOS, `bin/remote_servers/` on Linux). At
+connect time the editor provisions the matching daemon onto the host — no download from the
+network. See [REMOTE_SERVERS.md](REMOTE_SERVERS.md).
 
 ## Updating
 

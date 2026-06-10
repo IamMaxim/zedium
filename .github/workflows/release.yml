@@ -20,9 +20,83 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Pre-compiled `remote_server` daemons bundled into every editor build so
+  # SSH/Docker/WSL remoting works with NO network download (the editor resolves
+  # them at connect time from `<exe_dir>/remote_servers/`). Linux targets are
+  # static musl cross-builds via zig (portable across host glibc versions);
+  # macos-aarch64 builds natively. See tools/build-remote-servers.sh and
+  # docs/REMOTE_SERVERS.md.
+  remote_servers:
+    name: remote_server (${{ matrix.host }})
+    runs-on: ${{ matrix.runs-on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: linux
+            runs-on: ubuntu-latest
+            targets: linux-x86_64 linux-aarch64
+          - host: macos
+            runs-on: macos-14
+            targets: macos-aarch64
+    steps:
+      - name: Checkout (with submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Free disk space (Linux)
+        if: matrix.host == 'linux'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost || true
+          df -h /
+
+      - name: Fetch submodule tags + set git identity
+        run: |
+          git -C zed fetch --tags --force origin || true
+          git config --global user.email "ci@zedium.local"
+          git config --global user.name "Zedium CI"
+
+      - name: Install just
+        run: cargo install --locked just || true
+
+      - name: Apply patches
+        run: just apply
+
+      - name: Install zig + cargo-zigbuild (Linux musl cross)
+        if: matrix.host == 'linux'
+        run: |
+          # cargo-zigbuild drives a static musl cross-compile; zig is its C
+          # toolchain (and the tool's objcopy for stripping). Pinned, no
+          # third-party action, so the build stays self-contained.
+          ZIG_VERSION=0.14.0
+          curl -fsSL "https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz" \
+            | tar -xJ
+          echo "$PWD/zig-linux-x86_64-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          cargo install --locked cargo-zigbuild
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: zed
+          key: remote-${{ matrix.host }}
+
+      - name: Build remote_server artifacts
+        run: ./tools/build-remote-servers.sh ${{ matrix.targets }}
+
+      - name: Upload remote_server artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: remote-servers-${{ matrix.host }}
+          path: zed/target/remote-servers-bundle/*.gz
+
   build:
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.runs-on }}
+    # Wait for the bundled remote_server daemons so every package can embed them.
+    needs: [remote_servers]
     # Some targets are allowed to fail without blocking the release (see
     # macos-arm64 below); continue-on-error keeps `publish` (needs: build)
     # running so the other binaries + the extension bundle still ship.
@@ -149,6 +223,72 @@ jobs:
           fi
           cargo build --release --target ${{ matrix.rust-target }} --package zed --bin zedium
 
+      - name: Download bundled remote_server artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: remote-servers-*
+          merge-multiple: true
+          path: remote-bundle
+
+      - name: Build macOS .app bundle
+        if: startsWith(matrix.target, 'macos')
+        env:
+          RELEASE_CHANNEL: stable
+        run: |
+          set -euo pipefail
+          cd zed
+          # Install the zed fork of cargo-bundle, which generates the .app
+          # skeleton (Info.plist, icons, url schemes) from crates/zed/Cargo.toml's
+          # [package.metadata.bundle-stable]. Version-pinned like script/bundle-mac.
+          want="cargo-bundle v0.6.1-zed"
+          have="$(cargo -q bundle --help 2>&1 | head -n1 || true)"
+          if [ "$have" != "$want" ]; then
+            cargo install cargo-bundle \
+              --git https://github.com/zed-industries/cargo-bundle.git --branch zed-deploy
+          fi
+          export ZED_BUNDLE=true ZED_RELEASE_CHANNEL=stable CXXFLAGS="-stdlib=libc++"
+          # Two in-place Cargo.toml edits for the bundle run (restored right after):
+          # 1. cargo-bundle reads [package.metadata.bundle]; our channels live under
+          #    bundle-stable, so rename it.
+          # 2. cargo-bundle's default (Main) artifact picks the FIRST `bin` target
+          #    by cargo-metadata order (alphabetical). The fork's rename to `zedium`
+          #    made `zed_visual_test_runner` sort before it, so bundle grabbed that
+          #    (gated, never-built) bin and failed to copy it. Drop that [[bin]]
+          #    block so `zedium` is the only — and selected — binary. (Passing
+          #    --bin instead would discard the top-level icon/identifier metadata.)
+          pushd crates/zed >/dev/null
+          cp Cargo.toml Cargo.toml.bak
+          sed -i.sed 's/package.metadata.bundle-stable/package.metadata.bundle/' Cargo.toml
+          perl -0pi -e 's/\n\[\[bin\]\]\nname = "zed_visual_test_runner".*?required-features = \["visual-tests"\]\n//s' Cargo.toml
+          # CARGO_BUNDLE_SKIP_BUILD reuses the binary built above (with the arm64
+          # lld link fix) instead of recompiling — cargo-bundle just packages
+          # target/<triple>/release/zedium. The output path is workspace-relative.
+          app_path="$(CARGO_BUNDLE_SKIP_BUILD=1 cargo bundle --release \
+            --target ${{ matrix.rust-target }} --select-workspace-root | xargs)"
+          mv Cargo.toml.bak Cargo.toml; rm -f Cargo.toml.sed
+          popd >/dev/null
+          echo "bundled: $app_path"
+          # Finder document icon (DocumentTypes.plist references Document.icns).
+          cp crates/zed/resources/Document.icns "$app_path/Contents/Resources/Document.icns" || true
+          # Embed the pre-compiled remote_server daemons so SSH/Docker/WSL remoting
+          # works offline (resolved from Contents/MacOS/remote_servers/ at connect).
+          mkdir -p "$app_path/Contents/MacOS/remote_servers"
+          if compgen -G "$GITHUB_WORKSPACE/remote-bundle/"*.gz >/dev/null; then
+            cp "$GITHUB_WORKSPACE"/remote-bundle/*.gz "$app_path/Contents/MacOS/remote_servers/"
+          else
+            echo "::warning::no remote_server artifacts to embed in the .app"
+          fi
+          # Ad-hoc sign (no Apple cert): drop the associated-domains entitlement
+          # (needs a real team) like script/bundle-mac's no-cert path, then deep-sign
+          # so Gatekeeper runs the app after the user clears quarantine.
+          sed '/com.apple.developer.associated-domains/,+1d' \
+            crates/zed/resources/zed.entitlements > "$app_path/Contents/Resources/zed.entitlements"
+          codesign --force --deep \
+            --entitlements "$app_path/Contents/Resources/zed.entitlements" \
+            --sign - "$app_path" -v
+          # cargo-bundle --select-workspace-root prints an ABSOLUTE path.
+          echo "APP_PATH=$app_path" >> "$GITHUB_ENV"
+
       - name: Package archive
         id: package
         shell: bash
@@ -156,18 +296,23 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           stage="zedium-${tag}-${{ matrix.target }}"
-          mkdir -p "$stage/bin"
-          cp "zed/target/${{ matrix.rust-target }}/release/zedium" "$stage/bin/zedium"
-          cp -r zed/assets "$stage/assets" || true
-          cp docs/INSTALL.md docs/EDIT_PREDICTION.md "$stage/" || true
-          cp zed/LICENSE-GPL zed/LICENSE-AGPL zed/LICENSE-APACHE "$stage/" 2>/dev/null || true
           if [ "${{ matrix.archive }}" = "zip" ]; then
-            # Ad-hoc sign the bare binary so Gatekeeper can run it after
-            # the user clears the quarantine attribute (see INSTALL.md).
-            codesign --force --sign - "$stage/bin/zedium" || true
-            zip -r "${stage}.zip" "$stage"
-            echo "asset=${stage}.zip" >> "$GITHUB_OUTPUT"
+            # macOS: ship Zedium.app. ditto preserves the bundle structure and
+            # the ad-hoc code signature (a plain `zip` can corrupt the signature).
+            asset="${stage}.zip"
+            ditto -c -k --keepParent "$APP_PATH" "$asset"
+            echo "asset=$asset" >> "$GITHUB_OUTPUT"
           else
+            # Linux: bare binary + assets, with the remote_server daemons next to
+            # the binary (editor resolves <exe_dir>/remote_servers/ at connect).
+            mkdir -p "$stage/bin/remote_servers"
+            cp "zed/target/${{ matrix.rust-target }}/release/zedium" "$stage/bin/zedium"
+            cp -r zed/assets "$stage/assets" || true
+            cp docs/INSTALL.md docs/EDIT_PREDICTION.md "$stage/" || true
+            cp zed/LICENSE-GPL zed/LICENSE-AGPL zed/LICENSE-APACHE "$stage/" 2>/dev/null || true
+            if compgen -G "$GITHUB_WORKSPACE/remote-bundle/"*.gz >/dev/null; then
+              cp "$GITHUB_WORKSPACE"/remote-bundle/*.gz "$stage/bin/remote_servers/"
+            fi
             tar czf "${stage}.tar.gz" "$stage"
             echo "asset=${stage}.tar.gz" >> "$GITHUB_OUTPUT"
           fi
