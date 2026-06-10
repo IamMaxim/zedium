@@ -25,7 +25,10 @@ upstream prebuilt archive** (`extensions/<id>/<version>/archive.tar.gz` — comp
 
 Only extensions compatible with the shipped **stable** channel are included
 (wasm API version ≤ 0.7.0, manifest schema ≤ 1), so everything in the bundle is
-guaranteed to load.
+guaranteed to load. The release bundle is the **complete** stable-compatible set
+— every extension the registry's list endpoint returns (~1000, the endpoint's
+hard cap, ≈98% of what `zed.dev/extensions` shows). The few beyond the cap need a
+newer wasm API this build can't load anyway.
 
 ### Rolling your own bundle
 

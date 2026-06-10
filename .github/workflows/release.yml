@@ -351,7 +351,12 @@ jobs:
           # the bundle is labelled with the Zed release it is compatible with.
           ref="${GITHUB_REF_NAME:-dev}"
           zed_version="${ref%-*}"
+          # --full snapshots EVERY stable-compatible extension (wasm_api<=0.7.0,
+          # schema<=1) the registry lists — ~1000 extensions, ~90 MB. The list
+          # endpoint hard-caps at 1000 (≈98% of the ~1017 on zed.dev/extensions);
+          # the handful beyond require a newer wasm_api this binary can't load.
           bash tools/snapshot-extensions.sh \
+            --full \
             --out dist-extensions \
             --channel stable \
             --zed-version "$zed_version"
@@ -391,8 +396,9 @@ jobs:
             No auto-update: replace the archive to upgrade. AI features are off
             until you configure a self-hosted/BYO provider.
 
-            Offline extensions: `zedium-extensions-stable-*.tar.gz` is a snapshot
-            of the Zed extension registry for air-gapped installs. Carry it to the
+            Offline extensions: `zedium-extensions-stable-*.tar.gz` is a complete
+            snapshot of the Zed extension registry (~1000 extensions, every one
+            this stable build can load) for air-gapped installs. Carry it to the
             target machine and install via "Install from File" in the Extensions
             view (or the `zed: install prebuilt extension` command). See
             `EXTENSIONS_OFFLINE.md`.

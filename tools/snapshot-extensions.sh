@@ -151,7 +151,9 @@ while IFS=$'\t' read -r id version wasm_api; do
   dest="$WORK/extensions/$id/$version"
   mkdir -p "$dest"
   url="$API/extensions/$id/$version/download"
-  if ! curl -fsSL --retry 3 --max-time 180 "$url" -o "$dest/archive.tar.gz"; then
+  # --retry-all-errors: plain --retry ignores connection resets / TLS handshake
+  # failures (curl 35/56), which crop up when pulling ~1000 archives in a row.
+  if ! curl -fsSL --retry 5 --retry-all-errors --max-time 180 "$url" -o "$dest/archive.tar.gz"; then
     echo "   !! download failed: $id $version" >&2; fail=$((fail+1)); continue
   fi
   # validate: real gzip tar containing extension.toml (or legacy extension.json).
