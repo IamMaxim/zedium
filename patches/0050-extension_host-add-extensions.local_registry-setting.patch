@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 14 Jun 2026 13:13:02 +0300
+Subject: [PATCH] extension_host: add extensions.local_registry setting
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+---
+ crates/extension_host/src/extension_settings.rs | 2 ++
+ crates/settings_content/src/extension.rs        | 9 +++++++++
+ 2 files changed, 11 insertions(+)
+
+diff --git a/crates/extension_host/src/extension_settings.rs b/crates/extension_host/src/extension_settings.rs
+index 736dd6b87a..f8786618d6 100644
+--- a/crates/extension_host/src/extension_settings.rs
++++ b/crates/extension_host/src/extension_settings.rs
+@@ -15,6 +15,7 @@ pub struct ExtensionSettings {
+     /// Default: { "html": true }
+     pub auto_install_extensions: HashMap<Arc<str>, bool>,
+     pub auto_update_extensions: HashMap<Arc<str>, bool>,
++    pub local_registry: Option<String>,
+     pub granted_capabilities: Vec<ExtensionCapability>,
+ }
+ 
+@@ -40,6 +41,7 @@ impl Settings for ExtensionSettings {
+         Self {
+             auto_install_extensions: content.extension.auto_install_extensions.clone(),
+             auto_update_extensions: content.extension.auto_update_extensions.clone(),
++            local_registry: content.extension.local_registry.clone(),
+             granted_capabilities: content
+                 .extension
+                 .granted_extension_capabilities
+diff --git a/crates/settings_content/src/extension.rs b/crates/settings_content/src/extension.rs
+index 2fefd4ef38..708e4ab5fb 100644
+--- a/crates/settings_content/src/extension.rs
++++ b/crates/settings_content/src/extension.rs
+@@ -18,6 +18,15 @@ pub struct ExtensionSettingsContent {
+     pub auto_install_extensions: HashMap<Arc<str>, bool>,
+     #[serde(default)]
+     pub auto_update_extensions: HashMap<Arc<str>, bool>,
++    /// Path to a local extension registry used by Zedium's offline marketplace.
++    ///
++    /// Accepts either an unpacked bundle directory (one containing `index.json`)
++    /// or a `.tar.gz` bundle as produced by `tools/snapshot-extensions.sh`. When
++    /// unset, the in-app marketplace shows only already-installed extensions.
++    ///
++    /// Default: null
++    #[serde(default)]
++    pub local_registry: Option<String>,
+     /// The capabilities granted to extensions.
+     pub granted_extension_capabilities: Option<Vec<ExtensionCapabilityContent>>,
+ }

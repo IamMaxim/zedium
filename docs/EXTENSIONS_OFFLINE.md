@@ -71,6 +71,42 @@ talks to the registry at build time — it is never part of the shipped editor.
 That's it. Repeat per extension you want. Installed extensions persist like any
 other and survive restarts.
 
+## 3. Browsing the bundle in-app (local marketplace)
+
+Instead of installing extensions one file at a time, you can point Zedium at the
+whole bundle and browse/install from the Extensions view.
+
+1. Unpack the bundle somewhere persistent (or keep the `.tar.gz` — both work):
+   ```sh
+   tar xzf zedium-extensions-stable-v1.5.4.tar.gz
+   ```
+2. In `settings.json`, set the registry path to either the unpacked bundle
+   directory (the one containing `index.json`) or the `.tar.gz` itself. This is a
+   top-level setting key (extension settings are not nested under an `extensions`
+   object):
+   ```json
+   {
+     "local_registry": "/path/to/zedium-extensions-stable-v1.5.4"
+   }
+   ```
+   A `.tar.gz` is unpacked once into a local cache and reused.
+3. Open the **Extensions** view. The bundle's extensions are listed; search and
+   the category filters work offline. Click **Install** on any of them — Zedium
+   installs the bundled prebuilt archive with **no network and no compilation**.
+   **Uninstall** removes it.
+
+Installed extensions always appear in this view, even with no `local_registry`
+configured and even if they are not in the bundle. There is no auto-update: to
+upgrade, install a newer bundle's archive over the old one.
+
+The bundle's `index.json` is already filtered to the stable channel's
+compatibility ceiling (wasm API ≤ 0.7.0, schema ≤ 1), so every extension it lists
+is guaranteed to load — the in-app marketplace lists exactly what the bundle
+contains and does not re-filter by version.
+
+The per-file **Install from File** button and the `zed: install prebuilt
+extension` action remain available for one-off archives.
+
 ## Notes & limitations
 
 - **No recompilation.** Zedium installs *prebuilt* extensions only. If you point

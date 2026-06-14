@@ -1,0 +1,237 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 14 Jun 2026 13:43:25 +0300
+Subject: [PATCH] extension_host: install extensions from the local registry
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/extension_host/src/extension_host.rs   |  53 +++++--
+ .../src/extension_store_test.rs               | 142 ++++++++++++++++++
+ 2 files changed, 186 insertions(+), 9 deletions(-)
+
+diff --git a/crates/extension_host/src/extension_host.rs b/crates/extension_host/src/extension_host.rs
+index c6bd0473ac..5dbb1d23f5 100644
+--- a/crates/extension_host/src/extension_host.rs
++++ b/crates/extension_host/src/extension_host.rs
+@@ -770,11 +770,22 @@ impl ExtensionStore {
+             .detach_and_log_err(cx);
+     }
+ 
+-    pub fn install_latest_extension(&mut self, extension_id: Arc<str>, _cx: &mut Context<Self>) {
+-        log::warn!(
+-            "remote extension installs are disabled in Zedium; cannot install {extension_id}. \
+-             Install extensions locally via 'Install Dev Extension'."
+-        );
++    pub fn install_latest_extension(&mut self, extension_id: Arc<str>, cx: &mut Context<Self>) {
++        let versions = self.fetch_extension_versions(&extension_id, cx);
++        cx.spawn(async move |this, cx| {
++            let latest = versions
++                .await?
++                .into_iter()
++                .max_by_key(|extension| extension.published_at)
++                .with_context(|| {
++                    format!("extension `{extension_id}` not found in local registry")
++                })?;
++            this.update(cx, |this, cx| {
++                this.install_extension(latest.id, latest.manifest.version, cx)
++            })?;
++            anyhow::Ok(())
++        })
++        .detach_and_log_err(cx);
+     }
+ 
+     pub fn upgrade_extension(
+@@ -790,12 +801,36 @@ impl ExtensionStore {
+     fn install_or_upgrade_extension(
+         &mut self,
+         extension_id: Arc<str>,
+-        _version: Arc<str>,
++        version: Arc<str>,
+         _operation: ExtensionOperation,
+-        _cx: &mut Context<Self>,
++        cx: &mut Context<Self>,
+     ) -> Task<Result<()>> {
+-        log::warn!("remote extension install/upgrade disabled in Zedium; ignoring {extension_id}");
+-        Task::ready(Ok(()))
++        let fs = self.fs.clone();
++        let cache_root = self.staging_dir.join("registry-cache");
++        let configured = ExtensionSettings::get_global(cx).local_registry.clone();
++
++        cx.spawn(async move |this, cx| {
++            let configured = configured
++                .filter(|path| !path.is_empty())
++                .context("no local extension registry configured; set `extensions.local_registry`")?;
++            let registry_dir =
++                resolve_registry_dir(fs.clone(), PathBuf::from(configured), cache_root)
++                    .await?
++                    .context("local extension registry could not be read")?;
++            let archive = registry_dir
++                .join("extensions")
++                .join(extension_id.as_ref())
++                .join(version.as_ref())
++                .join("archive.tar.gz");
++            anyhow::ensure!(
++                fs.is_file(&archive).await,
++                "extension `{extension_id}` v{version} is not present in the local registry"
++            );
++
++            // Reuse the existing prebuilt-install engine (no network, no compile).
++            this.update(cx, |this, cx| this.install_prebuilt_extension(archive, cx))?
++                .await
++        })
+     }
+ 
+     pub fn uninstall_extension(
+diff --git a/crates/extension_host/src/extension_store_test.rs b/crates/extension_host/src/extension_store_test.rs
+index 21d18d6c58..de0634a9cf 100644
+--- a/crates/extension_host/src/extension_store_test.rs
++++ b/crates/extension_host/src/extension_store_test.rs
+@@ -1277,6 +1277,148 @@ async fn test_fetch_extensions_from_local_registry(cx: &mut TestAppContext) {
+     assert_eq!(themes_only[0].id.as_ref(), "airgap-theme");
+ }
+ 
++#[gpui::test]
++async fn test_install_extension_from_local_registry(cx: &mut TestAppContext) {
++    init_test(cx);
++    cx.executor().allow_parking();
++
++    let theme_family_json = r#"{
++        "name": "Airgap",
++        "author": "Someone",
++        "themes": [
++            { "name": "Airgap Dark", "appearance": "dark", "style": {} }
++        ]
++    }"#;
++    let extension_id = "airgap-theme";
++    let version = "1.0.0";
++
++    // Build the per-extension archive.tar.gz exactly as the bundle ships it.
++    let fixture_tree = TempTree::new(json!({
++        "extension.toml": format!(
++            "id = \"{extension_id}\"\nname = \"Airgap Theme\"\nversion = \"{version}\"\nschema_version = 1\nthemes = [\"themes/airgap.json\"]\n"
++        ),
++        "themes": { "airgap.json": theme_family_json },
++    }));
++    let fixture_dir = fixture_tree.path().canonicalize().unwrap();
++
++    let mut archive_bytes = Vec::<u8>::new();
++    {
++        let mut tar_bytes = Vec::<u8>::new();
++        {
++            let mut archive = async_tar::Builder::new(&mut tar_bytes);
++            archive.append_dir_all(".", &fixture_dir).await.unwrap();
++            archive.into_inner().await.unwrap();
++        }
++        let mut encoder = GzipEncoder::new(BufReader::new(tar_bytes.as_slice()));
++        encoder.read_to_end(&mut archive_bytes).await.unwrap();
++    }
++
++    let index_json = format!(
++        r#"{{"data":[{{"id":"{extension_id}","name":"Airgap Theme","version":"{version}","description":null,"authors":["Someone"],"repository":"https://example.invalid/airgap","schema_version":1,"wasm_api_version":null,"provides":["themes"],"published_at":"2024-01-01T00:00:00Z","download_count":0}}]}}"#
++    );
++
++    // Directory registry: index.json + extensions/<id>/<version>/archive.tar.gz.
++    // `json!` does not interpolate variable keys, so the id/version dirs are spelled
++    // out as literals (they match `extension_id` / `version` above).
++    let registry_tree = TempTree::new(json!({
++        "index.json": index_json,
++        "extensions": { "airgap-theme": { "1.0.0": {} } },
++    }));
++    let registry_dir = registry_tree.path().canonicalize().unwrap();
++    std::fs::write(
++        registry_dir
++            .join("extensions")
++            .join(extension_id)
++            .join(version)
++            .join("archive.tar.gz"),
++        &archive_bytes,
++    )
++    .unwrap();
++
++    let fs = Arc::new(RealFs::new(None, cx.executor()));
++    let extensions_tree = TempTree::new(json!({
++        "installed": {}, "work": {}, "staging": {},
++    }));
++    let extensions_dir = extensions_tree.path().canonicalize().unwrap();
++
++    cx.update(|cx| {
++        SettingsStore::update_global(cx, |store, cx| {
++            store.update_user_settings(cx, |content| {
++                content.extension.local_registry =
++                    Some(registry_dir.to_string_lossy().into_owned());
++            });
++        });
++    });
++
++    let proxy = Arc::new(ExtensionHostProxy::new());
++    let theme_registry = Arc::new(ThemeRegistry::new(Box::new(())));
++    theme_extension::init(proxy.clone(), theme_registry.clone(), cx.executor());
++    let language_registry = Arc::new(LanguageRegistry::test(cx.executor()));
++    language_extension::init(LspAccess::Noop, proxy.clone(), language_registry.clone());
++    let node_runtime = NodeRuntime::unavailable();
++    let http_client = FakeHttpClient::with_404_response();
++
++    let extension_store = cx.new(|cx| {
++        ExtensionStore::new(
++            extensions_dir.clone(),
++            None,
++            proxy,
++            fs.clone(),
++            http_client.clone(),
++            http_client.clone(),
++            node_runtime,
++            cx,
++        )
++    });
++
++    let mut events = cx.events(&extension_store);
++    let executor = cx.executor();
++    let _task = cx.executor().spawn(async move {
++        while let Some(event) = events.next().await {
++            if let Event::StartedReloading = event {
++                executor.advance_clock(RELOAD_DEBOUNCE_DURATION);
++            }
++        }
++    });
++
++    extension_store.update(cx, |store, cx| {
++        store.install_extension(Arc::from(extension_id), Arc::from(version), cx)
++    });
++    // The install task is detached and performs real-filesystem work on a worker
++    // thread, so a single `run_until_parked` can return while that work is still
++    // in flight. Settle in a bounded loop until the extension lands in the index,
++    // yielding to the worker thread (real sleep) between attempts.
++    for _ in 0..200 {
++        cx.executor().run_until_parked();
++        let installed = extension_store.read_with(cx, |store, _| {
++            store.extension_index.extensions.contains_key(extension_id)
++        });
++        if installed {
++            break;
++        }
++        // Let the worker thread make progress, then advance the clock so the
++        // debounced reload that publishes the install can fire.
++        std::thread::sleep(std::time::Duration::from_millis(10));
++        cx.executor().advance_clock(RELOAD_DEBOUNCE_DURATION);
++    }
++
++    extension_store.read_with(cx, |store, _| {
++        let entry = store
++            .extension_index
++            .extensions
++            .get(extension_id)
++            .expect("extension should install from the directory registry");
++        assert!(!entry.dev, "registry install must be a non-dev install");
++    });
++    assert!(
++        theme_registry
++            .list_names()
++            .iter()
++            .any(|name| name == "Airgap Dark"),
++        "theme should register after registry install"
++    );
++}
++
+ fn init_test(cx: &mut TestAppContext) {
+     cx.update(|cx| {
+         let store = SettingsStore::test(cx);
