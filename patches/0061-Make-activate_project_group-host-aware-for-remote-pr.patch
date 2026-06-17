@@ -1,0 +1,266 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Mon, 15 Jun 2026 14:49:51 +0300
+Subject: [PATCH] Make activate_project_group host-aware for remote project
+ tabs
+
+MultiWorkspace::activate_project_group unconditionally fell back to
+find_or_create_local_workspace when a project group was not already
+retained, ignoring key.host(). For remote groups (SSH/WSL/Docker) this
+opened the remote paths as a bogus local workspace -- triggered after
+restart, when restored groups have last_active_workspace: None.
+
+Mirror the sidebar's open_workspace_for_group: for local groups keep the
+existing local path; for remote groups route through the host-aware
+find_or_create_workspace so the host is reconnected. Since the workspace
+crate cannot depend on remote_connection (cycle), the modal-based
+connector is injected by the app layer via set_remote_connector, using a
+RemoteConnector exposed from the sidebar crate.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/sidebar/src/sidebar.rs                 | 15 ++++-
+ crates/workspace/src/multi_workspace.rs       | 62 ++++++++++++++++++-
+ crates/workspace/src/multi_workspace_tests.rs | 61 ++++++++++++++++++
+ crates/workspace/src/workspace.rs             |  4 +-
+ crates/zed/src/zed.rs                         |  1 +
+ 5 files changed, 138 insertions(+), 5 deletions(-)
+
+diff --git a/crates/sidebar/src/sidebar.rs b/crates/sidebar/src/sidebar.rs
+index e122e58b05..a5f9ac8d90 100644
+--- a/crates/sidebar/src/sidebar.rs
++++ b/crates/sidebar/src/sidebar.rs
+@@ -59,8 +59,8 @@ use util::ResultExt as _;
+ use util::path_list::PathList;
+ use workspace::{
+     CloseWindow, FocusWorkspaceSidebar, MultiWorkspace, MultiWorkspaceEvent, NextProject,
+-    NextThread, Open, OpenMode, PreviousProject, PreviousThread, ProjectGroupKey, SaveIntent,
+-    Sidebar as WorkspaceSidebar, SidebarSide, Toast, ToggleWorkspaceSidebar, Workspace,
++    NextThread, Open, OpenMode, PreviousProject, PreviousThread, ProjectGroupKey, RemoteConnector,
++    SaveIntent, Sidebar as WorkspaceSidebar, SidebarSide, Toast, ToggleWorkspaceSidebar, Workspace,
+     notifications::NotificationId, sidebar_side_context_menu,
+ };
+ 
+@@ -643,6 +643,17 @@ fn connect_remote(
+     remote_connection::connect_with_modal(&modal_workspace, connection_options, window, cx)
+ }
+ 
++/// Returns a [`RemoteConnector`] that opens the standard connection modal,
++/// for injection into [`MultiWorkspace::set_remote_connector`]. This lets
++/// `MultiWorkspace` reconnect remote project groups (e.g. when activating a
++/// restored remote tab) using the same flow as the sidebar, without the
++/// `workspace` crate depending on `remote_connection`.
++pub fn remote_connector() -> RemoteConnector {
++    std::sync::Arc::new(|modal_workspace, connection_options, window, cx| {
++        remote_connection::connect_with_modal(&modal_workspace, connection_options, window, cx)
++    })
++}
++
+ /// The sidebar re-derives its entire entry list from scratch on every
+ /// change via `update_entries` → `rebuild_contents`. Avoid adding
+ /// incremental or inter-event coordination state — if something can
+diff --git a/crates/workspace/src/multi_workspace.rs b/crates/workspace/src/multi_workspace.rs
+index 9a62fe9eb4..e9a6efac61 100644
+--- a/crates/workspace/src/multi_workspace.rs
++++ b/crates/workspace/src/multi_workspace.rs
+@@ -14,6 +14,7 @@ pub use settings::SidebarSide;
+ use std::future::Future;
+ 
+ use std::path::PathBuf;
++use std::sync::Arc;
+ use ui::prelude::*;
+ use util::ResultExt;
+ use util::path_list::PathList;
+@@ -66,6 +67,26 @@ pub struct SidebarRenderState {
+     pub side: SidebarSide,
+ }
+ 
++/// Establishes a remote connection for a project group whose host is
++/// `Some(..)`, returning a [`Task`] that resolves to the connected
++/// [`remote::RemoteClient`] session (or `None` if the connection was
++/// cancelled).
++///
++/// The `workspace` crate cannot depend on `remote_connection` (that would
++/// create a dependency cycle), so the actual connector — which shows the
++/// connection modal — is injected by the application layer via
++/// [`MultiWorkspace::set_remote_connector`]. This mirrors the closure the
++/// sidebar passes to [`MultiWorkspace::find_or_create_workspace`].
++pub type RemoteConnector = Arc<
++    dyn Fn(
++            Entity<Workspace>,
++            RemoteConnectionOptions,
++            &mut Window,
++            &mut App,
++        ) -> Task<Result<Option<Entity<remote::RemoteClient>>>>
++        + 'static,
++>;
++
+ pub fn sidebar_side_context_menu(
+     id: impl Into<ElementId>,
+     cx: &App,
+@@ -298,6 +319,7 @@ pub struct MultiWorkspace {
+     _serialize_task: Option<Task<()>>,
+     _subscriptions: Vec<Subscription>,
+     previous_focus_handle: Option<FocusHandle>,
++    remote_connector: Option<RemoteConnector>,
+ }
+ 
+ impl EventEmitter<MultiWorkspaceEvent> for MultiWorkspace {}
+@@ -358,9 +380,17 @@ impl MultiWorkspace {
+                 settings_subscription,
+             ],
+             previous_focus_handle: None,
++            remote_connector: None,
+         }
+     }
+ 
++    /// Injects the connector used to (re)establish remote connections for
++    /// project groups with a host. Called once by the application layer,
++    /// which has access to the connection modal UI in `remote_connection`.
++    pub fn set_remote_connector(&mut self, connector: RemoteConnector) {
++        self.remote_connector = Some(connector);
++    }
++
+     pub fn register_sidebar<T: Sidebar>(&mut self, sidebar: Entity<T>, cx: &mut Context<Self>) {
+         self._subscriptions
+             .push(cx.observe(&sidebar, |_this, _, cx| {
+@@ -817,9 +847,39 @@ impl MultiWorkspace {
+             self.activate(workspace, None, window, cx);
+             return;
+         }
+-        self.find_or_create_local_workspace(
++
++        let host = key.host();
++        let Some(host) = host else {
++            // Local group: open from disk exactly as before.
++            self.find_or_create_local_workspace(
++                key.path_list().clone(),
++                Some(key.clone()),
++                &[],
++                None,
++                OpenMode::Activate,
++                window,
++                cx,
++            )
++            .detach_and_log_err(cx);
++            return;
++        };
++
++        // Remote group: reconnect to the host instead of opening the remote
++        // paths as a bogus local workspace. This mirrors the sidebar's
++        // `open_workspace_for_group`, routing through the host-aware
++        // `find_or_create_workspace` with the application-injected connector.
++        let Some(connector) = self.remote_connector.clone() else {
++            log::error!(
++                "cannot activate remote project group: no remote connector registered"
++            );
++            return;
++        };
++        let modal_workspace = self.workspace().clone();
++        self.find_or_create_workspace(
+             key.path_list().clone(),
++            Some(host),
+             Some(key.clone()),
++            move |options, window, cx| connector(modal_workspace, options, window, cx),
+             &[],
+             None,
+             OpenMode::Activate,
+diff --git a/crates/workspace/src/multi_workspace_tests.rs b/crates/workspace/src/multi_workspace_tests.rs
+index e02a459639..84477a26bc 100644
+--- a/crates/workspace/src/multi_workspace_tests.rs
++++ b/crates/workspace/src/multi_workspace_tests.rs
+@@ -964,6 +964,67 @@ async fn test_cycle_and_reorder_project_groups(cx: &mut TestAppContext) {
+     });
+ }
+ 
++#[gpui::test]
++async fn test_activate_remote_project_group_does_not_open_local(cx: &mut TestAppContext) {
++    use remote::{RemoteConnectionOptions, SshConnectionOptions};
++    use std::cell::Cell;
++    use std::rc::Rc;
++
++    init_test(cx);
++    let fs = FakeFs::new(cx.executor());
++    fs.insert_tree(path!("/local"), json!({ "x.txt": "" })).await;
++
++    let project = Project::test(fs.clone(), [path!("/local").as_ref()], cx).await;
++    let (mw, cx) = cx.add_window_view(|window, cx| MultiWorkspace::test_new(project, window, cx));
++    cx.run_until_parked();
++
++    // A remote group whose paths are NOT loaded as a workspace. Before this
++    // fix, `activate_project_group` fell back to opening these remote paths
++    // as a local workspace; it must instead route through the host-aware
++    // connector.
++    let host = RemoteConnectionOptions::Ssh(SshConnectionOptions {
++        host: "example.com".into(),
++        ..Default::default()
++    });
++    let remote_key =
++        ProjectGroupKey::new(Some(host), PathList::new(&[path!("/remote/project")]));
++
++    let connector_called = Rc::new(Cell::new(false));
++    mw.update(cx, |mw, _cx| {
++        let connector_called = connector_called.clone();
++        mw.set_remote_connector(std::sync::Arc::new(move |_workspace, _options, _window, _cx| {
++            connector_called.set(true);
++            // Simulate a cancelled connection so no workspace is created.
++            gpui::Task::ready(Ok(None))
++        }));
++    });
++
++    let workspaces_before = mw.read_with(cx, |mw, _cx| mw.workspaces().count());
++
++    mw.update_in(cx, |mw, window, cx| {
++        mw.activate_project_group(&remote_key, window, cx);
++    });
++    cx.run_until_parked();
++
++    assert!(
++        connector_called.get(),
++        "activating a remote project group must route through the host-aware connector"
++    );
++
++    mw.read_with(cx, |mw, cx| {
++        assert_eq!(
++            mw.workspaces().count(),
++            workspaces_before,
++            "activating a remote group with a cancelled connection must not create a workspace"
++        );
++        assert!(
++            mw.workspace_for_paths(remote_key.path_list(), remote_key.host().as_ref(), cx)
++                .is_none(),
++            "no local workspace should have been opened for the remote paths"
++        );
++    });
++}
++
+ #[gpui::test]
+ async fn test_close_active_project_tab_activates_neighbor(cx: &mut TestAppContext) {
+     init_test(cx);
+diff --git a/crates/workspace/src/workspace.rs b/crates/workspace/src/workspace.rs
+index f69a0de16e..ecbbf597c8 100644
+--- a/crates/workspace/src/workspace.rs
++++ b/crates/workspace/src/workspace.rs
+@@ -33,8 +33,8 @@ pub use dock::Panel;
+ pub use multi_workspace::{
+     CloseWorkspaceSidebar, DraggedSidebar, FocusWorkspaceSidebar, MoveProjectToNewWindow,
+     MultiWorkspace, MultiWorkspaceEvent, NewThread, NextProject, NextThread, PreviousProject,
+-    PreviousThread, ProjectGroup, ProjectGroupKey, SerializedProjectGroupState, Sidebar,
+-    SidebarEvent, SidebarHandle, SidebarRenderState, SidebarSide, ToggleWorkspaceSidebar,
++    PreviousThread, ProjectGroup, ProjectGroupKey, RemoteConnector, SerializedProjectGroupState,
++    Sidebar, SidebarEvent, SidebarHandle, SidebarRenderState, SidebarSide, ToggleWorkspaceSidebar,
+     sidebar_side_context_menu,
+ };
+ pub use path_list::{PathList, SerializedPathList};
+diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
+index 6c2555b3ba..135388470a 100644
+--- a/crates/zed/src/zed.rs
++++ b/crates/zed/src/zed.rs
+@@ -481,6 +481,7 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
+                         cx.new(|cx| Sidebar::new(multi_workspace_handle.clone(), window, cx));
+                     multi_workspace_handle.update(cx, |multi_workspace, cx| {
+                         multi_workspace.register_sidebar(sidebar, cx);
++                        multi_workspace.set_remote_connector(sidebar::remote_connector());
+                     });
+                 })
+                 .ok();

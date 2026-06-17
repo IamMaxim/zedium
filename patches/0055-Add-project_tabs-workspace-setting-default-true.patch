@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Mon, 15 Jun 2026 13:09:12 +0300
+Subject: [PATCH] Add project_tabs workspace setting (default true)
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+---
+ assets/settings/default.json                  |  1 +
+ crates/settings/src/vscode_import.rs          |  1 +
+ crates/settings_content/src/workspace.rs      |  4 ++++
+ crates/workspace/src/multi_workspace_tests.rs | 12 ++++++++++++
+ crates/workspace/src/workspace_settings.rs    |  2 ++
+ 5 files changed, 20 insertions(+)
+
+diff --git a/assets/settings/default.json b/assets/settings/default.json
+index 6d109be803..39bc0bc352 100644
+--- a/assets/settings/default.json
++++ b/assets/settings/default.json
+@@ -503,6 +503,7 @@
+   },
+   // Whether to allow windows to tab together based on the user’s tabbing preference (macOS only).
+   "use_system_window_tabs": false,
++  "project_tabs": true,
+   // Titlebar related settings
+   "title_bar": {
+     // Whether to show git status indicators on the branch icon in the titlebar.
+diff --git a/crates/settings/src/vscode_import.rs b/crates/settings/src/vscode_import.rs
+index 1ae9b296b9..12fe44ae3a 100644
+--- a/crates/settings/src/vscode_import.rs
++++ b/crates/settings/src/vscode_import.rs
+@@ -1041,6 +1041,7 @@ impl VsCodeSettings {
+             use_system_path_prompts: self.read_bool("files.simpleDialog.enable").map(|b| !b),
+             use_system_prompts: None,
+             use_system_window_tabs: self.read_bool("window.nativeTabs"),
++            project_tabs: None,
+             when_closing_with_no_tabs: self.read_bool("window.closeWhenEmpty").map(|b| {
+                 if b {
+                     CloseWindowWhenNoItems::CloseWindow
+diff --git a/crates/settings_content/src/workspace.rs b/crates/settings_content/src/workspace.rs
+index 7ff1f543c8..bb79f5fa44 100644
+--- a/crates/settings_content/src/workspace.rs
++++ b/crates/settings_content/src/workspace.rs
+@@ -112,6 +112,10 @@ pub struct WorkspaceSettingsContent {
+     ///
+     /// Default: false
+     pub use_system_window_tabs: Option<bool>,
++    /// Whether to show open projects as tabs in the title bar.
++    ///
++    /// Default: true
++    pub project_tabs: Option<bool>,
+     /// Whether to show padding for zoomed panels.
+     /// When enabled, zoomed bottom panels will have some top padding,
+     /// while zoomed left/right panels will have padding to the right/left (respectively).
+diff --git a/crates/workspace/src/multi_workspace_tests.rs b/crates/workspace/src/multi_workspace_tests.rs
+index a5099a70fd..d2b4e28e9a 100644
+--- a/crates/workspace/src/multi_workspace_tests.rs
++++ b/crates/workspace/src/multi_workspace_tests.rs
+@@ -17,6 +17,7 @@ fn init_test(cx: &mut TestAppContext) {
+         cx.set_global(settings_store);
+         theme_settings::init(theme::LoadThemes::JustBase, cx);
+         DisableAiSettings::register(cx);
++        WorkspaceSettings::register(cx);
+     });
+ }
+ 
+@@ -942,3 +943,14 @@ async fn test_open_project_closes_empty_workspace_but_not_non_empty_ones(cx: &mu
+         .unwrap();
+     assert!(workspace_a.read_with(cx, |workspace, _cx| workspace.session_id().is_some()),);
+ }
++
++#[gpui::test]
++async fn test_project_tabs_setting_defaults_true(cx: &mut TestAppContext) {
++    init_test(cx);
++    cx.update(|cx| {
++        assert!(
++            WorkspaceSettings::get_global(cx).project_tabs,
++            "project_tabs should default to true"
++        );
++    });
++}
+diff --git a/crates/workspace/src/workspace_settings.rs b/crates/workspace/src/workspace_settings.rs
+index 53ef067193..debcea9c0c 100644
+--- a/crates/workspace/src/workspace_settings.rs
++++ b/crates/workspace/src/workspace_settings.rs
+@@ -34,6 +34,7 @@ pub struct WorkspaceSettings {
+     pub close_on_file_delete: bool,
+     pub close_panel_on_toggle: bool,
+     pub use_system_window_tabs: bool,
++    pub project_tabs: bool,
+     pub zoomed_padding: bool,
+     pub window_decorations: settings::WindowDecorations,
+     pub focus_follows_mouse: FocusFollowsMouse,
+@@ -120,6 +121,7 @@ impl Settings for WorkspaceSettings {
+             close_on_file_delete: workspace.close_on_file_delete.unwrap(),
+             close_panel_on_toggle: workspace.close_panel_on_toggle.unwrap(),
+             use_system_window_tabs: workspace.use_system_window_tabs.unwrap(),
++            project_tabs: workspace.project_tabs.unwrap(),
+             zoomed_padding: workspace.zoomed_padding.unwrap(),
+             window_decorations: workspace.window_decorations.unwrap(),
+             focus_follows_mouse: FocusFollowsMouse {
