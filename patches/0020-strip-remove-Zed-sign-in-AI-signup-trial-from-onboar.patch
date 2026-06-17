@@ -18,7 +18,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  2 files changed, 6 insertions(+), 141 deletions(-)
 
 diff --git a/crates/onboarding/src/basics_page.rs b/crates/onboarding/src/basics_page.rs
-index 2968c08b6c..391c0532e5 100644
+index 6965b46006..dbec51a16a 100644
 --- a/crates/onboarding/src/basics_page.rs
 +++ b/crates/onboarding/src/basics_page.rs
 @@ -1,8 +1,5 @@
@@ -30,7 +30,7 @@ index 2968c08b6c..391c0532e5 100644
  use collections::HashMap;
  use fs::Fs;
  use gpui::{Action, Animation, AnimationExt, App, Entity, IntoElement, TaskExt, pulsating_between};
-@@ -475,77 +472,7 @@ fn render_registry_agent_button(
+@@ -473,77 +470,7 @@ fn render_registry_agent_button(
          })
  }
  
@@ -109,7 +109,7 @@ index 2968c08b6c..391c0532e5 100644
      let registry_agents = AgentRegistryStore::try_global(cx)
          .map(|store| store.read(cx).agents().to_vec())
          .unwrap_or_default();
-@@ -555,7 +482,7 @@ fn render_ai_section(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoE
+@@ -553,7 +480,7 @@ fn render_ai_section(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoE
          .get::<AllAgentServersSettings>(None)
          .clone();
  
@@ -118,7 +118,7 @@ index 2968c08b6c..391c0532e5 100644
  
      let grid = FEATURED_AGENT_IDS.iter().fold(
          div()
-@@ -563,8 +490,7 @@ fn render_ai_section(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoE
+@@ -561,8 +488,7 @@ fn render_ai_section(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoE
              .mt_1p5()
              .grid()
              .grid_cols(column_count)
@@ -128,7 +128,7 @@ index 2968c08b6c..391c0532e5 100644
          |grid, agent_id| {
              let Some(agent) = registry_agents
                  .iter()
-@@ -587,7 +513,7 @@ fn render_ai_section(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoE
+@@ -585,7 +511,7 @@ fn render_ai_section(user_store: &Entity<UserStore>, cx: &mut App) -> impl IntoE
          .child(grid)
  }
  
@@ -137,7 +137,7 @@ index 2968c08b6c..391c0532e5 100644
      let mut tab_index = 0;
  
      v_flex()
-@@ -595,7 +521,7 @@ pub(crate) fn render_basics_page(user_store: &Entity<UserStore>, cx: &mut App) -
+@@ -593,7 +519,7 @@ pub(crate) fn render_basics_page(user_store: &Entity<UserStore>, cx: &mut App) -
          .gap_6()
          .child(render_theme_section(&mut tab_index, cx))
          .child(render_base_keymap_section(&mut tab_index, cx))
@@ -147,7 +147,7 @@ index 2968c08b6c..391c0532e5 100644
          .child(render_vim_mode_switch(&mut tab_index, cx))
          .child(render_worktree_auto_trust_switch(&mut tab_index, cx))
 diff --git a/crates/onboarding/src/onboarding.rs b/crates/onboarding/src/onboarding.rs
-index 9da3da0945..839c272480 100644
+index ed608451eb..17ce48c2d7 100644
 --- a/crates/onboarding/src/onboarding.rs
 +++ b/crates/onboarding/src/onboarding.rs
 @@ -1,6 +1,4 @@

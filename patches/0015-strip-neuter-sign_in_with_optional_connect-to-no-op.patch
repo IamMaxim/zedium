@@ -20,10 +20,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  1 file changed, 5 insertions(+), 45 deletions(-)
 
 diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
-index a2b4ebbcc2..6ea00eac90 100644
+index cb9f5c96c6..0238cc33c2 100644
 --- a/crates/client/src/client.rs
 +++ b/crates/client/src/client.rs
-@@ -1033,55 +1033,15 @@ impl Client {
+@@ -1036,55 +1036,15 @@ impl Client {
          Ok(())
      }
  

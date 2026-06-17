@@ -18,23 +18,51 @@ are still used by the agent and third-party LLM providers.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
- crates/client/src/client.rs           | 45 ---------------------------
- crates/client/src/llm_token.rs        |  7 -----
- crates/http_client/src/http_client.rs | 16 ----------
- 3 files changed, 68 deletions(-)
+ crates/client/src/client.rs           | 66 ---------------------------
+ crates/client/src/llm_token.rs        |  7 ---
+ crates/http_client/src/http_client.rs | 16 -------
+ 3 files changed, 89 deletions(-)
 
 diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
-index 963b2964bb..55e5f17ff9 100644
+index a199546af0..afba3a25c6 100644
 --- a/crates/client/src/client.rs
 +++ b/crates/client/src/client.rs
-@@ -1539,51 +1539,6 @@ impl Client {
+@@ -532,27 +532,6 @@ impl<T: 'static> Drop for PendingEntitySubscription<T> {
+     }
+ }
+ 
+-<<<<<<< HEAD
+-#[derive(Copy, Clone, Deserialize, Debug, RegisterSetting)]
+-pub struct TelemetrySettings {
+-    pub diagnostics: bool,
+-    pub metrics: bool,
+-    pub anthropic_retention: bool,
+-}
+-
+-impl settings::Settings for TelemetrySettings {
+-    fn from_settings(content: &SettingsContent) -> Self {
+-        let telemetry = content.telemetry.as_ref().unwrap();
+-        Self {
+-            diagnostics: telemetry.diagnostics.unwrap(),
+-            metrics: telemetry.metrics.unwrap(),
+-            anthropic_retention: telemetry.anthropic_retention.unwrap(),
+-        }
+-    }
+-}
+-
+-=======
+->>>>>>> 8cda407bd5 (strip: remove client-side telemetry uploader)
+ impl Client {
+     pub fn new(
+         _clock: Arc<dyn SystemClock>,
+@@ -1560,51 +1539,6 @@ impl Client {
          })
      }
  
 -    pub async fn cached_llm_token(
 -        &self,
 -        llm_token: &LlmApiToken,
--        organization_id: Option<OrganizationId>,
+-        organization_id: OrganizationId,
 -    ) -> Result<String> {
 -        let system_id: Option<String> = None;
 -        let cloud_client = self.cloud_client();
@@ -58,7 +86,7 @@ index 963b2964bb..55e5f17ff9 100644
 -    pub async fn authenticated_llm_request(
 -        &self,
 -        llm_token: &LlmApiToken,
--        organization_id: Option<OrganizationId>,
+-        organization_id: OrganizationId,
 -        build_request: impl Fn(&str) -> Result<http_client::Request<http_client::AsyncBody>>,
 -    ) -> Result<http_client::Response<http_client::AsyncBody>> {
 -        let http_client = self.http_client();
@@ -80,10 +108,10 @@ index 963b2964bb..55e5f17ff9 100644
          &self,
          llm_token: &LlmApiToken,
 diff --git a/crates/client/src/llm_token.rs b/crates/client/src/llm_token.rs
-index 058be7905f..6a5e31bc50 100644
+index 94390fd1ad..0d5b137de5 100644
 --- a/crates/client/src/llm_token.rs
 +++ b/crates/client/src/llm_token.rs
-@@ -25,13 +25,6 @@ enum TokenRefreshMode {
+@@ -27,13 +27,6 @@ enum TokenRefreshMode {
      ClearAndRefresh,
  }
  
@@ -98,10 +126,10 @@ index 058be7905f..6a5e31bc50 100644
  
  impl Global for GlobalRefreshLlmTokenListener {}
 diff --git a/crates/http_client/src/http_client.rs b/crates/http_client/src/http_client.rs
-index bbbe3b1a83..9228c2fe13 100644
+index 1c3e1859b7..0ebb6189a9 100644
 --- a/crates/http_client/src/http_client.rs
 +++ b/crates/http_client/src/http_client.rs
-@@ -251,22 +251,6 @@ impl HttpClientWithUrl {
+@@ -303,22 +303,6 @@ impl HttpClientWithUrl {
          let query = serde_urlencoded::to_string(&query)?;
          Ok(Url::parse(&format!("{}{}?{}", base_api_url, path, query))?)
      }

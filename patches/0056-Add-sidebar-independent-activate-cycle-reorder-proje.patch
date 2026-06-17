@@ -11,10 +11,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  2 files changed, 108 insertions(+)
 
 diff --git a/crates/workspace/src/multi_workspace.rs b/crates/workspace/src/multi_workspace.rs
-index 6f9bf159b1..5f267e2059 100644
+index 370baae685..5ea8f82927 100644
 --- a/crates/workspace/src/multi_workspace.rs
 +++ b/crates/workspace/src/multi_workspace.rs
-@@ -798,6 +798,63 @@ impl MultiWorkspace {
+@@ -809,6 +809,63 @@ impl MultiWorkspace {
              .collect()
      }
  
@@ -78,7 +78,7 @@ index 6f9bf159b1..5f267e2059 100644
      fn derived_project_groups(&self, cx: &App) -> Vec<ProjectGroup> {
          self.project_groups
              .iter()
-@@ -2154,12 +2211,16 @@ impl Render for MultiWorkspace {
+@@ -2200,12 +2257,16 @@ impl Render for MultiWorkspace {
                      .on_action(cx.listener(|this: &mut Self, _: &NextProject, window, cx| {
                          if let Some(sidebar) = &this.sidebar {
                              sidebar.cycle_project(true, window, cx);

@@ -66,7 +66,7 @@ index 2f11e2ce00..acd551c886 100755
  // To see the default key bindings run `zed: open default keymap`
  // from the command palette.
 diff --git a/assets/settings/default.json b/assets/settings/default.json
-index 139afa5008..dcafd20dfd 100644
+index 7a3d8f089a..7510b7b67a 100644
 --- a/assets/settings/default.json
 +++ b/assets/settings/default.json
 @@ -1032,14 +1032,12 @@
@@ -100,7 +100,7 @@ index 139afa5008..dcafd20dfd 100644
        //   "temperature": 1.0
        // }
      ],
-@@ -2521,9 +2519,10 @@
+@@ -2547,9 +2545,10 @@
      // Delay in milliseconds before showing the which-key popup.
      "delay_ms": 1000,
    },

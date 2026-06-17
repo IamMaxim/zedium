@@ -1,0 +1,6813 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Wed, 17 Jun 2026 21:34:07 +0300
+Subject: [PATCH] rebase v1.7.2: keep local edit-prediction, gut Zeta cloud +
+ copilot/onboarding, thread client/user_store
+
+---
+ Cargo.lock                                    | 3370 +----------------
+ crates/edit_prediction/Cargo.toml             |    2 +
+ crates/edit_prediction/src/edit_prediction.rs |  800 +++-
+ .../src/zed_edit_prediction_delegate.rs       |    9 +-
+ crates/edit_prediction/src/zeta.rs            |  313 +-
+ .../src/edit_prediction_context_view.rs       |    4 +-
+ .../src/edit_prediction_ui.rs                 |    6 +-
+ crates/extensions_ui/src/extensions_ui.rs     |    4 +-
+ crates/language_models/src/settings.rs        |    2 +-
+ crates/workspace/src/multi_workspace.rs       |    2 +-
+ crates/zed/src/main.rs                        |    2 +-
+ .../zed/src/zed/edit_prediction_registry.rs   |   27 +-
+ 12 files changed, 1216 insertions(+), 3325 deletions(-)
+
+diff --git a/Cargo.lock b/Cargo.lock
+index e1c55a9a20..095acb48cd 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -115,7 +115,6 @@ dependencies = [
+  "serde_json",
+  "settings",
+  "task",
+- "telemetry",
+  "terminal",
+  "text",
+  "ui",
+@@ -168,7 +167,6 @@ dependencies = [
+  "rand 0.9.4",
+  "serde_json",
+  "settings",
+- "telemetry",
+  "text",
+  "util",
+  "watch",
+@@ -180,7 +178,6 @@ name = "activity_indicator"
+ version = "0.1.0"
+ dependencies = [
+  "anyhow",
+- "auto_update",
+  "editor",
+  "extension_host",
+  "fs",
+@@ -286,7 +283,6 @@ dependencies = [
+  "streaming_diff",
+  "strsim 0.11.1",
+  "task",
+- "telemetry",
+  "tempfile",
+  "text",
+  "theme",
+@@ -447,7 +443,6 @@ dependencies = [
+  "agent_servers",
+  "agent_settings",
+  "agent_skills",
+- "ai_onboarding",
+  "anyhow",
+  "async-channel 2.5.0",
+  "audio",
+@@ -520,7 +515,6 @@ dependencies = [
+  "settings",
+  "streaming_diff",
+  "task",
+- "telemetry",
+  "tempfile",
+  "terminal",
+  "terminal_view",
+@@ -541,17 +535,6 @@ dependencies = [
+  "zed_actions",
+ ]
+ 
+-[[package]]
+-name = "ahash"
+-version = "0.7.8"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "891477e0c6a8957309ee5c45a6368af3ae14bb510732d2684ffa19af310920f9"
+-dependencies = [
+- "getrandom 0.2.16",
+- "once_cell",
+- "version_check",
+-]
+-
+ [[package]]
+ name = "ahash"
+ version = "0.8.12"
+@@ -576,22 +559,6 @@ dependencies = [
+  "memchr",
+ ]
+ 
+-[[package]]
+-name = "ai_onboarding"
+-version = "0.1.0"
+-dependencies = [
+- "client",
+- "cloud_api_types",
+- "component",
+- "gpui",
+- "language_model",
+- "serde",
+- "smallvec",
+- "telemetry",
+- "ui",
+- "zed_actions",
+-]
+-
+ [[package]]
+ name = "alacritty_terminal"
+ version = "0.26.1-dev"
+@@ -616,12 +583,6 @@ dependencies = [
+  "windows-sys 0.59.0",
+ ]
+ 
+-[[package]]
+-name = "aliasable"
+-version = "0.1.3"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "250f629c0161ad8107cf89319e990051fae62832fd343083bea452d93e2205fd"
+-
+ [[package]]
+ name = "aligned"
+ version = "0.4.3"
+@@ -763,24 +724,6 @@ dependencies = [
+  "windows-sys 0.60.2",
+ ]
+ 
+-[[package]]
+-name = "anthropic"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "chrono",
+- "collections",
+- "futures 0.3.32",
+- "http_client",
+- "language_model_core",
+- "log",
+- "schemars 1.0.4",
+- "serde",
+- "serde_json",
+- "strum 0.27.2",
+- "thiserror 2.0.17",
+-]
+-
+ [[package]]
+ name = "any_vec"
+ version = "0.14.0"
+@@ -1191,28 +1134,6 @@ dependencies = [
+  "wasm-bindgen-futures",
+ ]
+ 
+-[[package]]
+-name = "async-stream"
+-version = "0.3.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0b5a71a6f37880a80d1d7f19efd781e4b5de42c88f0722cc13bcb6cc2cfe8476"
+-dependencies = [
+- "async-stream-impl",
+- "futures-core",
+- "pin-project-lite",
+-]
+-
+-[[package]]
+-name = "async-stream-impl"
+-version = "0.3.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c7c24de15d275a1ecfd47a380fb4d5ec9bfe0933f309ed5e705b775596a3574d"
+-dependencies = [
+- "proc-macro2",
+- "quote",
+- "syn 2.0.117",
+-]
+-
+ [[package]]
+ name = "async-tar"
+ version = "0.5.1"
+@@ -1258,7 +1179,7 @@ dependencies = [
+  "pin-project-lite",
+  "rustls-pki-types",
+  "tokio",
+- "tokio-rustls 0.26.4",
++ "tokio-rustls",
+  "tungstenite 0.27.0",
+ ]
+ 
+@@ -1288,15 +1209,6 @@ dependencies = [
+  "pin-project-lite",
+ ]
+ 
+-[[package]]
+-name = "atoi"
+-version = "2.0.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f28d99ec8bfea296261ca1af174f24225171fea9664ba9003cbebee704810528"
+-dependencies = [
+- "num-traits",
+-]
+-
+ [[package]]
+ name = "atomic"
+ version = "0.5.3"
+@@ -1355,7 +1267,6 @@ dependencies = [
+  "cpal",
+  "crossbeam",
+  "gpui",
+- "libwebrtc",
+  "log",
+  "parking_lot",
+  "rodio",
+@@ -1377,74 +1288,6 @@ dependencies = [
+  "topological-sort",
+ ]
+ 
+-[[package]]
+-name = "auto_update"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "client",
+- "clock",
+- "ctor",
+- "db",
+- "futures 0.3.32",
+- "futures-lite 1.13.0",
+- "gpui",
+- "http_client",
+- "log",
+- "parking_lot",
+- "paths",
+- "release_channel",
+- "semver",
+- "serde",
+- "serde_json",
+- "settings",
+- "smol",
+- "tempfile",
+- "util",
+- "which 6.0.3",
+- "workspace",
+- "zlog",
+-]
+-
+-[[package]]
+-name = "auto_update_helper"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "log",
+- "scopeguard",
+- "simplelog",
+- "tempfile",
+- "windows 0.61.3",
+- "windows_resources",
+-]
+-
+-[[package]]
+-name = "auto_update_ui"
+-version = "0.1.0"
+-dependencies = [
+- "agent_skills",
+- "anyhow",
+- "auto_update",
+- "client",
+- "db",
+- "editor",
+- "gpui",
+- "markdown_preview",
+- "notifications",
+- "prompt_store",
+- "release_channel",
+- "semver",
+- "serde",
+- "serde_json",
+- "smol",
+- "telemetry",
+- "ui",
+- "util",
+- "workspace",
+- "zed_actions",
+-]
+-
+ [[package]]
+ name = "autocfg"
+ version = "1.5.0"
+@@ -1480,7 +1323,7 @@ dependencies = [
+  "anyhow",
+  "arrayvec",
+  "log",
+- "nom 7.1.3",
++ "nom",
+  "num-rational",
+  "v_frame",
+ ]
+@@ -1494,48 +1337,6 @@ dependencies = [
+  "arrayvec",
+ ]
+ 
+-[[package]]
+-name = "aws-config"
+-version = "1.8.14"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8a8fc176d53d6fe85017f230405e3255cedb4a02221cb55ed6d76dccbbb099b2"
+-dependencies = [
+- "aws-credential-types",
+- "aws-runtime",
+- "aws-sdk-sso",
+- "aws-sdk-ssooidc",
+- "aws-sdk-sts",
+- "aws-smithy-async",
+- "aws-smithy-http",
+- "aws-smithy-json",
+- "aws-smithy-runtime",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "aws-types",
+- "bytes 1.11.1",
+- "fastrand 2.3.0",
+- "hex",
+- "http 1.3.1",
+- "ring",
+- "time",
+- "tokio",
+- "tracing",
+- "url",
+- "zeroize",
+-]
+-
+-[[package]]
+-name = "aws-credential-types"
+-version = "1.2.12"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e26bbf46abc608f2dc61fd6cb3b7b0665497cc259a21520151ed98f8b37d2c79"
+-dependencies = [
+- "aws-smithy-async",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "zeroize",
+-]
+-
+ [[package]]
+ name = "aws-lc-rs"
+ version = "1.16.3"
+@@ -1560,527 +1361,88 @@ dependencies = [
+ ]
+ 
+ [[package]]
+-name = "aws-runtime"
+-version = "1.7.0"
++name = "aws-smithy-async"
++version = "1.2.14"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b0f92058d22a46adf53ec57a6a96f34447daf02bff52e8fb956c66bcd5c6ac12"
++checksum = "2ffcaf626bdda484571968400c326a244598634dc75fd451325a54ad1a59acfc"
+ dependencies = [
+- "aws-credential-types",
+- "aws-sigv4",
+- "aws-smithy-async",
+- "aws-smithy-eventstream",
+- "aws-smithy-http",
+- "aws-smithy-runtime",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "aws-types",
+- "bytes 1.11.1",
+- "bytes-utils",
+- "fastrand 2.3.0",
+- "http 0.2.12",
+- "http 1.3.1",
+- "http-body 0.4.6",
+- "http-body 1.0.1",
+- "percent-encoding",
++ "futures-util",
+  "pin-project-lite",
+- "tracing",
+- "uuid",
++ "tokio",
+ ]
+ 
+ [[package]]
+-name = "aws-sdk-bedrockruntime"
+-version = "1.125.0"
++name = "aws-smithy-runtime-api"
++version = "1.11.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "731e9a808701bdc7c6e27dfbc284f5b40c30ac0392a2e58e3bc855b243a7c967"
++checksum = "8c55e0837e9b8526f49e0b9bfa9ee18ddee70e853f5bc09c5d11ebceddcb0fec"
+ dependencies = [
+- "aws-credential-types",
+- "aws-runtime",
+- "aws-sigv4",
+  "aws-smithy-async",
+- "aws-smithy-eventstream",
+- "aws-smithy-http",
+- "aws-smithy-json",
+- "aws-smithy-observability",
+- "aws-smithy-runtime",
+- "aws-smithy-runtime-api",
+  "aws-smithy-types",
+- "aws-types",
+  "bytes 1.11.1",
+- "fastrand 2.3.0",
+  "http 0.2.12",
+  "http 1.3.1",
+- "http-body-util",
+- "regex-lite",
++ "pin-project-lite",
++ "tokio",
+  "tracing",
+ ]
+ 
+ [[package]]
+-name = "aws-sdk-kinesis"
+-version = "1.100.0"
++name = "aws-smithy-types"
++version = "1.4.7"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "5769458ed398a643d6f0a6307077311fe253655d9f3ecc3e53069dc61cbcc98c"
++checksum = "9d73dbfbaa8e4bc57b9045137680b958d274823509a360abfd8e1d514d40c95c"
+ dependencies = [
+- "aws-credential-types",
+- "aws-runtime",
+- "aws-smithy-async",
+- "aws-smithy-eventstream",
+- "aws-smithy-http",
+- "aws-smithy-json",
+- "aws-smithy-observability",
+- "aws-smithy-runtime",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "aws-types",
++ "base64-simd",
+  "bytes 1.11.1",
+- "fastrand 2.3.0",
++ "bytes-utils",
+  "http 0.2.12",
+  "http 1.3.1",
+- "regex-lite",
+- "tracing",
++ "http-body 0.4.6",
++ "http-body 1.0.1",
++ "http-body-util",
++ "itoa",
++ "num-integer",
++ "pin-project-lite",
++ "pin-utils",
++ "ryu",
++ "serde",
++ "time",
+ ]
+ 
+ [[package]]
+-name = "aws-sdk-s3"
+-version = "1.123.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c018f22146966fdd493a664f62ee2483dff256b42a08c125ab6a084bde7b77fe"
++name = "aws_http_client"
++version = "0.1.0"
+ dependencies = [
+- "aws-credential-types",
+- "aws-runtime",
+- "aws-sigv4",
+- "aws-smithy-async",
+- "aws-smithy-checksums",
+- "aws-smithy-eventstream",
+- "aws-smithy-http",
+- "aws-smithy-json",
+- "aws-smithy-observability",
+- "aws-smithy-runtime",
+  "aws-smithy-runtime-api",
+  "aws-smithy-types",
+- "aws-smithy-xml",
+- "aws-types",
+- "bytes 1.11.1",
+- "fastrand 2.3.0",
+- "hex",
+- "hmac",
+- "http 0.2.12",
+- "http 1.3.1",
+- "http-body 1.0.1",
+- "lru",
+- "percent-encoding",
+- "regex-lite",
+- "sha2",
+- "tracing",
+- "url",
++ "http_client",
+ ]
+ 
+ [[package]]
+-name = "aws-sdk-sso"
+-version = "1.94.0"
++name = "backtrace"
++version = "0.3.76"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "699da1961a289b23842d88fe2984c6ff68735fdf9bdcbc69ceaeb2491c9bf434"
++checksum = "bb531853791a215d7c62a30daf0dde835f381ab5de4589cfe7c649d2cbe92bd6"
+ dependencies = [
+- "aws-credential-types",
+- "aws-runtime",
+- "aws-smithy-async",
+- "aws-smithy-http",
+- "aws-smithy-json",
+- "aws-smithy-observability",
+- "aws-smithy-runtime",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "aws-types",
+- "bytes 1.11.1",
+- "fastrand 2.3.0",
+- "http 0.2.12",
+- "http 1.3.1",
+- "regex-lite",
+- "tracing",
++ "addr2line",
++ "cfg-if",
++ "libc",
++ "miniz_oxide",
++ "object",
++ "rustc-demangle",
++ "windows-link 0.2.1",
+ ]
+ 
+ [[package]]
+-name = "aws-sdk-ssooidc"
+-version = "1.96.0"
++name = "base64"
++version = "0.21.7"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e3e3a4cb3b124833eafea9afd1a6cc5f8ddf3efefffc6651ef76a03cbc6b4981"
+-dependencies = [
+- "aws-credential-types",
+- "aws-runtime",
+- "aws-smithy-async",
+- "aws-smithy-http",
+- "aws-smithy-json",
+- "aws-smithy-observability",
+- "aws-smithy-runtime",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "aws-types",
+- "bytes 1.11.1",
+- "fastrand 2.3.0",
+- "http 0.2.12",
+- "http 1.3.1",
+- "regex-lite",
+- "tracing",
+-]
++checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
+ 
+ [[package]]
+-name = "aws-sdk-sts"
+-version = "1.98.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "89c4f19655ab0856375e169865c91264de965bd74c407c7f1e403184b1049409"
+-dependencies = [
+- "aws-credential-types",
+- "aws-runtime",
+- "aws-smithy-async",
+- "aws-smithy-http",
+- "aws-smithy-json",
+- "aws-smithy-observability",
+- "aws-smithy-query",
+- "aws-smithy-runtime",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "aws-smithy-xml",
+- "aws-types",
+- "fastrand 2.3.0",
+- "http 0.2.12",
+- "http 1.3.1",
+- "regex-lite",
+- "tracing",
+-]
+-
+-[[package]]
+-name = "aws-sigv4"
+-version = "1.4.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "68f6ae9b71597dc5fd115d52849d7a5556ad9265885ad3492ea8d73b93bbc46e"
+-dependencies = [
+- "aws-credential-types",
+- "aws-smithy-eventstream",
+- "aws-smithy-http",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "bytes 1.11.1",
+- "crypto-bigint 0.5.5",
+- "form_urlencoded",
+- "hex",
+- "hmac",
+- "http 0.2.12",
+- "http 1.3.1",
+- "p256",
+- "percent-encoding",
+- "ring",
+- "sha2",
+- "subtle",
+- "time",
+- "tracing",
+- "zeroize",
+-]
+-
+-[[package]]
+-name = "aws-smithy-async"
+-version = "1.2.14"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2ffcaf626bdda484571968400c326a244598634dc75fd451325a54ad1a59acfc"
+-dependencies = [
+- "futures-util",
+- "pin-project-lite",
+- "tokio",
+-]
+-
+-[[package]]
+-name = "aws-smithy-checksums"
+-version = "0.64.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "a764fa7222922f6c0af8eea478b0ef1ba5ce1222af97e01f33ca5e957bd7f3b9"
+-dependencies = [
+- "aws-smithy-http",
+- "aws-smithy-types",
+- "bytes 1.11.1",
+- "crc-fast",
+- "hex",
+- "http 1.3.1",
+- "http-body 1.0.1",
+- "http-body-util",
+- "md-5",
+- "pin-project-lite",
+- "sha1",
+- "sha2",
+- "tracing",
+-]
+-
+-[[package]]
+-name = "aws-smithy-eventstream"
+-version = "0.60.20"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "faf09d74e5e32f76b8762da505a3cd59303e367a664ca67295387baa8c1d7548"
+-dependencies = [
+- "aws-smithy-types",
+- "bytes 1.11.1",
+- "crc32fast",
+-]
+-
+-[[package]]
+-name = "aws-smithy-http"
+-version = "0.63.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "af4a8a5fe3e4ac7ee871237c340bbce13e982d37543b65700f4419e039f5d78e"
+-dependencies = [
+- "aws-smithy-eventstream",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "bytes 1.11.1",
+- "bytes-utils",
+- "futures-core",
+- "futures-util",
+- "http 1.3.1",
+- "http-body 1.0.1",
+- "http-body-util",
+- "percent-encoding",
+- "pin-project-lite",
+- "pin-utils",
+- "tracing",
+-]
+-
+-[[package]]
+-name = "aws-smithy-http-client"
+-version = "1.1.10"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0709f0083aa19b704132684bc26d3c868e06bd428ccc4373b0b55c3e8748a58b"
+-dependencies = [
+- "aws-smithy-async",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "h2 0.3.27",
+- "h2 0.4.12",
+- "http 0.2.12",
+- "http 1.3.1",
+- "http-body 0.4.6",
+- "hyper 0.14.32",
+- "hyper 1.7.0",
+- "hyper-rustls 0.24.2",
+- "hyper-rustls 0.27.9",
+- "hyper-util",
+- "pin-project-lite",
+- "rustls 0.21.12",
+- "rustls 0.23.40",
+- "rustls-native-certs 0.8.3",
+- "rustls-pki-types",
+- "tokio",
+- "tokio-rustls 0.26.4",
+- "tower 0.5.2",
+- "tracing",
+-]
+-
+-[[package]]
+-name = "aws-smithy-json"
+-version = "0.62.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9648b0bb82a2eedd844052c6ad2a1a822d1f8e3adee5fbf668366717e428856a"
+-dependencies = [
+- "aws-smithy-types",
+-]
+-
+-[[package]]
+-name = "aws-smithy-observability"
+-version = "0.2.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "4d3f39d5bb871aaf461d59144557f16d5927a5248a983a40654d9cf3b9ba183b"
+-dependencies = [
+- "aws-smithy-runtime-api",
+-]
+-
+-[[package]]
+-name = "aws-smithy-query"
+-version = "0.60.15"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1a56d79744fb3edb5d722ef79d86081e121d3b9422cb209eb03aea6aa4f21ebd"
+-dependencies = [
+- "aws-smithy-types",
+- "urlencoding",
+-]
+-
+-[[package]]
+-name = "aws-smithy-runtime"
+-version = "1.10.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8fd3dfc18c1ce097cf81fced7192731e63809829c6cbf933c1ec47452d08e1aa"
+-dependencies = [
+- "aws-smithy-async",
+- "aws-smithy-http",
+- "aws-smithy-http-client",
+- "aws-smithy-observability",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "bytes 1.11.1",
+- "fastrand 2.3.0",
+- "http 0.2.12",
+- "http 1.3.1",
+- "http-body 0.4.6",
+- "http-body 1.0.1",
+- "http-body-util",
+- "pin-project-lite",
+- "pin-utils",
+- "tokio",
+- "tracing",
+-]
+-
+-[[package]]
+-name = "aws-smithy-runtime-api"
+-version = "1.11.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8c55e0837e9b8526f49e0b9bfa9ee18ddee70e853f5bc09c5d11ebceddcb0fec"
+-dependencies = [
+- "aws-smithy-async",
+- "aws-smithy-types",
+- "bytes 1.11.1",
+- "http 0.2.12",
+- "http 1.3.1",
+- "pin-project-lite",
+- "tokio",
+- "tracing",
+- "zeroize",
+-]
+-
+-[[package]]
+-name = "aws-smithy-types"
+-version = "1.4.7"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9d73dbfbaa8e4bc57b9045137680b958d274823509a360abfd8e1d514d40c95c"
+-dependencies = [
+- "base64-simd",
+- "bytes 1.11.1",
+- "bytes-utils",
+- "futures-core",
+- "http 0.2.12",
+- "http 1.3.1",
+- "http-body 0.4.6",
+- "http-body 1.0.1",
+- "http-body-util",
+- "itoa",
+- "num-integer",
+- "pin-project-lite",
+- "pin-utils",
+- "ryu",
+- "serde",
+- "time",
+- "tokio",
+- "tokio-util",
+-]
+-
+-[[package]]
+-name = "aws-smithy-xml"
+-version = "0.60.15"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0ce02add1aa3677d022f8adf81dcbe3046a95f17a1b1e8979c145cd21d3d22b3"
+-dependencies = [
+- "xmlparser",
+-]
+-
+-[[package]]
+-name = "aws-types"
+-version = "1.3.12"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "6c50f3cdf47caa8d01f2be4a6663ea02418e892f9bbfd82c7b9a3a37eaccdd3a"
+-dependencies = [
+- "aws-credential-types",
+- "aws-smithy-async",
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "rustc_version",
+- "tracing",
+-]
+-
+-[[package]]
+-name = "aws_http_client"
+-version = "0.1.0"
+-dependencies = [
+- "aws-smithy-runtime-api",
+- "aws-smithy-types",
+- "http_client",
+-]
+-
+-[[package]]
+-name = "axum"
+-version = "0.6.20"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3b829e4e32b91e643de6eafe82b1d90675f5874230191a4ffbc1b336dec4d6bf"
+-dependencies = [
+- "async-trait",
+- "axum-core",
+- "base64 0.21.7",
+- "bitflags 1.3.2",
+- "bytes 1.11.1",
+- "futures-util",
+- "headers",
+- "http 0.2.12",
+- "http-body 0.4.6",
+- "hyper 0.14.32",
+- "itoa",
+- "matchit",
+- "memchr",
+- "mime",
+- "percent-encoding",
+- "pin-project-lite",
+- "rustversion",
+- "serde",
+- "serde_json",
+- "serde_path_to_error",
+- "serde_urlencoded",
+- "sha1",
+- "sync_wrapper 0.1.2",
+- "tokio",
+- "tokio-tungstenite 0.20.1",
+- "tower 0.4.13",
+- "tower-layer",
+- "tower-service",
+-]
+-
+-[[package]]
+-name = "axum-core"
+-version = "0.3.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "759fa577a247914fd3f7f76d62972792636412fbfd634cd452f6a385a74d2d2c"
+-dependencies = [
+- "async-trait",
+- "bytes 1.11.1",
+- "futures-util",
+- "http 0.2.12",
+- "http-body 0.4.6",
+- "mime",
+- "rustversion",
+- "tower-layer",
+- "tower-service",
+-]
+-
+-[[package]]
+-name = "backtrace"
+-version = "0.3.76"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "bb531853791a215d7c62a30daf0dde835f381ab5de4589cfe7c649d2cbe92bd6"
+-dependencies = [
+- "addr2line",
+- "cfg-if",
+- "libc",
+- "miniz_oxide",
+- "object",
+- "rustc-demangle",
+- "windows-link 0.2.1",
+-]
+-
+-[[package]]
+-name = "base16ct"
+-version = "0.1.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "349a06037c7bf932dd7e7d1f653678b2038b9ad46a74102f1fc7bd7872678cce"
+-
+-[[package]]
+-name = "base64"
+-version = "0.21.7"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9d297deb1925b89f2ccc13d7635fa0714f12c87adce1c75356b39ca9b7178567"
+-
+-[[package]]
+-name = "base64"
+-version = "0.22.1"
++name = "base64"
++version = "0.22.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+ 
+@@ -2100,22 +1462,6 @@ version = "1.8.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "55248b47b0caf0546f7988906588779981c43bb1bc9d0c44087278f80cdb44ba"
+ 
+-[[package]]
+-name = "bedrock"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "aws-sdk-bedrockruntime",
+- "aws-smithy-types",
+- "futures 0.3.32",
+- "http_client",
+- "schemars 1.0.4",
+- "serde",
+- "serde_json",
+- "strum 0.27.2",
+- "thiserror 2.0.17",
+-]
+-
+ [[package]]
+ name = "beef"
+ version = "0.5.2"
+@@ -2153,20 +1499,6 @@ dependencies = [
+  "zed_actions",
+ ]
+ 
+-[[package]]
+-name = "bigdecimal"
+-version = "0.4.8"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1a22f228ab7a1b23027ccc6c350b72868017af7ea8356fbdf19f8d991c690013"
+-dependencies = [
+- "autocfg",
+- "libm",
+- "num-bigint",
+- "num-integer",
+- "num-traits",
+- "serde",
+-]
+-
+ [[package]]
+ name = "bincode"
+ version = "1.3.3"
+@@ -2196,24 +1528,6 @@ dependencies = [
+  "syn 2.0.117",
+ ]
+ 
+-[[package]]
+-name = "bindgen"
+-version = "0.72.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "993776b509cfb49c750f11b8f07a46fa23e0a1386ffc01fb1e7d343efc387895"
+-dependencies = [
+- "bitflags 2.10.0",
+- "cexpr",
+- "clang-sys",
+- "itertools 0.11.0",
+- "proc-macro2",
+- "quote",
+- "regex",
+- "rustc-hash 2.1.1",
+- "shlex",
+- "syn 2.0.117",
+-]
+-
+ [[package]]
+ name = "bit-set"
+ version = "0.5.3"
+@@ -2289,18 +1603,6 @@ dependencies = [
+  "core2",
+ ]
+ 
+-[[package]]
+-name = "bitvec"
+-version = "1.0.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1bc2832c24239b0141d5674bb9174f9d68a8b5b3f2753311927c172ca46f7e9c"
+-dependencies = [
+- "funty",
+- "radium",
+- "tap",
+- "wyz",
+-]
+-
+ [[package]]
+ name = "block"
+ version = "0.1.6"
+@@ -2356,16 +1658,6 @@ dependencies = [
+  "piper",
+ ]
+ 
+-[[package]]
+-name = "bmrng"
+-version = "0.5.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d54df9073108f1558f90ae6c5bf5ab9c917c4185f5527b280c87a993cbead0ac"
+-dependencies = [
+- "futures-core",
+- "tokio",
+-]
+-
+ [[package]]
+ name = "bon"
+ version = "3.8.2"
+@@ -2400,24 +1692,10 @@ checksum = "dc0b364ead1874514c8c2855ab558056ebfeb775653e7ae45ff72f28f8f3166c"
+ [[package]]
+ name = "borsh"
+ version = "1.5.7"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ad8646f98db542e39fc66e68a20b2144f6a732636df7c2354e74645faaa433ce"
+-dependencies = [
+- "borsh-derive",
+- "cfg_aliases 0.2.1",
+-]
+-
+-[[package]]
+-name = "borsh-derive"
+-version = "1.5.7"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "fdd1d3c0c2f5833f22386f252fe8ed005c7f59fdcddeef025c01b4c3b9fd9ac3"
+-dependencies = [
+- "once_cell",
+- "proc-macro-crate",
+- "proc-macro2",
+- "quote",
+- "syn 2.0.117",
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ad8646f98db542e39fc66e68a20b2144f6a732636df7c2354e74645faaa433ce"
++dependencies = [
++ "cfg_aliases 0.2.1",
+ ]
+ 
+ [[package]]
+@@ -2508,28 +1786,6 @@ version = "1.2.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "64fa3c856b712db6612c019f14756e64e4bcea13337a6b33b696333a9eaa2d06"
+ 
+-[[package]]
+-name = "bytecheck"
+-version = "0.6.12"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "23cdc57ce23ac53c931e88a43d06d070a6fd142f2617be5855eb75efc9beb1c2"
+-dependencies = [
+- "bytecheck_derive",
+- "ptr_meta",
+- "simdutf8",
+-]
+-
+-[[package]]
+-name = "bytecheck_derive"
+-version = "0.6.12"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3db406d29fbcd95542e92559bed4d8ad92636d1ca8b3b72ede10b4bcc010e659"
+-dependencies = [
+- "proc-macro2",
+- "quote",
+- "syn 1.0.109",
+-]
+-
+ [[package]]
+ name = "bytecount"
+ version = "0.6.9"
+@@ -2594,16 +1850,6 @@ dependencies = [
+  "either",
+ ]
+ 
+-[[package]]
+-name = "bzip2"
+-version = "0.4.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "bdb116a6ef3f6c3698828873ad02c3014b3c85cadb88496095628e3ef1e347f8"
+-dependencies = [
+- "bzip2-sys",
+- "libc",
+-]
+-
+ [[package]]
+ name = "bzip2"
+ version = "0.6.1"
+@@ -2613,23 +1859,13 @@ dependencies = [
+  "libbz2-rs-sys",
+ ]
+ 
+-[[package]]
+-name = "bzip2-sys"
+-version = "0.1.13+1.0.8"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "225bff33b2141874fe80d71e07d6eec4f85c5c216453dd96388240f96e1acc14"
+-dependencies = [
+- "cc",
+- "pkg-config",
+-]
+-
+ [[package]]
+ name = "cached"
+ version = "0.56.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "801927ee168e17809ab8901d9f01f700cd7d8d6a6527997fee44e4b0327a253c"
+ dependencies = [
+- "ahash 0.8.12",
++ "ahash",
+  "cached_proc_macro",
+  "cached_proc_macro_types",
+  "hashbrown 0.15.5",
+@@ -2656,31 +1892,6 @@ version = "0.1.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ade8366b8bd5ba243f0a58f036cc0ca8a2f069cff1a2351ef1cac6b083e16fc0"
+ 
+-[[package]]
+-name = "call"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "audio",
+- "client",
+- "collections",
+- "feature_flags",
+- "fs",
+- "futures 0.3.32",
+- "gpui",
+- "gpui_tokio",
+- "language",
+- "livekit_client",
+- "log",
+- "postage",
+- "project",
+- "serde",
+- "settings",
+- "telemetry",
+- "util",
+- "workspace",
+-]
+-
+ [[package]]
+ name = "calloop"
+ version = "0.14.3"
+@@ -2906,17 +2117,7 @@ version = "0.6.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6fac387a98bb7c37292057cffc56d62ecb629900026402633ae9160df93a8766"
+ dependencies = [
+- "nom 7.1.3",
+-]
+-
+-[[package]]
+-name = "cfg-expr"
+-version = "0.20.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "78cef5b5a1a6827c7322ae2a636368a573006b27cfa76c7ebd53e834daeaab6a"
+-dependencies = [
+- "smallvec",
+- "target-lexicon",
++ "nom",
+ ]
+ 
+ [[package]]
+@@ -2956,29 +2157,6 @@ dependencies = [
+  "num-traits",
+ ]
+ 
+-[[package]]
+-name = "channel"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "client",
+- "clock",
+- "collections",
+- "futures 0.3.32",
+- "gpui",
+- "http_client",
+- "language",
+- "log",
+- "postage",
+- "release_channel",
+- "rpc",
+- "semver",
+- "settings",
+- "text",
+- "time",
+- "util",
+-]
+-
+ [[package]]
+ name = "chardetng"
+ version = "0.1.17"
+@@ -3185,7 +2363,6 @@ dependencies = [
+  "settings",
+  "sha2",
+  "smol",
+- "telemetry",
+  "telemetry_events",
+  "text",
+  "thiserror 2.0.17",
+@@ -3193,7 +2370,7 @@ dependencies = [
+  "tiny_http",
+  "tokio",
+  "tokio-native-tls",
+- "tokio-rustls 0.26.4",
++ "tokio-rustls",
+  "tokio-socks",
+  "url",
+  "util",
+@@ -3220,13 +2397,11 @@ dependencies = [
+  "cloud_api_types",
+  "futures 0.3.32",
+  "gpui",
+- "gpui_tokio",
+  "http_client",
+  "parking_lot",
+  "serde",
+  "serde_json",
+  "thiserror 2.0.17",
+- "yawc",
+ ]
+ 
+ [[package]]
+@@ -3367,142 +2542,6 @@ dependencies = [
+  "zeta_prompt",
+ ]
+ 
+-[[package]]
+-name = "collab"
+-version = "0.44.0"
+-dependencies = [
+- "agent",
+- "anyhow",
+- "async-channel 2.5.0",
+- "async-trait",
+- "async-tungstenite",
+- "aws-config",
+- "aws-sdk-kinesis",
+- "aws-sdk-s3",
+- "axum",
+- "buffer_diff",
+- "call",
+- "channel",
+- "chrono",
+- "client",
+- "clock",
+- "cloud_api_types",
+- "collab",
+- "collab_ui",
+- "collections",
+- "command_palette_hooks",
+- "ctor",
+- "dap",
+- "dap_adapters",
+- "dashmap",
+- "debugger_ui",
+- "editor",
+- "envy",
+- "extension",
+- "file_finder",
+- "fs",
+- "futures 0.3.32",
+- "git",
+- "git_hosting_providers",
+- "git_ui",
+- "gpui",
+- "gpui_tokio",
+- "hex",
+- "http_client",
+- "indoc",
+- "language",
+- "language_model",
+- "livekit_api",
+- "livekit_client",
+- "log",
+- "lsp",
+- "menu",
+- "multi_buffer",
+- "nanoid",
+- "node_runtime",
+- "notifications",
+- "parking_lot",
+- "pretty_assertions",
+- "project",
+- "prometheus",
+- "prompt_store",
+- "prost 0.9.0",
+- "rand 0.9.4",
+- "recent_projects",
+- "release_channel",
+- "remote",
+- "remote_server",
+- "reqwest 0.11.27",
+- "rpc",
+- "sea-orm",
+- "sea-orm-macros",
+- "semver",
+- "serde",
+- "serde_json",
+- "session",
+- "settings",
+- "sha2",
+- "smol",
+- "sqlx",
+- "strum 0.27.2",
+- "task",
+- "telemetry_events",
+- "text",
+- "theme",
+- "theme_settings",
+- "time",
+- "tokio",
+- "toml 0.8.23",
+- "tower 0.4.13",
+- "tower-http 0.4.4",
+- "tracing",
+- "tracing-subscriber",
+- "unindent",
+- "util",
+- "uuid",
+- "workspace",
+- "worktree",
+- "zed_actions",
+- "zlog",
+-]
+-
+-[[package]]
+-name = "collab_ui"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "call",
+- "channel",
+- "client",
+- "collections",
+- "db",
+- "editor",
+- "feature_flags",
+- "futures 0.3.32",
+- "fuzzy",
+- "gpui",
+- "livekit_client",
+- "menu",
+- "notifications",
+- "picker",
+- "project",
+- "release_channel",
+- "rpc",
+- "serde",
+- "serde_json",
+- "settings",
+- "smallvec",
+- "telemetry",
+- "theme",
+- "theme_settings",
+- "time",
+- "title_bar",
+- "ui",
+- "util",
+- "workspace",
+- "zed_actions",
+-]
+-
+ [[package]]
+ name = "collections"
+ version = "0.1.0"
+@@ -3565,7 +2604,6 @@ dependencies = [
+  "project",
+  "serde",
+  "settings",
+- "telemetry",
+  "theme",
+  "theme_settings",
+  "time",
+@@ -3652,7 +2690,7 @@ version = "0.4.31"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ef8a506ec4b81c460798f572caead636d57d3d7e940f998160f52bd254bf2d23"
+ dependencies = [
+- "bzip2 0.6.1",
++ "bzip2",
+  "compression-core",
+  "deflate64",
+  "flate2",
+@@ -3742,12 +2780,6 @@ dependencies = [
+  "unicode-xid",
+ ]
+ 
+-[[package]]
+-name = "constant_time_eq"
+-version = "0.1.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
+-
+ [[package]]
+ name = "context_server"
+ version = "0.1.0"
+@@ -3801,85 +2833,9 @@ dependencies = [
+ name = "convert_case"
+ version = "0.11.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "affbf0190ed2caf063e3def54ff444b449371d55c58e513a95ab98eca50adb49"
+-dependencies = [
+- "unicode-segmentation",
+-]
+-
+-[[package]]
+-name = "copilot"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "async-std",
+- "collections",
+- "command_palette_hooks",
+- "copilot_chat",
+- "edit_prediction_types",
+- "editor",
+- "fs",
+- "futures 0.3.32",
+- "gpui",
+- "icons",
+- "indoc",
+- "language",
+- "log",
+- "lsp",
+- "node_runtime",
+- "parking_lot",
+- "paths",
+- "pretty_assertions",
+- "project",
+- "rpc",
+- "serde",
+- "serde_json",
+- "settings",
+- "sum_tree",
+- "theme",
+- "theme_settings",
+- "util",
+- "workspace",
+- "zlog",
+-]
+-
+-[[package]]
+-name = "copilot_chat"
+-version = "0.1.0"
+-dependencies = [
+- "anthropic",
+- "anyhow",
+- "collections",
+- "dirs",
+- "fs",
+- "futures 0.3.32",
+- "gpui",
+- "http_client",
+- "log",
+- "paths",
+- "serde",
+- "serde_json",
+- "settings",
+- "sqlez",
+- "tempfile",
+-]
+-
+-[[package]]
+-name = "copilot_ui"
+-version = "0.1.0"
++checksum = "affbf0190ed2caf063e3def54ff444b449371d55c58e513a95ab98eca50adb49"
+ dependencies = [
+- "anyhow",
+- "copilot",
+- "gpui",
+- "language",
+- "log",
+- "lsp",
+- "menu",
+- "project",
+- "serde_json",
+- "settings",
+- "ui",
+- "util",
+- "workspace",
++ "unicode-segmentation",
+ ]
+ 
+ [[package]]
+@@ -4035,17 +2991,6 @@ dependencies = [
+  "libm",
+ ]
+ 
+-[[package]]
+-name = "coreaudio-rs"
+-version = "0.12.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "34ca07354f6d0640333ef95f48d460a4bcf34812a7e7967f9b44c728a8f37c28"
+-dependencies = [
+- "bitflags 1.3.2",
+- "core-foundation-sys",
+- "coreaudio-sys",
+-]
+-
+ [[package]]
+ name = "coreaudio-rs"
+ version = "0.13.0"
+@@ -4060,15 +3005,6 @@ dependencies = [
+  "objc2-core-foundation",
+ ]
+ 
+-[[package]]
+-name = "coreaudio-sys"
+-version = "0.2.17"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ceec7a6067e62d6f931a2baf6f3a751f4a892595bcec1461a3c94ef9949864b6"
+-dependencies = [
+- "bindgen 0.72.1",
+-]
+-
+ [[package]]
+ name = "cosmic-text"
+ version = "0.19.0"
+@@ -4100,7 +3036,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "5b1f9c7312f19fc2fa12fd7acaf38de54e8320ba10d1a02dcbe21038def51ccb"
+ dependencies = [
+  "alsa",
+- "coreaudio-rs 0.13.0",
++ "coreaudio-rs",
+  "dasp_sample",
+  "jni",
+  "js-sys",
+@@ -4323,33 +3259,6 @@ dependencies = [
+  "zstd",
+ ]
+ 
+-[[package]]
+-name = "crc"
+-version = "3.3.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9710d3b3739c2e349eb44fe848ad0b7c8cb1e42bd87ee49371df2f7acaf3e675"
+-dependencies = [
+- "crc-catalog",
+-]
+-
+-[[package]]
+-name = "crc-catalog"
+-version = "2.4.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
+-
+-[[package]]
+-name = "crc-fast"
+-version = "1.9.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2fd92aca2c6001b1bf5ba0ff84ee74ec8501b52bbef0cac80bf25a6c1d87a83d"
+-dependencies = [
+- "crc",
+- "digest",
+- "rustversion",
+- "spin 0.10.0",
+-]
+-
+ [[package]]
+ name = "crc32fast"
+ version = "1.5.0"
+@@ -4466,28 +3375,6 @@ version = "0.2.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
+ 
+-[[package]]
+-name = "crypto-bigint"
+-version = "0.4.9"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ef2b4b23cddf68b89b8f8069890e8c270d54e2d5fe1b143820234805e4cb17ef"
+-dependencies = [
+- "generic-array",
+- "rand_core 0.6.4",
+- "subtle",
+- "zeroize",
+-]
+-
+-[[package]]
+-name = "crypto-bigint"
+-version = "0.5.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0dc92fb57ca44df6db8059111ab3af99a63d5d0f8375d9972e319a379c6bab76"
+-dependencies = [
+- "rand_core 0.6.4",
+- "subtle",
+-]
+-
+ [[package]]
+ name = "crypto-common"
+ version = "0.1.6"
+@@ -4575,68 +3462,6 @@ version = "1.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f27ae1dd37df86211c42e150270f82743308803d90a6f6e6651cd730d5e1732f"
+ 
+-[[package]]
+-name = "cxx"
+-version = "1.0.187"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d8465678d499296e2cbf9d3acf14307458fd69b471a31b65b3c519efe8b5e187"
+-dependencies = [
+- "cc",
+- "cxx-build",
+- "cxxbridge-cmd",
+- "cxxbridge-flags",
+- "cxxbridge-macro",
+- "foldhash 0.2.0",
+- "link-cplusplus",
+-]
+-
+-[[package]]
+-name = "cxx-build"
+-version = "1.0.187"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d74b6bcf49ebbd91f1b1875b706ea46545032a14003b5557b7dfa4bbeba6766e"
+-dependencies = [
+- "cc",
+- "codespan-reporting",
+- "indexmap 2.11.4",
+- "proc-macro2",
+- "quote",
+- "scratch",
+- "syn 2.0.117",
+-]
+-
+-[[package]]
+-name = "cxxbridge-cmd"
+-version = "1.0.187"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "94ca2ad69673c4b35585edfa379617ac364bccd0ba0adf319811ba3a74ffa48a"
+-dependencies = [
+- "clap",
+- "codespan-reporting",
+- "indexmap 2.11.4",
+- "proc-macro2",
+- "quote",
+- "syn 2.0.117",
+-]
+-
+-[[package]]
+-name = "cxxbridge-flags"
+-version = "1.0.187"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d29b52102aa395386d77d322b3a0522f2035e716171c2c60aa87cc5e9466e523"
+-
+-[[package]]
+-name = "cxxbridge-macro"
+-version = "1.0.187"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2a8ebf0b6138325af3ec73324cb3a48b64d57721f17291b151206782e61f66cd"
+-dependencies = [
+- "indexmap 2.11.4",
+- "proc-macro2",
+- "quote",
+- "syn 2.0.117",
+-]
+-
+ [[package]]
+ name = "dap"
+ version = "0.1.0"
+@@ -4667,7 +3492,6 @@ dependencies = [
+  "smallvec",
+  "smol",
+  "task",
+- "telemetry",
+  "util",
+  "zlog",
+ ]
+@@ -4847,20 +3671,6 @@ dependencies = [
+  "syn 2.0.117",
+ ]
+ 
+-[[package]]
+-name = "dashmap"
+-version = "6.1.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+-dependencies = [
+- "cfg-if",
+- "crossbeam-utils",
+- "hashbrown 0.14.5",
+- "lock_api",
+- "once_cell",
+- "parking_lot_core",
+-]
+-
+ [[package]]
+ name = "dasp_sample"
+ version = "0.11.0"
+@@ -5008,34 +3818,12 @@ dependencies = [
+  "uuid",
+ ]
+ 
+-[[package]]
+-name = "deepseek"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "futures 0.3.32",
+- "http_client",
+- "schemars 1.0.4",
+- "serde",
+- "serde_json",
+-]
+-
+ [[package]]
+ name = "deflate64"
+ version = "0.1.10"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "26bf8fc351c5ed29b5c2f0cbbac1b209b74f60ecd62e675a998df72c49af5204"
+ 
+-[[package]]
+-name = "der"
+-version = "0.6.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f1a467a65c5e759bce6e65eaf91cc29f466cdc57cb65777bd646872a8a1fd4de"
+-dependencies = [
+- "const-oid",
+- "zeroize",
+-]
+-
+ [[package]]
+ name = "der"
+ version = "0.7.10"
+@@ -5458,23 +4246,10 @@ version = "1.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3b31a881d38439026e3d5dd938ab20328d36e23caca8fd5981c42e4b677f5842"
+ 
+-[[package]]
+-name = "ecdsa"
+-version = "0.14.8"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "413301934810f597c1d19ca71c8710e99a3f1ba28a0d2ebc01551a2daeea3c5c"
+-dependencies = [
+- "der 0.6.1",
+- "elliptic-curve",
+- "rfc6979",
+- "signature 1.6.4",
+-]
+-
+ [[package]]
+ name = "edit_prediction"
+ version = "0.1.0"
+ dependencies = [
+- "ai_onboarding",
+  "anyhow",
+  "buffer_diff",
+  "client",
+@@ -5483,8 +4258,6 @@ dependencies = [
+  "cloud_api_types",
+  "cloud_llm_client",
+  "collections",
+- "copilot",
+- "copilot_ui",
+  "credentials_provider",
+  "criterion",
+  "ctor",
+@@ -5521,7 +4294,6 @@ dependencies = [
+  "serde_json",
+  "settings",
+  "strum 0.27.2",
+- "telemetry",
+  "telemetry_events",
+  "text",
+  "thiserror 2.0.17",
+@@ -5539,70 +4311,6 @@ dependencies = [
+  "zstd",
+ ]
+ 
+-[[package]]
+-name = "edit_prediction_cli"
+-version = "0.1.0"
+-dependencies = [
+- "anthropic",
+- "anyhow",
+- "chrono",
+- "clap",
+- "client",
+- "cloud_llm_client",
+- "collections",
+- "db",
+- "debug_adapter_extension",
+- "dirs",
+- "edit_prediction",
+- "edit_prediction_context",
+- "edit_prediction_metrics",
+- "extension",
+- "flate2",
+- "fs",
+- "futures 0.3.32",
+- "gaoya",
+- "gpui",
+- "gpui_platform",
+- "gpui_tokio",
+- "http_client",
+- "indoc",
+- "language",
+- "language_extension",
+- "language_model",
+- "language_models",
+- "languages",
+- "libc",
+- "log",
+- "node_runtime",
+- "open_ai",
+- "paths",
+- "pretty_assertions",
+- "project",
+- "prompt_store",
+- "rand 0.9.4",
+- "release_channel",
+- "reqwest_client",
+- "rust-embed",
+- "serde",
+- "serde_json",
+- "settings",
+- "shellexpand",
+- "similar",
+- "smol",
+- "sqlez",
+- "sqlez_macros",
+- "strum 0.27.2",
+- "telemetry_events",
+- "tempfile",
+- "terminal_view",
+- "toml 0.8.23",
+- "util",
+- "wasmtime",
+- "watch",
+- "workspace",
+- "zeta_prompt",
+-]
+-
+ [[package]]
+ name = "edit_prediction_context"
+ version = "0.1.0"
+@@ -5624,7 +4332,6 @@ dependencies = [
+  "serde_json",
+  "settings",
+  "smallvec",
+- "telemetry",
+  "text",
+  "tree-sitter",
+  "util",
+@@ -5667,9 +4374,6 @@ dependencies = [
+  "codestral",
+  "collections",
+  "command_palette_hooks",
+- "copilot",
+- "copilot_chat",
+- "copilot_ui",
+  "edit_prediction",
+  "edit_prediction_types",
+  "editor",
+@@ -5686,7 +4390,6 @@ dependencies = [
+  "project",
+  "regex",
+  "settings",
+- "telemetry",
+  "text",
+  "theme",
+  "theme_settings",
+@@ -5755,7 +4458,6 @@ dependencies = [
+  "snippet",
+  "sum_tree",
+  "task",
+- "telemetry",
+  "text",
+  "theme",
+  "theme_settings",
+@@ -5809,9 +4511,6 @@ name = "either"
+ version = "1.15.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
+-dependencies = [
+- "serde",
+-]
+ 
+ [[package]]
+ name = "elasticlunr-rs"
+@@ -5825,26 +4524,6 @@ dependencies = [
+  "serde_json",
+ ]
+ 
+-[[package]]
+-name = "elliptic-curve"
+-version = "0.12.3"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e7bb888ab5300a19b8e5bceef25ac745ad065f3c9f7efc6de1b91958110891d3"
+-dependencies = [
+- "base16ct",
+- "crypto-bigint 0.4.9",
+- "der 0.6.1",
+- "digest",
+- "ff",
+- "generic-array",
+- "group",
+- "pkcs8 0.9.0",
+- "rand_core 0.6.4",
+- "sec1",
+- "subtle",
+- "zeroize",
+-]
+-
+ [[package]]
+ name = "email_address"
+ version = "0.2.9"
+@@ -5999,15 +4678,6 @@ dependencies = [
+  "gpui_shared_string",
+ ]
+ 
+-[[package]]
+-name = "envy"
+-version = "0.4.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3f47e0157f2cb54f5ae1bd371b30a2ae4311e1c028f575cd4e81de7353215965"
+-dependencies = [
+- "serde",
+-]
+-
+ [[package]]
+ name = "equator"
+ version = "0.4.2"
+@@ -6095,17 +4765,6 @@ dependencies = [
+  "svg_fmt",
+ ]
+ 
+-[[package]]
+-name = "etcetera"
+-version = "0.8.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "136d1b5283a1ab77bd9257427ffd09d8667ced0570b6f938942bc7568ed5b943"
+-dependencies = [
+- "cfg-if",
+- "home",
+- "windows-sys 0.48.0",
+-]
+-
+ [[package]]
+ name = "etw_tracing"
+ version = "0.1.0"
+@@ -6324,6 +4983,7 @@ dependencies = [
+  "async-compression",
+  "async-tar",
+  "async-trait",
++ "chrono",
+  "client",
+  "cloud_api_types",
+  "collections",
+@@ -6354,7 +5014,6 @@ dependencies = [
+  "serde_json_lenient",
+  "settings",
+  "task",
+- "telemetry",
+  "tempfile",
+  "theme",
+  "theme_extension",
+@@ -6395,7 +5054,6 @@ dependencies = [
+  "settings",
+  "smallvec",
+  "strum 0.27.2",
+- "telemetry",
+  "theme_settings",
+  "ui",
+  "util",
+@@ -6518,32 +5176,8 @@ name = "feature_flags_macros"
+ version = "0.1.0"
+ dependencies = [
+  "proc-macro2",
+- "quote",
+- "syn 2.0.117",
+-]
+-
+-[[package]]
+-name = "feedback"
+-version = "0.1.0"
+-dependencies = [
+- "client",
+- "extension_host",
+- "gpui",
+- "system_specs",
+- "urlencoding",
+- "util",
+- "workspace",
+- "zed_actions",
+-]
+-
+-[[package]]
+-name = "ff"
+-version = "0.12.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d013fc25338cc558c5c2cfbad646908fb23591e2404481826742b651c9af7160"
+-dependencies = [
+- "rand_core 0.6.4",
+- "subtle",
++ "quote",
++ "syn 2.0.117",
+ ]
+ 
+ [[package]]
+@@ -6551,7 +5185,6 @@ name = "file_finder"
+ version = "0.1.0"
+ dependencies = [
+  "anyhow",
+- "channel",
+  "client",
+  "collections",
+  "ctor",
+@@ -6851,7 +5484,6 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "smol",
+- "telemetry",
+  "tempfile",
+  "text",
+  "thiserror 2.0.17",
+@@ -6872,16 +5504,6 @@ dependencies = [
+  "windows-sys 0.59.0",
+ ]
+ 
+-[[package]]
+-name = "fs2"
+-version = "0.4.3"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9564fc758e15025b46aa6643b1b77d047d1a56a1aea6e01002ac0c7026876213"
+-dependencies = [
+- "libc",
+- "winapi",
+-]
+-
+ [[package]]
+ name = "fs_benchmarks"
+ version = "0.1.0"
+@@ -6906,18 +5528,6 @@ dependencies = [
+  "libc",
+ ]
+ 
+-[[package]]
+-name = "fuchsia-cprng"
+-version = "0.1.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "a06f77d526c1a601b7c4cdd98f54b5eaabffc14d5f2f0296febdc7f357c6d3ba"
+-
+-[[package]]
+-name = "funty"
+-version = "2.0.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e6d5a32815ae3f33302d95fdcb2ce17862f8c65363dcfd29360480ba1001fc9c"
+-
+ [[package]]
+ name = "futf"
+ version = "0.1.5"
+@@ -6989,17 +5599,6 @@ dependencies = [
+  "futures-util",
+ ]
+ 
+-[[package]]
+-name = "futures-intrusive"
+-version = "0.5.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
+-dependencies = [
+- "futures-core",
+- "lock_api",
+- "parking_lot",
+-]
+-
+ [[package]]
+ name = "futures-io"
+ version = "0.3.32"
+@@ -7097,29 +5696,6 @@ dependencies = [
+  "util",
+ ]
+ 
+-[[package]]
+-name = "gaoya"
+-version = "0.2.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0c75195ebd4c5589a505e1f0bf81052c52f55dfa40c1afefac1f95b67846adb1"
+-dependencies = [
+- "ahash 0.8.12",
+- "crossbeam-utils",
+- "fnv",
+- "itertools 0.10.5",
+- "num-traits",
+- "rand 0.8.6",
+- "rand_pcg",
+- "random_choice",
+- "rayon",
+- "seahash",
+- "sha-1",
+- "shingles",
+- "siphasher 0.3.11",
+- "smallvec",
+- "triomphe",
+-]
+-
+ [[package]]
+ name = "generator"
+ version = "0.8.7"
+@@ -7261,19 +5837,6 @@ dependencies = [
+  "stable_deref_trait",
+ ]
+ 
+-[[package]]
+-name = "gio-sys"
+-version = "0.21.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0071fe88dba8e40086c8ff9bbb62622999f49628344b1d1bf490a48a29d80f22"
+-dependencies = [
+- "glib-sys",
+- "gobject-sys",
+- "libc",
+- "system-deps",
+- "windows-sys 0.52.0",
+-]
+-
+ [[package]]
+ name = "git"
+ version = "0.1.0"
+@@ -7342,7 +5905,6 @@ dependencies = [
+  "askpass",
+  "async-channel 2.5.0",
+  "buffer_diff",
+- "call",
+  "collections",
+  "component",
+  "ctor",
+@@ -7385,7 +5947,6 @@ dependencies = [
+  "strum 0.27.2",
+  "sysinfo 0.37.2",
+  "task",
+- "telemetry",
+  "terminal",
+  "theme",
+  "theme_settings",
+@@ -7524,50 +6085,6 @@ version = "0.32.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f70749695b063ecbf6b62949ccccde2e733ec3ecbbd71d467dca4e5c6c97cca0"
+ 
+-[[package]]
+-name = "glib"
+-version = "0.21.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "16de123c2e6c90ce3b573b7330de19be649080ec612033d397d72da265f1bd8b"
+-dependencies = [
+- "bitflags 2.10.0",
+- "futures-channel",
+- "futures-core",
+- "futures-executor",
+- "futures-task",
+- "futures-util",
+- "gio-sys",
+- "glib-macros",
+- "glib-sys",
+- "gobject-sys",
+- "libc",
+- "memchr",
+- "smallvec",
+-]
+-
+-[[package]]
+-name = "glib-macros"
+-version = "0.21.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "cf59b675301228a696fe01c3073974643365080a76cc3ed5bc2cbc466ad87f17"
+-dependencies = [
+- "heck 0.5.0",
+- "proc-macro-crate",
+- "proc-macro2",
+- "quote",
+- "syn 2.0.117",
+-]
+-
+-[[package]]
+-name = "glib-sys"
+-version = "0.21.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2d95e1a3a19ae464a7286e14af9a90683c64d70c02532d88d87ce95056af3e6c"
+-dependencies = [
+- "libc",
+- "system-deps",
+-]
+-
+ [[package]]
+ name = "glob"
+ version = "0.3.3"
+@@ -7642,17 +6159,6 @@ dependencies = [
+  "workspace",
+ ]
+ 
+-[[package]]
+-name = "gobject-sys"
+-version = "0.21.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2dca35da0d19a18f4575f3cb99fe1c9e029a2941af5662f326f738a21edaf294"
+-dependencies = [
+- "glib-sys",
+- "libc",
+- "system-deps",
+-]
+-
+ [[package]]
+ name = "goblin"
+ version = "0.9.3"
+@@ -7722,7 +6228,7 @@ dependencies = [
+  "async-channel 2.5.0",
+  "async-task",
+  "backtrace",
+- "bindgen 0.71.1",
++ "bindgen",
+  "bitflags 2.10.0",
+  "block",
+  "cbindgen",
+@@ -8064,17 +6570,6 @@ version = "1.0.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b40ca9252762c466af32d0b1002e91e4e1bc5398f77455e55474deb466355ff5"
+ 
+-[[package]]
+-name = "group"
+-version = "0.12.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "5dfbfb3a6cfbd390d5c9564ab283a0349b9b9fcd46a706c1eb10e0db70bfbac7"
+-dependencies = [
+- "ff",
+- "rand_core 0.6.4",
+- "subtle",
+-]
+-
+ [[package]]
+ name = "h2"
+ version = "0.3.27"
+@@ -8181,9 +6676,6 @@ name = "hashbrown"
+ version = "0.12.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "8a9ee70c43aaf417c914396645a0fa852624801b24ebb7ae78fe8272889ac888"
+-dependencies = [
+- "ahash 0.7.8",
+-]
+ 
+ [[package]]
+ name = "hashbrown"
+@@ -8191,7 +6683,7 @@ version = "0.14.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
+ dependencies = [
+- "ahash 0.8.12",
++ "ahash",
+  "allocator-api2",
+ ]
+ 
+@@ -8227,15 +6719,6 @@ dependencies = [
+  "hashbrown 0.14.5",
+ ]
+ 
+-[[package]]
+-name = "hashlink"
+-version = "0.10.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7382cf6263419f2d8df38c55d7da83da5c18aef87fc7a7fc1fb1e344edfe14c1"
+-dependencies = [
+- "hashbrown 0.15.5",
+-]
+-
+ [[package]]
+ name = "hdrhistogram"
+ version = "7.5.4"
+@@ -8246,7 +6729,7 @@ dependencies = [
+  "byteorder",
+  "crossbeam-channel",
+  "flate2",
+- "nom 7.1.3",
++ "nom",
+  "num-traits",
+ ]
+ 
+@@ -8503,12 +6986,6 @@ dependencies = [
+  "pin-project-lite",
+ ]
+ 
+-[[package]]
+-name = "http-range-header"
+-version = "0.3.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "add0ab9360ddbd88cfeb3bd9574a1d85cfdfa14db10b3e21d3700dbc4328758f"
+-
+ [[package]]
+ name = "http_client"
+ version = "0.1.0"
+@@ -8537,7 +7014,7 @@ dependencies = [
+ name = "http_client_tls"
+ version = "0.1.0"
+ dependencies = [
+- "rustls 0.23.40",
++ "rustls",
+  "rustls-platform-verifier",
+ ]
+ 
+@@ -8611,21 +7088,6 @@ dependencies = [
+  "want",
+ ]
+ 
+-[[package]]
+-name = "hyper-rustls"
+-version = "0.24.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ec3efd23720e2049821a693cbc7e65ea87c72f1c58ff2f9522ff332b1491e590"
+-dependencies = [
+- "futures-util",
+- "http 0.2.12",
+- "hyper 0.14.32",
+- "log",
+- "rustls 0.21.12",
+- "tokio",
+- "tokio-rustls 0.24.1",
+-]
+-
+ [[package]]
+ name = "hyper-rustls"
+ version = "0.27.9"
+@@ -8636,10 +7098,10 @@ dependencies = [
+  "hyper 1.7.0",
+  "hyper-util",
+  "log",
+- "rustls 0.23.40",
+- "rustls-native-certs 0.8.3",
++ "rustls",
++ "rustls-native-certs",
+  "tokio",
+- "tokio-rustls 0.26.4",
++ "tokio-rustls",
+  "tower-service",
+ ]
+ 
+@@ -8656,19 +7118,6 @@ dependencies = [
+  "tower-service",
+ ]
+ 
+-[[package]]
+-name = "hyper-tls"
+-version = "0.5.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d6183ddfa99b85da61a140bea0efc93fdf56ceaa041b37d553518030827f9905"
+-dependencies = [
+- "bytes 1.11.1",
+- "hyper 0.14.32",
+- "native-tls",
+- "tokio",
+- "tokio-native-tls",
+-]
+-
+ [[package]]
+ name = "hyper-util"
+ version = "0.1.17"
+@@ -8970,17 +7419,6 @@ version = "2.0.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f4c7245a08504955605670dbf141fceab975f15ca21570696aebe9d2e71576bd"
+ 
+-[[package]]
+-name = "inherent"
+-version = "1.0.13"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c727f80bfa4a6c6e2508d2f05b6f4bfce242030bd88ed15ae5331c5b5d30fba7"
+-dependencies = [
+- "proc-macro2",
+- "quote",
+- "syn 2.0.117",
+-]
+-
+ [[package]]
+ name = "inotify"
+ version = "0.9.6"
+@@ -9030,7 +7468,6 @@ dependencies = [
+  "collections",
+  "gpui",
+  "hdrhistogram",
+- "telemetry",
+ ]
+ 
+ [[package]]
+@@ -9392,7 +7829,7 @@ version = "0.37.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "73c9ffb2b5c56d58030e1b532d8e8389da94590515f118cf35b5cb68e4764a7e"
+ dependencies = [
+- "ahash 0.8.12",
++ "ahash",
+  "bytecount",
+  "data-encoding",
+  "email_address",
+@@ -9407,7 +7844,7 @@ dependencies = [
+  "referencing",
+  "regex",
+  "regex-syntax",
+- "reqwest 0.12.24",
++ "reqwest",
+  "serde",
+  "serde_json",
+  "unicode-general-category",
+@@ -9427,7 +7864,7 @@ dependencies = [
+  "pem",
+  "serde",
+  "serde_json",
+- "signature 2.2.0",
++ "signature",
+  "simple_asn1",
+ ]
+ 
+@@ -9491,7 +7928,6 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "settings",
+- "telemetry",
+  "tempfile",
+  "theme",
+  "theme_settings",
+@@ -9754,15 +8190,8 @@ dependencies = [
+ name = "language_models"
+ version = "0.1.0"
+ dependencies = [
+- "ai_onboarding",
+- "anthropic",
+  "anyhow",
+  "async-lock",
+- "aws-config",
+- "aws-credential-types",
+- "aws_http_client",
+- "base64 0.22.1",
+- "bedrock",
+  "client",
+  "clock",
+  "cloud_api_client",
+@@ -9771,36 +8200,25 @@ dependencies = [
+  "collections",
+  "component",
+  "convert_case 0.11.0",
+- "copilot",
+- "copilot_chat",
+- "copilot_ui",
+  "credentials_provider",
+  "db",
+- "deepseek",
+  "extension",
+  "extension_host",
+  "feature_flags",
+  "fs",
+  "futures 0.3.32",
+- "google_ai",
+  "gpui",
+  "gpui_tokio",
+  "http_client",
+  "language",
+  "language_model",
+- "language_models_cloud",
+  "lmstudio",
+  "log",
+  "menu",
+- "mistral",
+- "oauth_callback_server",
+  "ollama",
+  "open_ai",
+- "open_router",
+- "opencode",
+  "parking_lot",
+  "pretty_assertions",
+- "rand 0.9.4",
+  "release_channel",
+  "schemars 1.0.4",
+  "serde",
+@@ -9809,33 +8227,10 @@ dependencies = [
+  "sha2",
+  "smol",
+  "strum 0.27.2",
+- "tokio",
+  "ui",
+  "ui_input",
+  "url",
+  "util",
+- "x_ai",
+-]
+-
+-[[package]]
+-name = "language_models_cloud"
+-version = "0.1.0"
+-dependencies = [
+- "anthropic",
+- "anyhow",
+- "cloud_llm_client",
+- "futures 0.3.32",
+- "google_ai",
+- "gpui",
+- "http_client",
+- "language_model",
+- "log",
+- "open_ai",
+- "schemars 1.0.4",
+- "semver",
+- "serde",
+- "serde_json",
+- "thiserror 2.0.17",
+ ]
+ 
+ [[package]]
+@@ -9893,7 +8288,6 @@ dependencies = [
+  "serde_json",
+  "settings",
+  "sysinfo 0.37.2",
+- "telemetry",
+  "theme",
+  "theme_settings",
+  "tree-sitter",
+@@ -10088,30 +8482,6 @@ dependencies = [
+  "vcpkg",
+ ]
+ 
+-[[package]]
+-name = "libwebrtc"
+-version = "0.3.26"
+-source = "git+https://github.com/zed-industries/livekit-rust-sdks?rev=c3a55bbc207008f1ca3474b6037fdd3c443cad0f#c3a55bbc207008f1ca3474b6037fdd3c443cad0f"
+-dependencies = [
+- "cxx",
+- "glib",
+- "jni",
+- "js-sys",
+- "lazy_static",
+- "livekit-protocol",
+- "livekit-runtime",
+- "log",
+- "parking_lot",
+- "serde",
+- "serde_json",
+- "thiserror 1.0.69",
+- "tokio",
+- "wasm-bindgen",
+- "wasm-bindgen-futures",
+- "web-sys",
+- "webrtc-sys",
+-]
+-
+ [[package]]
+ name = "line_ending_selector"
+ version = "0.1.0"
+@@ -10132,15 +8502,6 @@ version = "0.1.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d4a5ff6bcca6c4867b1c4fd4ef63e4db7436ef363e0ad7531d1558856bae64f4"
+ 
+-[[package]]
+-name = "link-cplusplus"
+-version = "1.0.12"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7f78c730aaa7d0b9336a299029ea49f9ee53b0ed06e9202e8cb7db9bae7b8c82"
+-dependencies = [
+- "cc",
+-]
+-
+ [[package]]
+ name = "link-section"
+ version = "0.17.2"
+@@ -10175,150 +8536,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "df1d3c3b53da64cf5760482273a98e575c651a67eec7f77df96b5b642de8f039"
+ 
+ [[package]]
+-name = "litemap"
+-version = "0.8.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
+-
+-[[package]]
+-name = "litrs"
+-version = "1.0.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+-
+-[[package]]
+-name = "livekit"
+-version = "0.7.32"
+-source = "git+https://github.com/zed-industries/livekit-rust-sdks?rev=c3a55bbc207008f1ca3474b6037fdd3c443cad0f#c3a55bbc207008f1ca3474b6037fdd3c443cad0f"
+-dependencies = [
+- "base64 0.22.1",
+- "bmrng",
+- "bytes 1.11.1",
+- "chrono",
+- "futures-util",
+- "lazy_static",
+- "libloading",
+- "libwebrtc",
+- "livekit-api",
+- "livekit-protocol",
+- "livekit-runtime",
+- "log",
+- "parking_lot",
+- "prost 0.12.6",
+- "semver",
+- "serde",
+- "serde_json",
+- "thiserror 1.0.69",
+- "tokio",
+-]
+-
+-[[package]]
+-name = "livekit-api"
+-version = "0.4.14"
+-source = "git+https://github.com/zed-industries/livekit-rust-sdks?rev=c3a55bbc207008f1ca3474b6037fdd3c443cad0f#c3a55bbc207008f1ca3474b6037fdd3c443cad0f"
+-dependencies = [
+- "base64 0.21.7",
+- "futures-util",
+- "http 1.3.1",
+- "livekit-protocol",
+- "livekit-runtime",
+- "log",
+- "parking_lot",
+- "pbjson-types",
+- "prost 0.12.6",
+- "rand 0.9.4",
+- "reqwest 0.12.24",
+- "rustls-native-certs 0.6.3",
+- "scopeguard",
+- "serde",
+- "sha2",
+- "thiserror 1.0.69",
+- "tokio",
+- "tokio-rustls 0.26.4",
+- "tokio-tungstenite 0.28.0",
+- "url",
+-]
+-
+-[[package]]
+-name = "livekit-protocol"
+-version = "0.7.1"
+-source = "git+https://github.com/zed-industries/livekit-rust-sdks?rev=c3a55bbc207008f1ca3474b6037fdd3c443cad0f#c3a55bbc207008f1ca3474b6037fdd3c443cad0f"
+-dependencies = [
+- "futures-util",
+- "livekit-runtime",
+- "parking_lot",
+- "pbjson",
+- "pbjson-types",
+- "prost 0.12.6",
+- "serde",
+- "thiserror 1.0.69",
+- "tokio",
+-]
+-
+-[[package]]
+-name = "livekit-runtime"
+-version = "0.4.0"
+-source = "git+https://github.com/zed-industries/livekit-rust-sdks?rev=c3a55bbc207008f1ca3474b6037fdd3c443cad0f#c3a55bbc207008f1ca3474b6037fdd3c443cad0f"
+-dependencies = [
+- "tokio",
+- "tokio-stream",
+-]
+-
+-[[package]]
+-name = "livekit_api"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "async-trait",
+- "jsonwebtoken",
+- "log",
+- "prost 0.9.0",
+- "prost-build 0.9.0",
+- "prost-types 0.9.0",
+- "serde",
+- "zed-reqwest",
+-]
++name = "litemap"
++version = "0.8.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "241eaef5fd12c88705a01fc1066c48c4b36e0dd4377dcdc7ec3942cea7a69956"
+ 
+ [[package]]
+-name = "livekit_client"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "async-trait",
+- "audio",
+- "cocoa 0.26.0",
+- "collections",
+- "core-foundation 0.10.0",
+- "core-video",
+- "coreaudio-rs 0.12.1",
+- "cpal",
+- "futures 0.3.32",
+- "gpui",
+- "gpui_platform",
+- "gpui_tokio",
+- "http_client_tls",
+- "image",
+- "libwebrtc",
+- "livekit",
+- "livekit_api",
+- "log",
+- "nanoid",
+- "objc",
+- "parking_lot",
+- "postage",
+- "rodio",
+- "serde",
+- "serde_json",
+- "serde_urlencoded",
+- "settings",
+- "simplelog",
+- "smallvec",
+- "tokio",
+- "ui",
+- "util",
+- "webrtc-sys",
+- "zed-scap",
+-]
++name = "litrs"
++version = "1.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+ 
+ [[package]]
+ name = "lmdb-master-sys"
+@@ -10712,12 +8939,6 @@ dependencies = [
+  "regex-automata",
+ ]
+ 
+-[[package]]
+-name = "matchit"
+-version = "0.7.3"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0e7465ac9959cc2b1404e8e2367b43684a6d13790fe23056cc8c6c5a6b7bcb94"
+-
+ [[package]]
+ name = "matrixmultiply"
+ version = "0.3.10"
+@@ -10795,7 +9016,7 @@ name = "media"
+ version = "0.1.0"
+ dependencies = [
+  "anyhow",
+- "bindgen 0.71.1",
++ "bindgen",
+  "core-foundation 0.10.0",
+  "core-video",
+  "ctor",
+@@ -11123,19 +9344,6 @@ dependencies = [
+  "windows-sys 0.60.2",
+ ]
+ 
+-[[package]]
+-name = "mistral"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "futures 0.3.32",
+- "http_client",
+- "schemars 1.0.4",
+- "serde",
+- "serde_json",
+- "strum 0.27.2",
+-]
+-
+ [[package]]
+ name = "moka"
+ version = "0.12.11"
+@@ -11270,15 +9478,6 @@ dependencies = [
+  "typenum",
+ ]
+ 
+-[[package]]
+-name = "nanoid"
+-version = "0.4.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3ffa00dec017b5b1a8b7cf5e2c008bfda1aa7e0697ac1508b491fdf2622fb4d8"
+-dependencies = [
+- "rand 0.8.6",
+-]
+-
+ [[package]]
+ name = "nanorand"
+ version = "0.7.0"
+@@ -11297,10 +9496,10 @@ dependencies = [
+  "libc",
+  "log",
+  "openssl",
+- "openssl-probe 0.2.1",
++ "openssl-probe",
+  "openssl-sys",
+  "schannel",
+- "security-framework 3.5.1",
++ "security-framework",
+  "security-framework-sys",
+  "tempfile",
+ ]
+@@ -11435,15 +9634,6 @@ dependencies = [
+  "minimal-lexical",
+ ]
+ 
+-[[package]]
+-name = "nom"
+-version = "8.0.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
+-dependencies = [
+- "memchr",
+-]
+-
+ [[package]]
+ name = "noop_proc_macro"
+ version = "0.3.0"
+@@ -11463,17 +9653,9 @@ dependencies = [
+ name = "notifications"
+ version = "0.1.0"
+ dependencies = [
+- "anyhow",
+- "channel",
+- "client",
+  "component",
+- "futures-lite 1.13.0",
+  "gpui",
+- "rpc",
+- "sum_tree",
+- "time",
+  "ui",
+- "util",
+  "workspace",
+  "zed_actions",
+ ]
+@@ -12092,7 +10274,7 @@ dependencies = [
+  "http-body 1.0.1",
+  "http-body-util",
+  "hyper 1.7.0",
+- "hyper-rustls 0.27.9",
++ "hyper-rustls",
+  "hyper-timeout",
+  "hyper-util",
+  "jsonwebtoken",
+@@ -12106,8 +10288,8 @@ dependencies = [
+  "serde_urlencoded",
+  "snafu",
+  "tokio",
+- "tower 0.5.2",
+- "tower-http 0.6.6",
++ "tower",
++ "tower-http",
+  "url",
+  "web-time",
+ ]
+@@ -12146,7 +10328,6 @@ dependencies = [
+  "schemars 1.0.4",
+  "serde",
+  "settings",
+- "telemetry",
+  "theme",
+  "theme_settings",
+  "ui",
+@@ -12193,7 +10374,7 @@ dependencies = [
+  "md-5",
+  "num",
+  "num-bigint-dig 0.9.1",
+- "pbkdf2 0.12.2",
++ "pbkdf2",
+  "serde",
+  "serde_bytes",
+  "sha2",
+@@ -12263,22 +10444,6 @@ dependencies = [
+  "workspace",
+ ]
+ 
+-[[package]]
+-name = "open_router"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "futures 0.3.32",
+- "http_client",
+- "language_model_core",
+- "schemars 1.0.4",
+- "serde",
+- "serde_json",
+- "settings",
+- "strum 0.27.2",
+- "thiserror 2.0.17",
+-]
+-
+ [[package]]
+ name = "opencode"
+ version = "0.1.0"
+@@ -12331,12 +10496,6 @@ dependencies = [
+  "syn 2.0.117",
+ ]
+ 
+-[[package]]
+-name = "openssl-probe"
+-version = "0.1.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d05e27ee213611ffe7d6348b942e8f942b37114c00cc03cec254295a4a17852e"
+-
+ [[package]]
+ name = "openssl-probe"
+ version = "0.2.1"
+@@ -12400,30 +10559,6 @@ dependencies = [
+  "pin-project-lite",
+ ]
+ 
+-[[package]]
+-name = "ouroboros"
+-version = "0.18.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1e0f050db9c44b97a94723127e6be766ac5c340c48f2c4bb3ffa11713744be59"
+-dependencies = [
+- "aliasable",
+- "ouroboros_macro",
+- "static_assertions",
+-]
+-
+-[[package]]
+-name = "ouroboros_macro"
+-version = "0.18.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3c7028bdd3d43083f6d8d4d5187680d0d3560d54df4cc9d752005268b41e64d0"
+-dependencies = [
+- "heck 0.4.1",
+- "proc-macro2",
+- "proc-macro2-diagnostics",
+- "quote",
+- "syn 2.0.117",
+-]
+-
+ [[package]]
+ name = "outline"
+ version = "0.1.0"
+@@ -12490,17 +10625,6 @@ version = "0.5.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1a80800c0488c3a21695ea981a54918fbb37abf04f4d0720c453632255e2ff0e"
+ 
+-[[package]]
+-name = "p256"
+-version = "0.11.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "51f44edd08f51e2ade572f141051021c5af22677e42b7dd28a88155151c33594"
+-dependencies = [
+- "ecdsa",
+- "elliptic-curve",
+- "sha2",
+-]
+-
+ [[package]]
+ name = "page_size"
+ version = "0.6.0"
+@@ -12588,17 +10712,6 @@ version = "0.5.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "35ffd90b3f3b6477db7478016b9efb1b7e9d38eafd095f0542fe0ec2ea884a13"
+ 
+-[[package]]
+-name = "password-hash"
+-version = "0.4.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7676374caaee8a325c9e7a2ae557f216c5563a171d6997b0ef8a65af35147700"
+-dependencies = [
+- "base64ct",
+- "rand_core 0.6.4",
+- "subtle",
+-]
+-
+ [[package]]
+ name = "paste"
+ version = "1.0.15"
+@@ -12646,55 +10759,6 @@ dependencies = [
+  "util",
+ ]
+ 
+-[[package]]
+-name = "pbjson"
+-version = "0.6.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1030c719b0ec2a2d25a5df729d6cff1acf3cc230bf766f4f97833591f7577b90"
+-dependencies = [
+- "base64 0.21.7",
+- "serde",
+-]
+-
+-[[package]]
+-name = "pbjson-build"
+-version = "0.6.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2580e33f2292d34be285c5bc3dba5259542b083cfad6037b6d70345f24dcb735"
+-dependencies = [
+- "heck 0.4.1",
+- "itertools 0.11.0",
+- "prost 0.12.6",
+- "prost-types 0.12.6",
+-]
+-
+-[[package]]
+-name = "pbjson-types"
+-version = "0.6.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "18f596653ba4ac51bdecbb4ef6773bc7f56042dc13927910de1684ad3d32aa12"
+-dependencies = [
+- "bytes 1.11.1",
+- "chrono",
+- "pbjson",
+- "pbjson-build",
+- "prost 0.12.6",
+- "prost-build 0.12.6",
+- "serde",
+-]
+-
+-[[package]]
+-name = "pbkdf2"
+-version = "0.11.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "83a0692ec44e4cf1ef28ca317f14f8f07da2d95ec3fa01f86e4467b725e60917"
+-dependencies = [
+- "digest",
+- "hmac",
+- "password-hash",
+- "sha2",
+-]
+-
+ [[package]]
+ name = "pbkdf2"
+ version = "0.12.2"
+@@ -13235,15 +11299,6 @@ dependencies = [
+  "indexmap 2.11.4",
+ ]
+ 
+-[[package]]
+-name = "pgvector"
+-version = "0.4.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "fc58e2d255979a31caa7cabfa7aac654af0354220719ab7a68520ae7a91e8c0b"
+-dependencies = [
+- "serde",
+-]
+-
+ [[package]]
+ name = "phf"
+ version = "0.11.3"
+@@ -13465,19 +11520,9 @@ version = "0.7.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "c8ffb9f10fa047879315e6625af03c164b16962a5368d724ed16323b68ace47f"
+ dependencies = [
+- "der 0.7.10",
+- "pkcs8 0.10.2",
+- "spki 0.7.3",
+-]
+-
+-[[package]]
+-name = "pkcs8"
+-version = "0.9.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9eca2c590a5f85da82668fa685c09ce2888b9430e83299debf1f34b65fd4a4ba"
+-dependencies = [
+- "der 0.6.1",
+- "spki 0.6.0",
++ "der",
++ "pkcs8",
++ "spki",
+ ]
+ 
+ [[package]]
+@@ -13486,8 +11531,8 @@ version = "0.10.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f950b2377845cebe5cf8b5165cb3cc1a5e0fa5cfa3e1f7f55707d8fd82e0a7b7"
+ dependencies = [
+- "der 0.7.10",
+- "spki 0.7.3",
++ "der",
++ "spki",
+ ]
+ 
+ [[package]]
+@@ -13627,7 +11672,7 @@ version = "0.0.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a4a63d338dec139f56dacc692ca63ad35a6be6a797442479b55acd611d79e906"
+ dependencies = [
+- "nom 7.1.3",
++ "nom",
+ ]
+ 
+ [[package]]
+@@ -13834,19 +11879,6 @@ dependencies = [
+  "unicode-ident",
+ ]
+ 
+-[[package]]
+-name = "proc-macro2-diagnostics"
+-version = "0.10.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "af066a9c399a26e020ada66a034357a868728e72cd426f3adcd35f80d88d88c8"
+-dependencies = [
+- "proc-macro2",
+- "quote",
+- "syn 2.0.117",
+- "version_check",
+- "yansi",
+-]
+-
+ [[package]]
+ name = "procfs-core"
+ version = "0.17.0"
+@@ -14012,7 +12044,6 @@ dependencies = [
+  "serde_json",
+  "settings",
+  "smallvec",
+- "telemetry",
+  "tempfile",
+  "theme",
+  "theme_settings",
+@@ -14047,21 +12078,6 @@ dependencies = [
+  "workspace",
+ ]
+ 
+-[[package]]
+-name = "prometheus"
+-version = "0.14.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3ca5326d8d0b950a9acd87e6a3f94745394f62e4dae1b1ee22b2bc0c394af43a"
+-dependencies = [
+- "cfg-if",
+- "fnv",
+- "lazy_static",
+- "memchr",
+- "parking_lot",
+- "protobuf",
+- "thiserror 2.0.17",
+-]
+-
+ [[package]]
+ name = "prompt_store"
+ version = "0.1.0"
+@@ -14138,17 +12154,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "444879275cb4fd84958b1a1d5420d15e6fcf7c235fe47f053c9c2a80aceb6001"
+ dependencies = [
+  "bytes 1.11.1",
+- "prost-derive 0.9.0",
+-]
+-
+-[[package]]
+-name = "prost"
+-version = "0.12.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "deb1435c188b76130da55f17a466d252ff7b1418b2ad3e037d127b94e3411f29"
+-dependencies = [
+- "bytes 1.11.1",
+- "prost-derive 0.12.6",
++ "prost-derive",
+ ]
+ 
+ [[package]]
+@@ -14164,34 +12170,13 @@ dependencies = [
+  "log",
+  "multimap",
+  "petgraph",
+- "prost 0.9.0",
+- "prost-types 0.9.0",
++ "prost",
++ "prost-types",
+  "regex",
+  "tempfile",
+  "which 4.4.2",
+ ]
+ 
+-[[package]]
+-name = "prost-build"
+-version = "0.12.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
+-dependencies = [
+- "bytes 1.11.1",
+- "heck 0.5.0",
+- "itertools 0.11.0",
+- "log",
+- "multimap",
+- "once_cell",
+- "petgraph",
+- "prettyplease",
+- "prost 0.12.6",
+- "prost-types 0.12.6",
+- "regex",
+- "syn 2.0.117",
+- "tempfile",
+-]
+-
+ [[package]]
+ name = "prost-derive"
+ version = "0.9.0"
+@@ -14205,19 +12190,6 @@ dependencies = [
+  "syn 1.0.109",
+ ]
+ 
+-[[package]]
+-name = "prost-derive"
+-version = "0.12.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
+-dependencies = [
+- "anyhow",
+- "itertools 0.11.0",
+- "proc-macro2",
+- "quote",
+- "syn 2.0.117",
+-]
+-
+ [[package]]
+ name = "prost-types"
+ version = "0.9.0"
+@@ -14225,46 +12197,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "534b7a0e836e3c482d2693070f982e39e7611da9695d4d1f5a4b186b51faef0a"
+ dependencies = [
+  "bytes 1.11.1",
+- "prost 0.9.0",
+-]
+-
+-[[package]]
+-name = "prost-types"
+-version = "0.12.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9091c90b0a32608e984ff2fa4091273cbdd755d54935c51d520887f4a1dbd5b0"
+-dependencies = [
+- "prost 0.12.6",
++ "prost",
+ ]
+ 
+ [[package]]
+ name = "proto"
+ version = "0.1.0"
+ dependencies = [
+- "anyhow",
+- "prost 0.9.0",
+- "prost-build 0.9.0",
+- "serde",
+-]
+-
+-[[package]]
+-name = "protobuf"
+-version = "3.7.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d65a1d4ddae7d8b5de68153b48f6aa3bba8cb002b243dbdbc55a5afbc98f99f4"
+-dependencies = [
+- "once_cell",
+- "protobuf-support",
+- "thiserror 1.0.69",
+-]
+-
+-[[package]]
+-name = "protobuf-support"
+-version = "3.7.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3e36c2f31e0a47f9280fb347ef5e461ffcd2c52dd520d8e216b52f93b0b0d7d6"
+-dependencies = [
+- "thiserror 1.0.69",
++ "anyhow",
++ "prost",
++ "prost-build",
++ "serde",
+ ]
+ 
+ [[package]]
+@@ -14277,26 +12220,6 @@ dependencies = [
+  "cc",
+ ]
+ 
+-[[package]]
+-name = "ptr_meta"
+-version = "0.1.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0738ccf7ea06b608c10564b31debd4f5bc5e197fc8bfe088f68ae5ce81e7a4f1"
+-dependencies = [
+- "ptr_meta_derive",
+-]
+-
+-[[package]]
+-name = "ptr_meta_derive"
+-version = "0.1.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "16b845dbfca988fa33db069c0e230574d15a3088f147a87b64c7589eb662c9ac"
+-dependencies = [
+- "proc-macro2",
+- "quote",
+- "syn 1.0.109",
+-]
+-
+ [[package]]
+ name = "pulldown-cmark"
+ version = "0.10.3"
+@@ -14447,7 +12370,7 @@ dependencies = [
+  "quinn-proto",
+  "quinn-udp",
+  "rustc-hash 2.1.1",
+- "rustls 0.23.40",
++ "rustls",
+  "socket2 0.6.3",
+  "thiserror 2.0.17",
+  "tokio",
+@@ -14467,7 +12390,7 @@ dependencies = [
+  "rand 0.9.4",
+  "ring",
+  "rustc-hash 2.1.1",
+- "rustls 0.23.40",
++ "rustls",
+  "rustls-pki-types",
+  "slab",
+  "thiserror 2.0.17",
+@@ -14505,35 +12428,6 @@ version = "5.3.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"
+ 
+-[[package]]
+-name = "radium"
+-version = "0.7.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "dc33ff2d4973d518d823d61aa239014831e521c75da58e3df4840d3f47749d09"
+-
+-[[package]]
+-name = "rand"
+-version = "0.3.23"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "64ac302d8f83c0c1974bf758f6b041c6c8ada916fbb44a609158ca8b064cc76c"
+-dependencies = [
+- "libc",
+- "rand 0.4.6",
+-]
+-
+-[[package]]
+-name = "rand"
+-version = "0.4.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "552840b97013b1a26992c11eac34bdd778e464601a4c2054b5f0bff7c6761293"
+-dependencies = [
+- "fuchsia-cprng",
+- "libc",
+- "rand_core 0.3.1",
+- "rdrand",
+- "winapi",
+-]
+-
+ [[package]]
+ name = "rand"
+ version = "0.8.6"
+@@ -14575,21 +12469,6 @@ dependencies = [
+  "rand_core 0.9.3",
+ ]
+ 
+-[[package]]
+-name = "rand_core"
+-version = "0.3.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7a6fdeb83b075e8266dcc8762c22776f6877a63111121f5f8c7411e5be7eed4b"
+-dependencies = [
+- "rand_core 0.4.2",
+-]
+-
+-[[package]]
+-name = "rand_core"
+-version = "0.4.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9c33a3c44ca05fa6f1807d8e6743f3824e8509beca625669633be0acbdf509dc"
+-
+ [[package]]
+ name = "rand_core"
+ version = "0.6.4"
+@@ -14618,15 +12497,6 @@ dependencies = [
+  "rand 0.9.4",
+ ]
+ 
+-[[package]]
+-name = "rand_pcg"
+-version = "0.3.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "59cad018caf63deb318e5a4586d99a24424a364f40f1e5778c29aca23f4fc73e"
+-dependencies = [
+- "rand_core 0.6.4",
+-]
+-
+ [[package]]
+ name = "rand_xorshift"
+ version = "0.4.0"
+@@ -14636,15 +12506,6 @@ dependencies = [
+  "rand_core 0.9.3",
+ ]
+ 
+-[[package]]
+-name = "random_choice"
+-version = "0.3.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "09c8d23fe09a1d82566c84c9dfa810b0479c6dbbe190728274f68ee3a0c27dbf"
+-dependencies = [
+- "rand 0.3.23",
+-]
+-
+ [[package]]
+ name = "range-alloc"
+ version = "0.1.4"
+@@ -14760,15 +12621,6 @@ dependencies = [
+  "crossbeam-utils",
+ ]
+ 
+-[[package]]
+-name = "rdrand"
+-version = "0.4.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "678054eb77286b51581ba43620cc911abf02758c91f93f479767aed0f90458b2"
+-dependencies = [
+- "rand_core 0.3.1",
+-]
+-
+ [[package]]
+ name = "read-fonts"
+ version = "0.35.0"
+@@ -14826,7 +12678,6 @@ dependencies = [
+  "serde_json",
+  "settings",
+  "task",
+- "telemetry",
+  "ui",
+  "ui_input",
+  "util",
+@@ -14902,7 +12753,7 @@ version = "0.37.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "4283168a506f0dcbdce31c9f9cce3129c924da4c6bca46e46707fcb746d2d70c"
+ dependencies = [
+- "ahash 0.8.12",
++ "ahash",
+  "fluent-uri",
+  "getrandom 0.3.4",
+  "hashbrown 0.16.1",
+@@ -14956,12 +12807,6 @@ dependencies = [
+  "regex-syntax",
+ ]
+ 
+-[[package]]
+-name = "regex-lite"
+-version = "0.1.8"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8d942b98df5e658f56f20d592c7f868833fe38115e65c33003d8cd224b0155da"
+-
+ [[package]]
+ name = "regex-syntax"
+ version = "0.8.8"
+@@ -14991,7 +12836,7 @@ dependencies = [
+  "log",
+  "parking_lot",
+  "paths",
+- "prost 0.9.0",
++ "prost",
+  "release_channel",
+  "rpc",
+  "schemars 1.0.4",
+@@ -15013,14 +12858,15 @@ version = "0.1.0"
+ dependencies = [
+  "anyhow",
+  "askpass",
+- "auto_update",
+  "futures 0.3.32",
+  "gpui",
+  "log",
+  "markdown",
+  "menu",
++ "project",
+  "release_channel",
+  "remote",
++ "remote_connection",
+  "semver",
+  "settings",
+  "theme_settings",
+@@ -15106,15 +12952,6 @@ dependencies = [
+  "zlog",
+ ]
+ 
+-[[package]]
+-name = "rend"
+-version = "0.4.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "71fe3824f5629716b1589be05dacd749f6aa084c87e00e016714a8cdfccc997c"
+-dependencies = [
+- "bytecheck",
+-]
+-
+ [[package]]
+ name = "renderdoc-sys"
+ version = "1.1.0"
+@@ -15162,7 +12999,6 @@ dependencies = [
+  "shlex",
+  "smol",
+  "task",
+- "telemetry",
+  "terminal",
+  "terminal_view",
+  "theme",
+@@ -15177,46 +13013,6 @@ dependencies = [
+  "zed_actions",
+ ]
+ 
+-[[package]]
+-name = "reqwest"
+-version = "0.11.27"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "dd67538700a17451e7cba03ac727fb961abb7607553461627b97de0b89cf4a62"
+-dependencies = [
+- "base64 0.21.7",
+- "bytes 1.11.1",
+- "encoding_rs",
+- "futures-core",
+- "futures-util",
+- "h2 0.3.27",
+- "http 0.2.12",
+- "http-body 0.4.6",
+- "hyper 0.14.32",
+- "hyper-tls",
+- "ipnet",
+- "js-sys",
+- "log",
+- "mime",
+- "native-tls",
+- "once_cell",
+- "percent-encoding",
+- "pin-project-lite",
+- "rustls-pemfile 1.0.4",
+- "serde",
+- "serde_json",
+- "serde_urlencoded",
+- "sync_wrapper 0.1.2",
+- "system-configuration 0.5.1",
+- "tokio",
+- "tokio-native-tls",
+- "tower-service",
+- "url",
+- "wasm-bindgen",
+- "wasm-bindgen-futures",
+- "web-sys",
+- "winreg 0.50.0",
+-]
+-
+ [[package]]
+ name = "reqwest"
+ version = "0.12.24"
+@@ -15232,24 +13028,18 @@ dependencies = [
+  "http-body 1.0.1",
+  "http-body-util",
+  "hyper 1.7.0",
+- "hyper-rustls 0.27.9",
+  "hyper-util",
+  "js-sys",
+  "log",
+  "percent-encoding",
+  "pin-project-lite",
+- "quinn",
+- "rustls 0.23.40",
+- "rustls-native-certs 0.8.3",
+- "rustls-pki-types",
+  "serde",
+  "serde_json",
+  "serde_urlencoded",
+- "sync_wrapper 1.0.2",
++ "sync_wrapper",
+  "tokio",
+- "tokio-rustls 0.26.4",
+- "tower 0.5.2",
+- "tower-http 0.6.6",
++ "tower",
++ "tower-http",
+  "tower-service",
+  "url",
+  "wasm-bindgen",
+@@ -15291,17 +13081,6 @@ dependencies = [
+  "zune-jpeg 0.4.21",
+ ]
+ 
+-[[package]]
+-name = "rfc6979"
+-version = "0.3.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7743f17af12fa0b03b803ba12cd6a8d9483a587e89c69445e3909655c0b9fabb"
+-dependencies = [
+- "crypto-bigint 0.4.9",
+- "hmac",
+- "zeroize",
+-]
+-
+ [[package]]
+ name = "rgb"
+ version = "0.8.52"
+@@ -15325,35 +13104,6 @@ dependencies = [
+  "windows-sys 0.52.0",
+ ]
+ 
+-[[package]]
+-name = "rkyv"
+-version = "0.7.45"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9008cd6385b9e161d8229e1f6549dd23c3d022f132a2ea37ac3a10ac4935779b"
+-dependencies = [
+- "bitvec",
+- "bytecheck",
+- "bytes 1.11.1",
+- "hashbrown 0.12.3",
+- "ptr_meta",
+- "rend",
+- "rkyv_derive",
+- "seahash",
+- "tinyvec",
+- "uuid",
+-]
+-
+-[[package]]
+-name = "rkyv_derive"
+-version = "0.7.45"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "503d1d27590a2b0a3a4ca4c94755aa2875657196ecbf401a42eff41d7de532c0"
+-dependencies = [
+- "proc-macro2",
+- "quote",
+- "syn 1.0.109",
+-]
+-
+ [[package]]
+ name = "rmp"
+ version = "0.8.14"
+@@ -15478,10 +13228,10 @@ dependencies = [
+  "num-integer",
+  "num-traits",
+  "pkcs1",
+- "pkcs8 0.10.2",
++ "pkcs8",
+  "rand_core 0.6.4",
+- "signature 2.2.0",
+- "spki 0.7.3",
++ "signature",
++ "spki",
+  "subtle",
+  "zeroize",
+ ]
+@@ -15563,22 +13313,6 @@ dependencies = [
+  "walkdir",
+ ]
+ 
+-[[package]]
+-name = "rust_decimal"
+-version = "1.39.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "35affe401787a9bd846712274d97654355d21b2a2c092a3139aabe31e9022282"
+-dependencies = [
+- "arrayvec",
+- "borsh",
+- "bytes 1.11.1",
+- "num-traits",
+- "rand 0.8.6",
+- "rkyv",
+- "serde",
+- "serde_json",
+-]
+-
+ [[package]]
+ name = "rustc-demangle"
+ version = "0.1.26"
+@@ -15653,18 +13387,6 @@ dependencies = [
+  "rustix 1.1.2",
+ ]
+ 
+-[[package]]
+-name = "rustls"
+-version = "0.21.12"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3f56a14d1f48b391359b22f731fd4bd7e43c97f3c50eee276f3aa09c94784d3e"
+-dependencies = [
+- "log",
+- "ring",
+- "rustls-webpki 0.101.7",
+- "sct",
+-]
+-
+ [[package]]
+ name = "rustls"
+ version = "0.23.40"
+@@ -15676,42 +13398,21 @@ dependencies = [
+  "once_cell",
+  "ring",
+  "rustls-pki-types",
+- "rustls-webpki 0.103.13",
++ "rustls-webpki",
+  "subtle",
+  "zeroize",
+ ]
+ 
+-[[package]]
+-name = "rustls-native-certs"
+-version = "0.6.3"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "a9aace74cb666635c918e9c12bc0d348266037aa8eb599b5cba565709a8dff00"
+-dependencies = [
+- "openssl-probe 0.1.6",
+- "rustls-pemfile 1.0.4",
+- "schannel",
+- "security-framework 2.11.1",
+-]
+-
+ [[package]]
+ name = "rustls-native-certs"
+ version = "0.8.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "612460d5f7bea540c490b2b6395d8e34a953e52b491accd6c86c8164c5932a63"
+ dependencies = [
+- "openssl-probe 0.2.1",
++ "openssl-probe",
+  "rustls-pki-types",
+  "schannel",
+- "security-framework 3.5.1",
+-]
+-
+-[[package]]
+-name = "rustls-pemfile"
+-version = "1.0.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1c74cae0a4cf6ccbbf5f359f08efdf8ee7e1dc532573bf0db71968cb56b1448c"
+-dependencies = [
+- "base64 0.21.7",
++ "security-framework",
+ ]
+ 
+ [[package]]
+@@ -15744,11 +13445,11 @@ dependencies = [
+  "jni",
+  "log",
+  "once_cell",
+- "rustls 0.23.40",
+- "rustls-native-certs 0.8.3",
++ "rustls",
++ "rustls-native-certs",
+  "rustls-platform-verifier-android",
+- "rustls-webpki 0.103.13",
+- "security-framework 3.5.1",
++ "rustls-webpki",
++ "security-framework",
+  "security-framework-sys",
+  "webpki-root-certs",
+  "windows-sys 0.59.0",
+@@ -15760,16 +13461,6 @@ version = "0.1.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
+ 
+-[[package]]
+-name = "rustls-webpki"
+-version = "0.101.7"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8b6275d1ee7a1cd780b64aca7726599a1dbc893b1e64144529e55c3c2f745765"
+-dependencies = [
+- "ring",
+- "untrusted 0.9.0",
+-]
+-
+ [[package]]
+ name = "rustls-webpki"
+ version = "0.103.13"
+@@ -15960,12 +13651,6 @@ version = "1.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+ 
+-[[package]]
+-name = "scratch"
+-version = "1.0.9"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d68f2ec51b097e4c1a75b681a8bec621909b5e91f15bb7b840c4f2f7b01148b2"
+-
+ [[package]]
+ name = "screencapturekit"
+ version = "0.2.8"
+@@ -16009,109 +13694,11 @@ dependencies = [
+  "syn 2.0.117",
+ ]
+ 
+-[[package]]
+-name = "sct"
+-version = "0.7.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "da046153aa2352493d6cb7da4b6e5c0c057d8a1d0a9aa8560baffdd945acd414"
+-dependencies = [
+- "ring",
+- "untrusted 0.9.0",
+-]
+-
+ [[package]]
+ name = "sdd"
+ version = "4.6.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c25da4ae64b24edfcb0b0d30b96b2b0dbc64ec63aefeb6ec35bfc5ef167e5c9e"
+-
+-[[package]]
+-name = "sea-bae"
+-version = "0.2.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f694a6ab48f14bc063cfadff30ab551d3c7e46d8f81836c51989d548f44a2a25"
+-dependencies = [
+- "heck 0.4.1",
+- "proc-macro-error2",
+- "proc-macro2",
+- "quote",
+- "syn 2.0.117",
+-]
+-
+-[[package]]
+-name = "sea-orm"
+-version = "1.1.10"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "21e61af841881c137d4bc8e0d8411cee9168548b404f9e4788e8af7e8f94bd4e"
+-dependencies = [
+- "async-stream",
+- "async-trait",
+- "bigdecimal",
+- "chrono",
+- "futures-util",
+- "log",
+- "ouroboros",
+- "pgvector",
+- "rust_decimal",
+- "sea-orm-macros",
+- "sea-query",
+- "sea-query-binder",
+- "serde",
+- "serde_json",
+- "sqlx",
+- "strum 0.26.3",
+- "thiserror 2.0.17",
+- "time",
+- "tracing",
+- "url",
+- "uuid",
+-]
+-
+-[[package]]
+-name = "sea-orm-macros"
+-version = "1.1.10"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d6b86e3e77b548e6c6c1f612a1ca024d557dffdb81b838bf482ad3222140c77b"
+-dependencies = [
+- "heck 0.4.1",
+- "proc-macro2",
+- "quote",
+- "sea-bae",
+- "syn 2.0.117",
+- "unicode-ident",
+-]
+-
+-[[package]]
+-name = "sea-query"
+-version = "0.32.7"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8a5d1c518eaf5eda38e5773f902b26ab6d5e9e9e2bb2349ca6c64cf96f80448c"
+-dependencies = [
+- "bigdecimal",
+- "chrono",
+- "inherent",
+- "ordered-float 4.6.0",
+- "rust_decimal",
+- "serde_json",
+- "time",
+- "uuid",
+-]
+-
+-[[package]]
+-name = "sea-query-binder"
+-version = "0.7.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b0019f47430f7995af63deda77e238c17323359af241233ec768aba1faea7608"
+-dependencies = [
+- "bigdecimal",
+- "chrono",
+- "rust_decimal",
+- "sea-query",
+- "serde_json",
+- "sqlx",
+- "time",
+- "uuid",
+-]
++checksum = "c25da4ae64b24edfcb0b0d30b96b2b0dbc64ec63aefeb6ec35bfc5ef167e5c9e"
+ 
+ [[package]]
+ name = "seahash"
+@@ -16154,20 +13741,6 @@ dependencies = [
+  "ztracing",
+ ]
+ 
+-[[package]]
+-name = "sec1"
+-version = "0.3.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "3be24c1842290c45df0a7bf069e0c268a747ad05a192f2fd7dcfdbc1cba40928"
+-dependencies = [
+- "base16ct",
+- "der 0.6.1",
+- "generic-array",
+- "pkcs8 0.9.0",
+- "subtle",
+- "zeroize",
+-]
+-
+ [[package]]
+ name = "secrecy"
+ version = "0.10.3"
+@@ -16177,19 +13750,6 @@ dependencies = [
+  "zeroize",
+ ]
+ 
+-[[package]]
+-name = "security-framework"
+-version = "2.11.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "897b2245f0b511c87893af39b033e5ca9cce68824c4d7e7630b5a1d339658d02"
+-dependencies = [
+- "bitflags 2.10.0",
+- "core-foundation 0.9.4",
+- "core-foundation-sys",
+- "libc",
+- "security-framework-sys",
+-]
+-
+ [[package]]
+ name = "security-framework"
+ version = "3.5.1"
+@@ -16583,8 +14143,6 @@ dependencies = [
+  "cloud_api_types",
+  "codestral",
+  "component",
+- "copilot",
+- "copilot_ui",
+  "cpal",
+  "edit_prediction",
+  "edit_prediction_ui",
+@@ -16616,7 +14174,6 @@ dependencies = [
+  "settings",
+  "shell_command_parser",
+  "strum 0.27.2",
+- "telemetry",
+  "theme",
+  "theme_settings",
+  "title_bar",
+@@ -16628,17 +14185,6 @@ dependencies = [
+  "zed_credentials_provider",
+ ]
+ 
+-[[package]]
+-name = "sha-1"
+-version = "0.10.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "f5058ada175748e33390e40e872bd0fe59a19f265d0158daa551c5a88a76009c"
+-dependencies = [
+- "cfg-if",
+- "cpufeatures",
+- "digest",
+-]
+-
+ [[package]]
+ name = "sha1"
+ version = "0.10.6"
+@@ -16708,12 +14254,6 @@ dependencies = [
+  "dirs",
+ ]
+ 
+-[[package]]
+-name = "shingles"
+-version = "0.1.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "72bb884be1ddfbded5873be4672cf5aee71210ce0f8ae99787d158b9b72b5ca0"
+-
+ [[package]]
+ name = "shlex"
+ version = "1.3.0"
+@@ -16763,7 +14303,6 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "settings",
+- "telemetry",
+  "theme",
+  "theme_settings",
+  "ui",
+@@ -16792,16 +14331,6 @@ dependencies = [
+  "libc",
+ ]
+ 
+-[[package]]
+-name = "signature"
+-version = "1.6.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "74233d3b3b2f6d4b006dc19dee745e73e2a6bfb6f93607cd3b02bd5b00797d7c"
+-dependencies = [
+- "digest",
+- "rand_core 0.6.4",
+-]
+-
+ [[package]]
+ name = "signature"
+ version = "2.2.0"
+@@ -16840,12 +14369,6 @@ dependencies = [
+  "quote",
+ ]
+ 
+-[[package]]
+-name = "simdutf8"
+-version = "0.1.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+-
+ [[package]]
+ name = "similar"
+ version = "2.7.0"
+@@ -17101,16 +14624,6 @@ dependencies = [
+  "bitflags 2.10.0",
+ ]
+ 
+-[[package]]
+-name = "spki"
+-version = "0.6.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "67cf02bbac7a337dc36e4f5a693db6c21e7863f45070f7064577eb4367a3212b"
+-dependencies = [
+- "base64ct",
+- "der 0.6.1",
+-]
+-
+ [[package]]
+ name = "spki"
+ version = "0.7.3"
+@@ -17118,7 +14631,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d91ed6c858b01f942cd56b37a94b3e0a1798290327d1236e4d9cf4eaca44d29d"
+ dependencies = [
+  "base64ct",
+- "der 0.7.10",
++ "der",
+ ]
+ 
+ [[package]]
+@@ -17154,219 +14667,10 @@ version = "0.2.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "7bba3a93db0cc4f7bdece8bb09e77e2e785c20bfebf79eb8340ed80708048790"
+ dependencies = [
+- "nom 7.1.3",
++ "nom",
+  "unicode_categories",
+ ]
+ 
+-[[package]]
+-name = "sqlx"
+-version = "0.8.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "1fefb893899429669dcdd979aff487bd78f4064e5e7907e4269081e0ef7d97dc"
+-dependencies = [
+- "sqlx-core",
+- "sqlx-macros",
+- "sqlx-mysql",
+- "sqlx-postgres",
+- "sqlx-sqlite",
+-]
+-
+-[[package]]
+-name = "sqlx-core"
+-version = "0.8.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ee6798b1838b6a0f69c007c133b8df5866302197e404e8b6ee8ed3e3a5e68dc6"
+-dependencies = [
+- "base64 0.22.1",
+- "bigdecimal",
+- "bytes 1.11.1",
+- "chrono",
+- "crc",
+- "crossbeam-queue",
+- "either",
+- "event-listener 5.4.1",
+- "futures-core",
+- "futures-intrusive",
+- "futures-io",
+- "futures-util",
+- "hashbrown 0.15.5",
+- "hashlink 0.10.0",
+- "indexmap 2.11.4",
+- "log",
+- "memchr",
+- "once_cell",
+- "percent-encoding",
+- "rust_decimal",
+- "rustls 0.23.40",
+- "serde",
+- "serde_json",
+- "sha2",
+- "smallvec",
+- "thiserror 2.0.17",
+- "time",
+- "tokio",
+- "tokio-stream",
+- "tracing",
+- "url",
+- "uuid",
+- "webpki-roots",
+-]
+-
+-[[package]]
+-name = "sqlx-macros"
+-version = "0.8.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "a2d452988ccaacfbf5e0bdbc348fb91d7c8af5bee192173ac3636b5fb6e6715d"
+-dependencies = [
+- "proc-macro2",
+- "quote",
+- "sqlx-core",
+- "sqlx-macros-core",
+- "syn 2.0.117",
+-]
+-
+-[[package]]
+-name = "sqlx-macros-core"
+-version = "0.8.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "19a9c1841124ac5a61741f96e1d9e2ec77424bf323962dd894bdb93f37d5219b"
+-dependencies = [
+- "dotenvy",
+- "either",
+- "heck 0.5.0",
+- "hex",
+- "once_cell",
+- "proc-macro2",
+- "quote",
+- "serde",
+- "serde_json",
+- "sha2",
+- "sqlx-core",
+- "sqlx-mysql",
+- "sqlx-postgres",
+- "sqlx-sqlite",
+- "syn 2.0.117",
+- "tokio",
+- "url",
+-]
+-
+-[[package]]
+-name = "sqlx-mysql"
+-version = "0.8.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "aa003f0038df784eb8fecbbac13affe3da23b45194bd57dba231c8f48199c526"
+-dependencies = [
+- "atoi",
+- "base64 0.22.1",
+- "bigdecimal",
+- "bitflags 2.10.0",
+- "byteorder",
+- "bytes 1.11.1",
+- "chrono",
+- "crc",
+- "digest",
+- "dotenvy",
+- "either",
+- "futures-channel",
+- "futures-core",
+- "futures-io",
+- "futures-util",
+- "generic-array",
+- "hex",
+- "hkdf",
+- "hmac",
+- "itoa",
+- "log",
+- "md-5",
+- "memchr",
+- "once_cell",
+- "percent-encoding",
+- "rand 0.8.6",
+- "rsa",
+- "rust_decimal",
+- "serde",
+- "sha1",
+- "sha2",
+- "smallvec",
+- "sqlx-core",
+- "stringprep",
+- "thiserror 2.0.17",
+- "time",
+- "tracing",
+- "uuid",
+- "whoami",
+-]
+-
+-[[package]]
+-name = "sqlx-postgres"
+-version = "0.8.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "db58fcd5a53cf07c184b154801ff91347e4c30d17a3562a635ff028ad5deda46"
+-dependencies = [
+- "atoi",
+- "base64 0.22.1",
+- "bigdecimal",
+- "bitflags 2.10.0",
+- "byteorder",
+- "chrono",
+- "crc",
+- "dotenvy",
+- "etcetera",
+- "futures-channel",
+- "futures-core",
+- "futures-util",
+- "hex",
+- "hkdf",
+- "hmac",
+- "home",
+- "itoa",
+- "log",
+- "md-5",
+- "memchr",
+- "num-bigint",
+- "once_cell",
+- "rand 0.8.6",
+- "rust_decimal",
+- "serde",
+- "serde_json",
+- "sha2",
+- "smallvec",
+- "sqlx-core",
+- "stringprep",
+- "thiserror 2.0.17",
+- "time",
+- "tracing",
+- "uuid",
+- "whoami",
+-]
+-
+-[[package]]
+-name = "sqlx-sqlite"
+-version = "0.8.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c2d12fe70b2c1b4401038055f90f151b78208de1f9f89a7dbfd41587a10c3eea"
+-dependencies = [
+- "atoi",
+- "chrono",
+- "flume",
+- "futures-channel",
+- "futures-core",
+- "futures-executor",
+- "futures-intrusive",
+- "futures-util",
+- "libsqlite3-sys",
+- "log",
+- "percent-encoding",
+- "serde",
+- "serde_urlencoded",
+- "sqlx-core",
+- "thiserror 2.0.17",
+- "time",
+- "tracing",
+- "url",
+- "uuid",
+-]
+-
+ [[package]]
+ name = "stable_deref_trait"
+ version = "1.2.1"
+@@ -17464,17 +14768,6 @@ dependencies = [
+  "quote",
+ ]
+ 
+-[[package]]
+-name = "stringprep"
+-version = "0.1.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "7b4df3d392d81bd458a8a621b8bffbd2302a12ffe288a9d931670948749463b1"
+-dependencies = [
+- "unicode-bidi",
+- "unicode-normalization",
+- "unicode-properties",
+-]
+-
+ [[package]]
+ name = "strsim"
+ version = "0.10.0"
+@@ -17487,12 +14780,6 @@ version = "0.11.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+ 
+-[[package]]
+-name = "strum"
+-version = "0.26.3"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
+-
+ [[package]]
+ name = "strum"
+ version = "0.27.2"
+@@ -17863,12 +15150,6 @@ dependencies = [
+  "unicode-ident",
+ ]
+ 
+-[[package]]
+-name = "sync_wrapper"
+-version = "0.1.2"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2047c6ded9c721764247e62cd3b03c09ffc529b2ba5b10ec482ae507a4a70160"
+-
+ [[package]]
+ name = "sync_wrapper"
+ version = "1.0.2"
+@@ -17944,17 +15225,6 @@ dependencies = [
+  "windows 0.61.3",
+ ]
+ 
+-[[package]]
+-name = "system-configuration"
+-version = "0.5.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "ba3a3adc5c275d719af8cb4272ea1c4a6d668a777f37e115f6d11ddbc1c8e0e7"
+-dependencies = [
+- "bitflags 1.3.2",
+- "core-foundation 0.9.4",
+- "system-configuration-sys 0.5.0",
+-]
+-
+ [[package]]
+ name = "system-configuration"
+ version = "0.6.1"
+@@ -17963,17 +15233,7 @@ checksum = "3c879d448e9d986b661742763247d3693ed13609438cf3d006f51f5368a5ba6b"
+ dependencies = [
+  "bitflags 2.10.0",
+  "core-foundation 0.9.4",
+- "system-configuration-sys 0.6.0",
+-]
+-
+-[[package]]
+-name = "system-configuration-sys"
+-version = "0.5.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "a75fb188eb626b924683e3b95e3a48e63551fcfb51949de2f06a9d91dbee93c9"
+-dependencies = [
+- "core-foundation-sys",
+- "libc",
++ "system-configuration-sys",
+ ]
+ 
+ [[package]]
+@@ -17983,20 +15243,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "8e1d1b10ced5ca923a1fcb8d03e96b8d3268065d724548c0211415ff6ac6bac4"
+ dependencies = [
+  "core-foundation-sys",
+- "libc",
+-]
+-
+-[[package]]
+-name = "system-deps"
+-version = "7.0.7"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "48c8f33736f986f16d69b6cb8b03f55ddcad5c41acc4ccc39dd88e84aa805e7f"
+-dependencies = [
+- "cfg-expr",
+- "heck 0.5.0",
+- "pkg-config",
+- "toml 0.9.8",
+- "version-compare",
++ "libc",
+ ]
+ 
+ [[package]]
+@@ -18022,11 +15269,15 @@ dependencies = [
+  "anyhow",
+  "gpui",
+  "human_bytes",
++ "log",
++ "objc2-foundation 0.3.2",
+  "pciid-parser",
++ "regex",
+  "release_channel",
+  "semver",
+  "serde",
+  "sysinfo 0.37.2",
++ "windows 0.61.3",
+ ]
+ 
+ [[package]]
+@@ -18089,12 +15340,6 @@ dependencies = [
+  "objc",
+ ]
+ 
+-[[package]]
+-name = "tap"
+-version = "1.0.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "55937e1799185b12863d447f42597ed69d9928686b8d88a1df17376a097d8369"
+-
+ [[package]]
+ name = "target-lexicon"
+ version = "0.13.3"
+@@ -18150,16 +15395,6 @@ dependencies = [
+  "zed_actions",
+ ]
+ 
+-[[package]]
+-name = "telemetry"
+-version = "0.1.0"
+-dependencies = [
+- "futures 0.3.32",
+- "serde",
+- "serde_json",
+- "telemetry_events",
+-]
+-
+ [[package]]
+ name = "telemetry_events"
+ version = "0.1.0"
+@@ -18385,7 +15620,6 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "settings",
+- "telemetry",
+  "theme",
+  "theme_settings",
+  "ui",
+@@ -18610,9 +15844,6 @@ dependencies = [
+  "agent_settings",
+  "anyhow",
+  "arrayvec",
+- "auto_update",
+- "call",
+- "channel",
+  "chrono",
+  "client",
+  "cloud_api_types",
+@@ -18622,7 +15853,6 @@ dependencies = [
+  "git_ui",
+  "gpui",
+  "icons",
+- "livekit_client",
+  "notifications",
+  "platform_title_bar",
+  "project",
+@@ -18636,7 +15866,6 @@ dependencies = [
+  "serde",
+  "settings",
+  "smallvec",
+- "telemetry",
+  "theme",
+  "ui",
+  "util",
+@@ -18694,23 +15923,13 @@ dependencies = [
+  "tokio",
+ ]
+ 
+-[[package]]
+-name = "tokio-rustls"
+-version = "0.24.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "c28327cf380ac148141087fbfb9de9d7bd4e84ab5d2c28fbc911d753de8a7081"
+-dependencies = [
+- "rustls 0.21.12",
+- "tokio",
+-]
+-
+ [[package]]
+ name = "tokio-rustls"
+ version = "0.26.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1729aa945f29d91ba541258c8df89027d5792d85a8841fb65e8bf0f4ede4ef61"
+ dependencies = [
+- "rustls 0.23.40",
++ "rustls",
+  "tokio",
+ ]
+ 
+@@ -18727,29 +15946,6 @@ dependencies = [
+  "tokio",
+ ]
+ 
+-[[package]]
+-name = "tokio-stream"
+-version = "0.1.17"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "eca58d7bba4a75707817a2c44174253f9236b2d5fbd055602e9d5c07c139a047"
+-dependencies = [
+- "futures-core",
+- "pin-project-lite",
+- "tokio",
+-]
+-
+-[[package]]
+-name = "tokio-tungstenite"
+-version = "0.20.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "212d5dcb2a1ce06d81107c3d0ffa3121fe974b73f068c8282cb1c32328113b6c"
+-dependencies = [
+- "futures-util",
+- "log",
+- "tokio",
+- "tungstenite 0.20.1",
+-]
+-
+ [[package]]
+ name = "tokio-tungstenite"
+ version = "0.21.0"
+@@ -18762,22 +15958,6 @@ dependencies = [
+  "tungstenite 0.21.0",
+ ]
+ 
+-[[package]]
+-name = "tokio-tungstenite"
+-version = "0.28.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d25a406cddcc431a75d3d9afc6a7c0f7428d4891dd973e4d54c56b46127bf857"
+-dependencies = [
+- "futures-util",
+- "log",
+- "rustls 0.23.40",
+- "rustls-native-certs 0.8.3",
+- "rustls-pki-types",
+- "tokio",
+- "tokio-rustls 0.26.4",
+- "tungstenite 0.28.0",
+-]
+-
+ [[package]]
+ name = "tokio-util"
+ version = "0.7.18"
+@@ -18919,22 +16099,6 @@ version = "0.2.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ea68304e134ecd095ac6c3574494fc62b909f416c4fca77e440530221e549d3d"
+ 
+-[[package]]
+-name = "tower"
+-version = "0.4.13"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b8fa9be0de6cf49e536ce1851f987bd21a43b771b09473c3549a6c853db37c1c"
+-dependencies = [
+- "futures-core",
+- "futures-util",
+- "pin-project",
+- "pin-project-lite",
+- "tokio",
+- "tower-layer",
+- "tower-service",
+- "tracing",
+-]
+-
+ [[package]]
+ name = "tower"
+ version = "0.5.2"
+@@ -18944,7 +16108,7 @@ dependencies = [
+  "futures-core",
+  "futures-util",
+  "pin-project-lite",
+- "sync_wrapper 1.0.2",
++ "sync_wrapper",
+  "tokio",
+  "tokio-util",
+  "tower-layer",
+@@ -18952,25 +16116,6 @@ dependencies = [
+  "tracing",
+ ]
+ 
+-[[package]]
+-name = "tower-http"
+-version = "0.4.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "61c5bb1d698276a2443e5ecfabc1008bf15a36c12e6a7176e7bf089ea9131140"
+-dependencies = [
+- "bitflags 2.10.0",
+- "bytes 1.11.1",
+- "futures-core",
+- "futures-util",
+- "http 0.2.12",
+- "http-body 0.4.6",
+- "http-range-header",
+- "pin-project-lite",
+- "tower-layer",
+- "tower-service",
+- "tracing",
+-]
+-
+ [[package]]
+ name = "tower-http"
+ version = "0.6.6"
+@@ -18984,7 +16129,7 @@ dependencies = [
+  "http-body 1.0.1",
+  "iri-string",
+  "pin-project-lite",
+- "tower 0.5.2",
++ "tower",
+  "tower-layer",
+  "tower-service",
+  "tracing",
+@@ -19360,16 +16505,6 @@ dependencies = [
+  "tree-sitter-language",
+ ]
+ 
+-[[package]]
+-name = "triomphe"
+-version = "0.1.15"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "dd69c5aa8f924c7519d6372789a74eac5b94fb0f8fcf0d4a97eb0bfc3e785f39"
+-dependencies = [
+- "serde",
+- "stable_deref_trait",
+-]
+-
+ [[package]]
+ name = "try-lock"
+ version = "0.2.5"
+@@ -19385,25 +16520,6 @@ dependencies = [
+  "core_maths",
+ ]
+ 
+-[[package]]
+-name = "tungstenite"
+-version = "0.20.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "9e3dac10fd62eaf6617d3a904ae222845979aec67c615d1c842b4002c7666fb9"
+-dependencies = [
+- "byteorder",
+- "bytes 1.11.1",
+- "data-encoding",
+- "http 0.2.12",
+- "httparse",
+- "log",
+- "rand 0.8.6",
+- "sha1",
+- "thiserror 1.0.69",
+- "url",
+- "utf-8",
+-]
+-
+ [[package]]
+ name = "tungstenite"
+ version = "0.21.0"
+@@ -19435,26 +16551,7 @@ dependencies = [
+  "httparse",
+  "log",
+  "rand 0.9.4",
+- "rustls 0.23.40",
+- "rustls-pki-types",
+- "sha1",
+- "thiserror 2.0.17",
+- "utf-8",
+-]
+-
+-[[package]]
+-name = "tungstenite"
+-version = "0.28.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "8628dcc84e5a09eb3d8423d6cb682965dea9133204e8fb3efee74c2a0c259442"
+-dependencies = [
+- "bytes 1.11.1",
+- "data-encoding",
+- "http 1.3.1",
+- "httparse",
+- "log",
+- "rand 0.9.4",
+- "rustls 0.23.40",
++ "rustls",
+  "rustls-pki-types",
+  "sha1",
+  "thiserror 2.0.17",
+@@ -19604,15 +16701,6 @@ version = "0.1.5"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "3b09c83c3c29d37506a3e260c08c03743a6bb66a9cd432c6934ab501a190571f"
+ 
+-[[package]]
+-name = "unicode-normalization"
+-version = "0.1.24"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "5033c97c4262335cded6d6fc3e5c18ab755e1a3dc96376350f3d8e9f009ad956"
+-dependencies = [
+- "tinyvec",
+-]
+-
+ [[package]]
+ name = "unicode-properties"
+ version = "0.1.3"
+@@ -19883,12 +16971,6 @@ version = "0.2.15"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
+ 
+-[[package]]
+-name = "version-compare"
+-version = "0.2.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "852e951cb7832cb45cb1169900d19760cfa39b82bc0ea9c0e5a14ae88411c98b"
+-
+ [[package]]
+ name = "version_check"
+ version = "0.9.5"
+@@ -20062,7 +17144,7 @@ dependencies = [
+  "serde_json",
+  "serde_urlencoded",
+  "tokio",
+- "tokio-tungstenite 0.21.0",
++ "tokio-tungstenite",
+  "tokio-util",
+  "tower-service",
+  "tracing",
+@@ -20092,12 +17174,6 @@ dependencies = [
+  "wit-bindgen 0.51.0",
+ ]
+ 
+-[[package]]
+-name = "wasite"
+-version = "0.1.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "b8dad83b4f25e74f184f64c43b150b91efe7647395b42289f38e50566d82855b"
+-
+ [[package]]
+ name = "wasm-bindgen"
+ version = "0.2.120"
+@@ -20680,7 +17756,7 @@ checksum = "1f8cbf8125142b9b30321ac8721f54c52fbcd6659f76cf863d5e2e38c07a3d7b"
+ dependencies = [
+  "const_format",
+  "itertools 0.14.0",
+- "nom 7.1.3",
++ "nom",
+  "pori",
+  "regex",
+  "thiserror 2.0.17",
+@@ -20829,24 +17905,6 @@ dependencies = [
+  "serde",
+ ]
+ 
+-[[package]]
+-name = "web_search_providers"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "client",
+- "cloud_api_client",
+- "cloud_api_types",
+- "cloud_llm_client",
+- "futures 0.3.32",
+- "gpui",
+- "http_client",
+- "language_model",
+- "serde",
+- "serde_json",
+- "web_search",
+-]
+-
+ [[package]]
+ name = "webpki-root-certs"
+ version = "0.26.8"
+@@ -20856,43 +17914,6 @@ dependencies = [
+  "rustls-pki-types",
+ ]
+ 
+-[[package]]
+-name = "webpki-roots"
+-version = "0.26.8"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "2210b291f7ea53617fbafcc4939f10914214ec15aace5ba62293a668f322c5c9"
+-dependencies = [
+- "rustls-pki-types",
+-]
+-
+-[[package]]
+-name = "webrtc-sys"
+-version = "0.3.23"
+-source = "git+https://github.com/zed-industries/livekit-rust-sdks?rev=c3a55bbc207008f1ca3474b6037fdd3c443cad0f#c3a55bbc207008f1ca3474b6037fdd3c443cad0f"
+-dependencies = [
+- "cc",
+- "cxx",
+- "cxx-build",
+- "glob",
+- "log",
+- "pkg-config",
+- "webrtc-sys-build",
+-]
+-
+-[[package]]
+-name = "webrtc-sys-build"
+-version = "0.3.13"
+-source = "git+https://github.com/zed-industries/livekit-rust-sdks?rev=c3a55bbc207008f1ca3474b6037fdd3c443cad0f#c3a55bbc207008f1ca3474b6037fdd3c443cad0f"
+-dependencies = [
+- "anyhow",
+- "fs2",
+- "regex",
+- "reqwest 0.12.24",
+- "scratch",
+- "semver",
+- "zip",
+-]
+-
+ [[package]]
+ name = "weezl"
+ version = "0.1.10"
+@@ -21097,16 +18118,6 @@ dependencies = [
+  "workspace",
+ ]
+ 
+-[[package]]
+-name = "whoami"
+-version = "1.6.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "5d4a4db5077702ca3015d3d02d74974948aba2ad9e12ab7df718ee64ccd7e97d"
+-dependencies = [
+- "libredox",
+- "wasite",
+-]
+-
+ [[package]]
+ name = "wide"
+ version = "0.7.33"
+@@ -21967,16 +18978,6 @@ dependencies = [
+  "winapi",
+ ]
+ 
+-[[package]]
+-name = "winreg"
+-version = "0.50.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "524e57b2c537c0f9b1e69f1965311ec12182b4122e45035b1508cd24d2adadb1"
+-dependencies = [
+- "cfg-if",
+- "windows-sys 0.48.0",
+-]
+-
+ [[package]]
+ name = "winreg"
+ version = "0.55.0"
+@@ -22381,7 +19382,6 @@ dependencies = [
+  "sqlez",
+  "strum 0.27.2",
+  "task",
+- "telemetry",
+  "tempfile",
+  "theme",
+  "theme_settings",
+@@ -22459,15 +19459,6 @@ version = "0.6.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ea2f10b9bb0928dfb1b42b65e1f9e36f7f54dbdf08457afefb38afcdec4fa2bb"
+ 
+-[[package]]
+-name = "wyz"
+-version = "0.5.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
+-dependencies = [
+- "tap",
+-]
+-
+ [[package]]
+ name = "x11"
+ version = "2.21.0"
+@@ -22508,16 +19499,6 @@ version = "0.13.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
+ 
+-[[package]]
+-name = "x_ai"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "schemars 1.0.4",
+- "serde",
+- "strum 0.27.2",
+-]
+-
+ [[package]]
+ name = "xattr"
+ version = "0.2.3"
+@@ -22596,12 +19577,6 @@ dependencies = [
+  "markup5ever 0.12.1",
+ ]
+ 
+-[[package]]
+-name = "xmlparser"
+-version = "0.13.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "66fee0b777b0f5ac1c69bb06d361268faafa61cd4682ae064a171c16c433e9e4"
+-
+ [[package]]
+ name = "xmlwriter"
+ version = "0.1.0"
+@@ -22653,7 +19628,7 @@ checksum = "8902160c4e6f2fb145dbe9d6760a75e3c9522d8bf796ed7047c85919ac7115f8"
+ dependencies = [
+  "arraydeque",
+  "encoding_rs",
+- "hashlink 0.8.4",
++ "hashlink",
+ ]
+ 
+ [[package]]
+@@ -22662,35 +19637,6 @@ version = "1.0.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "cfe53a6657fd280eaa890a3bc59152892ffa3e30101319d168b781ed6529b049"
+ 
+-[[package]]
+-name = "yawc"
+-version = "0.2.5"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "19a5d82922135b4ae73a079a4ffb5501e9aadb4d785b8c660eaa0a8b899028c5"
+-dependencies = [
+- "base64 0.22.1",
+- "bytes 1.11.1",
+- "flate2",
+- "futures 0.3.32",
+- "http-body-util",
+- "hyper 1.7.0",
+- "hyper-util",
+- "js-sys",
+- "nom 8.0.0",
+- "pin-project",
+- "rand 0.8.6",
+- "sha1",
+- "thiserror 1.0.69",
+- "tokio",
+- "tokio-rustls 0.26.4",
+- "tokio-util",
+- "url",
+- "wasm-bindgen",
+- "wasm-bindgen-futures",
+- "web-sys",
+- "webpki-roots",
+-]
+-
+ [[package]]
+ name = "yazi"
+ version = "0.2.1"
+@@ -22848,25 +19794,17 @@ dependencies = [
+  "askpass",
+  "assets",
+  "audio",
+- "auto_update",
+- "auto_update_ui",
+  "breadcrumbs",
+- "call",
+- "channel",
+  "chrono",
+  "clap",
+  "cli",
+  "client",
+  "clock",
+  "codestral",
+- "collab_ui",
+  "collections",
+  "command_palette",
+  "component",
+  "component_preview",
+- "copilot",
+- "copilot_chat",
+- "copilot_ui",
+  "crashes",
+  "csv_preview",
+  "dap_adapters",
+@@ -22886,7 +19824,6 @@ dependencies = [
+  "extension_host",
+  "extensions_ui",
+  "feature_flags",
+- "feedback",
+  "file_finder",
+  "fs",
+  "futures 0.3.32",
+@@ -22925,7 +19862,6 @@ dependencies = [
+  "mimalloc",
+  "miniprofiler_ui",
+  "node_runtime",
+- "notifications",
+  "onboarding",
+  "outline",
+  "outline_panel",
+@@ -22966,7 +19902,6 @@ dependencies = [
+  "tab_switcher",
+  "task",
+  "tasks_ui",
+- "telemetry",
+  "telemetry_events",
+  "tempfile",
+  "terminal_view",
+@@ -22989,7 +19924,6 @@ dependencies = [
+  "vim_mode_setting",
+  "watch",
+  "web_search",
+- "web_search_providers",
+  "which_key",
+  "windows 0.61.3",
+  "windows_resources",
+@@ -23041,7 +19975,7 @@ dependencies = [
+  "http-body 1.0.1",
+  "http-body-util",
+  "hyper 1.7.0",
+- "hyper-rustls 0.27.9",
++ "hyper-rustls",
+  "hyper-util",
+  "ipnet",
+  "js-sys",
+@@ -23052,20 +19986,20 @@ dependencies = [
+  "percent-encoding",
+  "pin-project-lite",
+  "quinn",
+- "rustls 0.23.40",
+- "rustls-native-certs 0.8.3",
+- "rustls-pemfile 2.2.0",
++ "rustls",
++ "rustls-native-certs",
++ "rustls-pemfile",
+  "rustls-pki-types",
+  "serde",
+  "serde_json",
+  "serde_urlencoded",
+- "sync_wrapper 1.0.2",
+- "system-configuration 0.6.1",
++ "sync_wrapper",
++ "system-configuration",
+  "tokio",
+- "tokio-rustls 0.26.4",
++ "tokio-rustls",
+  "tokio-socks",
+  "tokio-util",
+- "tower 0.5.2",
++ "tower",
+  "tower-service",
+  "url",
+  "wasm-bindgen",
+@@ -23101,7 +20035,7 @@ name = "zed-xim"
+ version = "0.4.0-zed"
+ source = "git+https://github.com/zed-industries/xim-rs.git?rev=16f35a2c881b815a2b6cdfd6687988e84f8447d8#16f35a2c881b815a2b6cdfd6687988e84f8447d8"
+ dependencies = [
+- "ahash 0.8.12",
++ "ahash",
+  "hashbrown 0.14.5",
+  "log",
+  "x11rb",
+@@ -23334,26 +20268,6 @@ dependencies = [
+  "strum 0.27.2",
+ ]
+ 
+-[[package]]
+-name = "zip"
+-version = "0.6.6"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "760394e246e4c28189f19d488c058bf16f564016aefac5d32bb1f3b51d5e9261"
+-dependencies = [
+- "aes",
+- "byteorder",
+- "bzip2 0.4.4",
+- "constant_time_eq",
+- "crc32fast",
+- "crossbeam-utils",
+- "flate2",
+- "hmac",
+- "pbkdf2 0.11.0",
+- "sha1",
+- "time",
+- "zstd",
+-]
+-
+ [[package]]
+ name = "zlog"
+ version = "0.1.0"
+diff --git a/crates/edit_prediction/Cargo.toml b/crates/edit_prediction/Cargo.toml
+index 05a83608ab..8316b9a56b 100644
+--- a/crates/edit_prediction/Cargo.toml
++++ b/crates/edit_prediction/Cargo.toml
+@@ -20,6 +20,8 @@ heapless.workspace = true
+ buffer_diff.workspace = true
+ client.workspace = true
+ clock.workspace = true
++cloud_api_client.workspace = true
++cloud_api_types.workspace = true
+ cloud_llm_client = { workspace = true, features = ["predict-edits"] }
+ collections.workspace = true
+ credentials_provider.workspace = true
+diff --git a/crates/edit_prediction/src/edit_prediction.rs b/crates/edit_prediction/src/edit_prediction.rs
+index 4a99f72552..9aa867fd8b 100644
+--- a/crates/edit_prediction/src/edit_prediction.rs
++++ b/crates/edit_prediction/src/edit_prediction.rs
+@@ -1,43 +1,80 @@
+ use anyhow::{Context as _, Result, anyhow};
+ use buffer_diff::BufferDiff;
+-use cloud_llm_client::{EditPredictionRejectReason, PredictEditsRequestTrigger};
++use client::{Client, EditPredictionUsage, UserStore};
++use cloud_api_client::LlmApiToken;
++use cloud_api_types::{
++    EditPredictionSettledKeptChars, OrganizationId, SubmitEditPredictionFeedbackBody,
++    SubmitEditPredictionSettledBody,
++};
++use cloud_llm_client::predict_edits_v3::{
++    PREDICT_EDITS_MODE_HEADER_NAME, PREDICT_EDITS_REQUEST_ID_HEADER_NAME,
++    PREDICT_EDITS_TRIGGER_HEADER_NAME, PredictEditsMode, PredictEditsV3Request,
++    PredictEditsV3Response, RawCompletionRequest, RawCompletionResponse,
++};
++use cloud_llm_client::{
++    EditPredictionRejectReason, EditPredictionRejection,
++    MAX_EDIT_PREDICTION_REJECTIONS_PER_REQUEST, MINIMUM_REQUIRED_VERSION_HEADER_NAME,
++    PREFERRED_EXPERIMENT_HEADER_NAME, PredictEditsRequestTrigger, RejectEditPredictionsBodyRef,
++    ZED_VERSION_HEADER_NAME,
++};
+ use collections::{HashMap, HashSet};
+ use credentials_provider::CredentialsProvider;
+ use db::kvp::{Dismissable, KeyValueStore};
+ use edit_prediction_context::{RelatedExcerptStore, RelatedExcerptStoreEvent, RelatedFile};
+ use edit_prediction_types::EditPredictionRequestTrigger;
+ use feature_flags::{FeatureFlag, FeatureFlagAppExt as _, PresenceFlag, register_feature_flag};
+-use futures::channel::mpsc;
++use futures::{
++    AsyncReadExt as _, FutureExt as _, StreamExt as _,
++    channel::mpsc::{self, UnboundedReceiver},
++    select_biased,
++};
++use git::repository::FileHistoryChangedFileSets;
++use gpui::BackgroundExecutor;
++use gpui::TaskExt;
++use gpui::http_client::Url;
+ use gpui::{
+-    App, AsyncApp, Entity, EntityId, Global, SharedString, Task, WeakEntity, actions, prelude::*,
++    App, AsyncApp, Context, Entity, EntityId, Global, SharedString, Task, WeakEntity, actions,
++    http_client::{self, AsyncBody, Method},
++    prelude::*,
+ };
+ use heapless::Vec as ArrayVec;
+ use language::{
+-    Anchor, Buffer, BufferEditSource, BufferSnapshot, EditPredictionPromptFormat, File,
+-    OffsetRangeExt, Point,
+-    TextBufferSnapshot, ToOffset, ToPoint,
+-    language_settings::all_language_settings,
++    Anchor, Buffer, BufferEditSource, BufferSnapshot, EditPredictionPromptFormat,
++    EditPredictionsMode, EditPreview, File, OffsetRangeExt, Point, TextBufferSnapshot, ToOffset,
++    ToPoint, language_settings::all_language_settings,
++};
++use project::{DisableAiSettings, Project, ProjectPath, WorktreeId};
++use release_channel::AppVersion;
++use semver::Version;
++use serde::de::DeserializeOwned;
++use settings::{
++    EditPredictionDataCollectionChoice, EditPredictionProvider, Settings as _, update_settings_file,
+ };
+-use project::{Project, ProjectPath, WorktreeId};
+-use settings::{EditPredictionProvider, update_settings_file};
+ use std::collections::{VecDeque, hash_map};
++use std::env;
++use std::rc::Rc;
+ use text::{AnchorRangeExt, Edit};
+ use workspace::{AppState, Workspace};
++#[cfg(feature = "cli-support")]
++use zeta_prompt::ContextSource;
++use zeta_prompt::{ZetaFormat, ZetaPromptInput};
+ 
+ use std::mem;
+ use std::ops::Range;
+ use std::path::Path;
++use std::str::FromStr as _;
+ use std::sync::Arc;
+ use std::time::{Duration, Instant};
+ 
++use thiserror::Error;
+ use util::{RangeExt as _, ResultExt as _};
+ 
+ pub mod cursor_excerpt;
+ pub mod data_collection;
+ pub mod example_spec;
++pub mod fim;
+ mod jump_example;
+ mod license_detection;
+-pub mod fim;
+ pub mod mercury;
+ pub mod metrics;
+ pub mod ollama;
+@@ -46,14 +83,22 @@ mod prediction;
+ 
+ pub mod udiff;
+ 
++mod capture_example;
+ pub mod open_ai_compatible;
+ mod zed_edit_prediction_delegate;
+ pub mod zeta;
+ 
++#[cfg(test)]
++mod edit_prediction_tests;
+ 
+ use crate::cursor_excerpt::expand_context_syntactically_then_linewise;
++use crate::data_collection::uncommitted_diffs_for_events;
++use crate::example_spec::ExampleSpec;
+ use crate::example_spec::RecentFile;
+-use crate::jump_example::{PendingJumpExampleCapture, PendingJumpExampleCaptureKey};
++use crate::jump_example::{
++    JUMP_EXAMPLE_NAVIGATION_COUNT, JumpExampleTrigger, PendingJumpExampleCapture,
++    PendingJumpExampleCaptureKey,
++};
+ use crate::license_detection::LicenseDetectionWatcher;
+ use crate::mercury::Mercury;
+ pub use crate::metrics::{KeptRateResult, compute_kept_rate};
+@@ -83,6 +128,11 @@ const COLLABORATOR_EDIT_LOCALITY_CONTEXT_TOKENS: usize = 512;
+ const GIT_CHANGED_FILE_SETS_COMMIT_LIMIT: usize = 100;
+ const LAST_CHANGE_GROUPING_TIME: Duration = Duration::from_secs(1);
+ const ZED_PREDICT_DATA_COLLECTION_CHOICE: &str = "zed_predict_data_collection_choice";
++const REJECT_REQUEST_DEBOUNCE: Duration = Duration::from_secs(15);
++const REQUEST_TIMEOUT_BACKOFF: Duration = Duration::from_secs(10);
++
++const EDIT_PREDICTION_SETTLED_TTL: Duration = Duration::from_secs(60 * 5);
++const EDIT_PREDICTION_SETTLED_QUIESCENCE: Duration = Duration::from_secs(10);
+ 
+ pub struct EditPredictionJumpsFeatureFlag;
+ 
+@@ -101,15 +151,44 @@ struct EditPredictionStoreGlobal(Entity<EditPredictionStore>);
+ 
+ impl Global for EditPredictionStoreGlobal {}
+ 
++/// Configuration for using the raw Zeta2 endpoint.
++/// When set, the client uses the raw endpoint and constructs the prompt itself.
++/// The version is also used as the Baseten environment name (lowercased).
++#[derive(Clone)]
++pub struct Zeta2RawConfig {
++    pub model_id: Option<String>,
++    pub environment: Option<String>,
++    pub format: ZetaFormat,
++}
++
+ pub struct EditPredictionStore {
++    client: Arc<Client>,
++    user_store: Entity<UserStore>,
++    llm_token: LlmApiToken,
++    _fetch_experiments_task: Task<()>,
+     projects: HashMap<EntityId, ProjectState>,
++    update_required: bool,
+     edit_prediction_model: EditPredictionModel,
++    zeta2_raw_config: Option<Zeta2RawConfig>,
++    request_backoff_until: Option<Instant>,
++    preferred_experiment: Option<String>,
++    available_experiments: Vec<String>,
+     pub mercury: Mercury,
++    legacy_data_collection_enabled: bool,
++    reject_predictions_tx: mpsc::UnboundedSender<EditPredictionRejectionPayload>,
++    settled_predictions_tx: mpsc::UnboundedSender<Instant>,
+     shown_predictions: VecDeque<EditPrediction>,
+     rated_predictions: HashSet<EditPredictionId>,
++    #[cfg(test)]
++    settled_event_callback: Option<Box<dyn Fn(EditPredictionId, String)>>,
+     credentials_provider: Arc<dyn CredentialsProvider>,
+ }
+ 
++pub(crate) struct EditPredictionRejectionPayload {
++    rejection: EditPredictionRejection,
++    organization_id: Option<OrganizationId>,
++}
++
+ #[derive(Copy, Clone, PartialEq, Eq)]
+ pub enum EditPredictionModel {
+     Zeta,
+@@ -119,12 +198,15 @@ pub enum EditPredictionModel {
+ 
+ #[derive(Clone)]
+ pub struct EditPredictionModelInput {
++    project: Entity<Project>,
+     buffer: Entity<Buffer>,
+     snapshot: BufferSnapshot,
+     position: Anchor,
+     events: Vec<Arc<zeta_prompt::Event>>,
+     stored_events: Vec<StoredEvent>,
+     related_files: Vec<RelatedFile>,
++    mode: PredictEditsMode,
++    trigger: PredictEditsRequestTrigger,
+     diagnostic_search_range: Range<Point>,
+     debug_tx: Option<mpsc::UnboundedSender<DebugEvent>>,
+     can_collect_data: bool,
+@@ -288,6 +370,7 @@ struct ProjectState {
+     last_jump_prediction_refresh: Option<(EntityId, Instant)>,
+     cancelled_predictions: HashSet<usize>,
+     context: Entity<RelatedExcerptStore>,
++    license_detection_watchers: HashMap<WorktreeId, Rc<LicenseDetectionWatcher>>,
+     _subscriptions: [gpui::Subscription; 2],
+ }
+ 
+@@ -298,8 +381,8 @@ impl ProjectState {
+             .cloned()
+             .chain(self.last_event.as_ref().iter().flat_map(|event| {
+                 let (one, two) = event.split_by_pause();
+-                let one = one.finalize(cx);
+-                let two = two.and_then(|two| two.finalize(cx));
++                let one = one.finalize(&self.license_detection_watchers, cx);
++                let two = two.and_then(|two| two.finalize(&self.license_detection_watchers, cx));
+                 one.into_iter().chain(two)
+             }))
+             .collect()
+@@ -501,9 +584,28 @@ impl std::ops::Deref for BufferEditPrediction<'_> {
+     }
+ }
+ 
++#[derive(Clone)]
++struct PendingSettledPrediction {
++    request_id: EditPredictionId,
++    editable_anchor_range: Range<Anchor>,
++    editable_region_before_prediction: String,
++    predicted_editable_region: String,
++    ts_error_count_before_prediction: usize,
++    ts_error_count_after_prediction: usize,
++    organization_id: Option<OrganizationId>,
++    can_collect_data: bool,
++    is_in_open_source_repo: bool,
++    example: Option<ExampleSpec>,
++    model_version: Option<String>,
++    enqueued_at: Instant,
++    last_edit_at: Instant,
++    e2e_latency: std::time::Duration,
++}
++
+ struct RegisteredBuffer {
+     file: Option<Arc<dyn File>>,
+     snapshot: TextBufferSnapshot,
++    pending_predictions: Vec<PendingSettledPrediction>,
+     last_position: Option<Anchor>,
+     _subscriptions: [gpui::Subscription; 2],
+ }
+@@ -524,11 +626,24 @@ struct LastEvent {
+ }
+ 
+ impl LastEvent {
+-    pub fn finalize(&self, cx: &App) -> Option<StoredEvent> {
++    pub fn finalize(
++        &self,
++        license_detection_watchers: &HashMap<WorktreeId, Rc<LicenseDetectionWatcher>>,
++        cx: &App,
++    ) -> Option<StoredEvent> {
+         let path = buffer_path_with_id_fallback(self.new_file.as_ref(), &self.new_snapshot, cx);
+         let old_path = buffer_path_with_id_fallback(self.old_file.as_ref(), &self.old_snapshot, cx);
+ 
+-        let in_open_source_repo = false;
++        let in_open_source_repo =
++            [self.new_file.as_ref(), self.old_file.as_ref()]
++                .iter()
++                .all(|file| {
++                    file.is_some_and(|file| {
++                        license_detection_watchers
++                            .get(&file.worktree_id(cx))
++                            .is_some_and(|watcher| watcher.is_project_open_source())
++                    })
++                });
+ 
+         let (diff, edit_range) = compute_diff_between_snapshots_in_range(
+             &self.old_snapshot,
+@@ -756,33 +871,177 @@ impl EditPredictionStore {
+             .map(|global| global.0.clone())
+     }
+ 
+-    pub fn global(cx: &mut App) -> Entity<Self> {
++    pub fn global(
++        client: &Arc<Client>,
++        user_store: &Entity<UserStore>,
++        cx: &mut App,
++    ) -> Entity<Self> {
+         cx.try_global::<EditPredictionStoreGlobal>()
+             .map(|global| global.0.clone())
+             .unwrap_or_else(|| {
+-                let ep_store = cx.new(Self::new);
++                let ep_store = cx.new(|cx| Self::new(client.clone(), user_store.clone(), cx));
+                 cx.set_global(EditPredictionStoreGlobal(ep_store.clone()));
+                 ep_store
+             })
+     }
+ 
+-    pub fn new(cx: &mut Context<Self>) -> Self {
++    pub fn new(client: Arc<Client>, user_store: Entity<UserStore>, cx: &mut Context<Self>) -> Self {
++        let llm_token = LlmApiToken::default();
++        let legacy_data_collection_enabled = Self::load_legacy_data_collection_enabled(cx);
++
++        let (reject_tx, reject_rx) = mpsc::unbounded();
++        cx.background_spawn({
++            let client = client.clone();
++            let llm_token = llm_token.clone();
++            let app_version = AppVersion::global(cx);
++            let background_executor = cx.background_executor().clone();
++            async move {
++                Self::handle_rejected_predictions(
++                    reject_rx,
++                    client,
++                    llm_token,
++                    app_version,
++                    background_executor,
++                )
++                .await
++            }
++        })
++        .detach();
++
++        let (settled_predictions_tx, settled_predictions_rx) = mpsc::unbounded();
++        cx.spawn({
++            let client = client.clone();
++            let llm_token = llm_token.clone();
++            let app_version = AppVersion::global(cx);
++            async move |this, cx| {
++                Self::run_settled_predictions_worker(
++                    this,
++                    settled_predictions_rx,
++                    client,
++                    llm_token,
++                    app_version,
++                    cx,
++                )
++                .await;
++            }
++        })
++        .detach();
++
++        let mut current_user = user_store.read(cx).watch_current_user();
++        let fetch_experiments_task = cx.spawn(async move |this, cx| {
++            while current_user.borrow().is_none() {
++                current_user.next().await;
++            }
++
++            this.update(cx, |this, cx| {
++                if cx.is_staff() {
++                    this.refresh_available_experiments(cx);
++                }
++            })
++            .log_err();
++        });
++
+         let credentials_provider = zed_credentials_provider::global(cx);
+ 
+-        Self {
++        let this = Self {
+             projects: HashMap::default(),
++            client,
++            user_store,
++            llm_token,
++            _fetch_experiments_task: fetch_experiments_task,
++            update_required: false,
+             edit_prediction_model: EditPredictionModel::Zeta,
++            zeta2_raw_config: Self::zeta2_raw_config_from_env(),
++            request_backoff_until: None,
++            preferred_experiment: None,
++            available_experiments: Vec::new(),
+             mercury: Mercury::new(cx),
++            legacy_data_collection_enabled,
++
++            reject_predictions_tx: reject_tx,
++            settled_predictions_tx,
+             rated_predictions: Default::default(),
+             shown_predictions: Default::default(),
++            #[cfg(test)]
++            settled_event_callback: None,
++
+             credentials_provider,
+-        }
++        };
++
++        this
++    }
++
++    fn zeta2_raw_config_from_env() -> Option<Zeta2RawConfig> {
++        let version_str = env::var("ZED_ZETA_FORMAT").ok()?;
++        let format = ZetaFormat::parse(&version_str).ok()?;
++        let model_id = env::var("ZED_ZETA_MODEL").ok();
++        let environment = env::var("ZED_ZETA_ENVIRONMENT").ok();
++        Some(Zeta2RawConfig {
++            model_id,
++            environment,
++            format,
++        })
+     }
+ 
+     pub fn set_edit_prediction_model(&mut self, model: EditPredictionModel) {
+         self.edit_prediction_model = model;
+     }
+ 
++    pub fn set_zeta2_raw_config(&mut self, config: Zeta2RawConfig) {
++        self.zeta2_raw_config = Some(config);
++    }
++
++    pub fn zeta2_raw_config(&self) -> Option<&Zeta2RawConfig> {
++        self.zeta2_raw_config.as_ref()
++    }
++
++    pub(crate) fn back_off_requests_after_timeout(&mut self, cx: &mut Context<Self>) {
++        self.request_backoff_until = Some(cx.background_executor().now() + REQUEST_TIMEOUT_BACKOFF);
++        log::info!(
++            "Backing off edit prediction requests for {:?} after Cloud timeout",
++            REQUEST_TIMEOUT_BACKOFF
++        );
++    }
++
++    fn request_backoff_active(&mut self, cx: &App) -> bool {
++        let Some(backoff_until) = self.request_backoff_until else {
++            return false;
++        };
++
++        if cx.background_executor().now() < backoff_until {
++            true
++        } else {
++            self.request_backoff_until = None;
++            false
++        }
++    }
++
++    pub fn preferred_experiment(&self) -> Option<&str> {
++        self.preferred_experiment.as_deref()
++    }
++
++    pub fn set_preferred_experiment(&mut self, experiment: Option<String>) {
++        self.preferred_experiment = experiment;
++    }
++
++    pub fn available_experiments(&self) -> &[String] {
++        &self.available_experiments
++    }
++
++    pub fn active_experiment(&self) -> Option<&str> {
++        self.preferred_experiment.as_deref().or_else(|| {
++            self.shown_predictions
++                .iter()
++                .find_map(|p| p.model_version.as_ref())
++                .and_then(|model_version| model_version.strip_prefix("zeta2:"))
++        })
++    }
++
++    pub fn refresh_available_experiments(&mut self, _cx: &mut Context<Self>) {
++        // Zedium air-gap: the experiment list was fetched from the Zed cloud
++        // LLM service. That fetch is stripped; no experiments are available.
++    }
++
+     pub fn icons(&self, cx: &App) -> edit_prediction_types::EditPredictionIconSet {
+         use ui::IconName;
+         match self.edit_prediction_model {
+@@ -854,8 +1113,11 @@ impl EditPredictionStore {
+                 project_state.context.update(cx, |context, cx| {
+                     context
+                         .related_files_with_buffers(cx)
+-                        .map(|(mut related_file, _buffer)| {
+-                            related_file.in_open_source_repo = false;
++                        .map(|(mut related_file, buffer)| {
++                            related_file.in_open_source_repo = buffer
++                                .read(cx)
++                                .file()
++                                .map_or(false, |file| self.is_file_open_source(&project, file, cx));
+                             related_file
+                         })
+                         .collect()
+@@ -864,6 +1126,7 @@ impl EditPredictionStore {
+             .unwrap_or_default()
+     }
+ 
++
+     pub fn context_for_project_with_buffers<'a>(
+         &'a self,
+         project: &Entity<Project>,
+@@ -879,6 +1142,14 @@ impl EditPredictionStore {
+             .unwrap_or_default()
+     }
+ 
++    pub fn usage(&self, cx: &App) -> Option<EditPredictionUsage> {
++        if matches!(self.edit_prediction_model, EditPredictionModel::Zeta) {
++            self.user_store.read(cx).edit_prediction_usage()
++        } else {
++            None
++        }
++    }
++
+     pub fn register_project(&mut self, project: &Entity<Project>, cx: &mut Context<Self>) {
+         self.get_or_init_project(project, cx);
+     }
+@@ -994,6 +1265,7 @@ impl EditPredictionStore {
+                 next_pending_prediction_id: 0,
+                 last_edit_prediction_refresh: None,
+                 last_jump_prediction_refresh: None,
++                license_detection_watchers: HashMap::default(),
+                 _subscriptions: [
+                     cx.subscribe(&project, Self::handle_project_event),
+                     cx.observe_release(&project, move |this, _, cx| {
+@@ -1156,6 +1428,29 @@ impl EditPredictionStore {
+     ) -> &'a mut RegisteredBuffer {
+         let buffer_id = buffer.entity_id();
+ 
++        if let Some(file) = buffer.read(cx).file() {
++            let worktree_id = file.worktree_id(cx);
++            if let Some(worktree) = project.read(cx).worktree_for_id(worktree_id, cx) {
++                project_state
++                    .license_detection_watchers
++                    .entry(worktree_id)
++                    .or_insert_with(|| {
++                        let project_entity_id = project.entity_id();
++                        cx.observe_release(&worktree, move |this, _worktree, _cx| {
++                            let Some(project_state) = this.projects.get_mut(&project_entity_id)
++                            else {
++                                return;
++                            };
++                            project_state
++                                .license_detection_watchers
++                                .remove(&worktree_id);
++                        })
++                        .detach();
++                        Rc::new(LicenseDetectionWatcher::new(&worktree, cx))
++                    });
++            }
++        }
++
+         match project_state.registered_buffers.entry(buffer_id) {
+             hash_map::Entry::Occupied(entry) => entry.into_mut(),
+             hash_map::Entry::Vacant(entry) => {
+@@ -1167,6 +1462,7 @@ impl EditPredictionStore {
+                     snapshot,
+                     file,
+                     last_position: None,
++                    pending_predictions: Vec::new(),
+                     _subscriptions: [
+                         cx.subscribe(buffer, {
+                             let project = project.downgrade();
+@@ -1234,6 +1530,12 @@ impl EditPredictionStore {
+             return;
+         };
+ 
++        for pending_prediction in &mut registered_buffer.pending_predictions {
++            if edit_range.overlaps(&pending_prediction.editable_anchor_range, &new_snapshot) {
++                pending_prediction.last_edit_at = now;
++            }
++        }
++
+         let include_in_history = is_local
+             || collaborator_edit_overlaps_locality_region(
+                 project_state,
+@@ -1253,14 +1555,7 @@ impl EditPredictionStore {
+                 .is_some();
+ 
+         if !is_recordable_history_edit {
+-            if let Some(event) = project_state.last_event.take() {
+-                if let Some(event) = event.finalize(cx) {
+-                    if events.len() + 1 >= EVENT_COUNT_MAX {
+-                        events.pop_front();
+-                    }
+-                    events.push_back(event);
+-                }
+-            }
++            project_state.finalize_last_event(cx);
+             return;
+         }
+ 
+@@ -1299,14 +1594,7 @@ impl EditPredictionStore {
+             }
+         }
+ 
+-        if let Some(event) = project_state.last_event.take() {
+-            if let Some(event) = event.finalize(cx) {
+-                if events.len() + 1 >= EVENT_COUNT_MAX {
+-                    events.pop_front();
+-                }
+-                events.push_back(event);
+-            }
+-        }
++        project_state.finalize_last_event(cx);
+ 
+         merge_trailing_events_if_needed(
+             &mut project_state.events,
+@@ -1413,14 +1701,129 @@ impl EditPredictionStore {
+             EditPredictionModel::Mercury => {
+                 mercury::edit_prediction_accepted(
+                     current_prediction.prediction.id,
+-                    cx.http_client(),
++                    self.client.http_client(),
+                     cx,
+                 );
+             }
+-            EditPredictionModel::Zeta | EditPredictionModel::Fim { .. } => {}
++            EditPredictionModel::Zeta => {
++                let is_cloud = !matches!(
++                    all_language_settings(None, cx).edit_predictions.provider,
++                    EditPredictionProvider::Ollama | EditPredictionProvider::OpenAiCompatibleApi
++                );
++                if is_cloud {
++                    zeta::edit_prediction_accepted(self, current_prediction, cx)
++                }
++            }
++            EditPredictionModel::Fim { .. } => {}
+         }
+     }
+ 
++    async fn handle_rejected_predictions(
++        mut rx: UnboundedReceiver<EditPredictionRejectionPayload>,
++        client: Arc<Client>,
++        llm_token: LlmApiToken,
++        app_version: Version,
++        background_executor: BackgroundExecutor,
++    ) {
++        // Zedium air-gap: rejected-prediction reports were uploaded to the Zed
++        // cloud LLM service. That reporting is stripped; drain and discard.
++        let _ = (client, llm_token, app_version, background_executor);
++        while rx.next().await.is_some() {}
++    }
++
++    async fn run_settled_predictions_worker(
++        _this: WeakEntity<Self>,
++        mut rx: UnboundedReceiver<Instant>,
++        client: Arc<Client>,
++        llm_token: LlmApiToken,
++        app_version: Version,
++        _cx: &mut AsyncApp,
++    ) {
++        // Zedium air-gap: settled-prediction reports were uploaded to the Zed
++        // cloud LLM service. That reporting is stripped; drain and discard.
++        let _ = (client, llm_token, app_version);
++        while rx.next().await.is_some() {}
++    }
++
++    pub(crate) fn enqueue_settled_prediction(
++        &mut self,
++        request_id: EditPredictionId,
++        project: &Entity<Project>,
++        edited_buffer: &Entity<Buffer>,
++        edited_buffer_snapshot: &BufferSnapshot,
++        editable_offset_range: Range<usize>,
++        edit_preview: &EditPreview,
++        example: Option<ExampleSpec>,
++        model_version: Option<String>,
++        e2e_latency: std::time::Duration,
++        cx: &mut Context<Self>,
++    ) {
++        let this = &mut *self;
++        let is_in_open_source_repo = edited_buffer_snapshot
++            .file()
++            .map_or(false, |file| this.is_file_open_source(project, file, cx));
++        let can_collect_data = !cfg!(test)
++            && is_in_open_source_repo
++            && this.is_data_collection_enabled(cx)
++            && matches!(this.edit_prediction_model, EditPredictionModel::Zeta);
++
++        let organization_id = this
++            .user_store
++            .read(cx)
++            .current_organization()
++            .map(|organization| organization.id.clone());
++        let project_state = this.get_or_init_project(project, cx);
++        let Some(registered_buffer) = project_state
++            .registered_buffers
++            .get_mut(&edited_buffer.entity_id())
++        else {
++            return;
++        };
++
++        let editable_region_before_prediction = edited_buffer_snapshot
++            .text_for_range(editable_offset_range.clone())
++            .collect::<String>();
++        let editable_anchor_range_for_result =
++            edited_buffer_snapshot.anchor_range_inside(editable_offset_range.clone());
++        let predicted_editable_region = edit_preview
++            .result_text_snapshot()
++            .text_for_range(editable_anchor_range_for_result.clone())
++            .collect();
++        let ts_error_count_before_prediction = crate::metrics::count_tree_sitter_errors(
++            edited_buffer_snapshot
++                .syntax_layers_for_range(editable_anchor_range_for_result.clone(), true),
++        );
++        let ts_error_count_after_prediction = crate::metrics::count_tree_sitter_errors(
++            edit_preview.result_syntax_snapshot().layers_for_range(
++                editable_anchor_range_for_result,
++                edit_preview.result_text_snapshot(),
++                true,
++            ),
++        );
++        let editable_anchor_range =
++            edited_buffer_snapshot.anchor_range_inside(editable_offset_range);
++        let now = cx.background_executor().now();
++        registered_buffer
++            .pending_predictions
++            .push(PendingSettledPrediction {
++                request_id,
++                editable_anchor_range,
++                editable_region_before_prediction,
++                predicted_editable_region,
++                ts_error_count_before_prediction,
++                ts_error_count_after_prediction,
++                organization_id,
++                can_collect_data,
++                is_in_open_source_repo,
++                example,
++                model_version,
++                e2e_latency,
++                enqueued_at: now,
++                last_edit_at: now,
++            });
++        this.settled_predictions_tx.unbounded_send(now).ok();
++    }
++
+     fn reject_current_prediction(
+         &mut self,
+         reason: EditPredictionRejectReason,
+@@ -1485,21 +1888,48 @@ impl EditPredictionStore {
+         prediction_id: EditPredictionId,
+         reason: EditPredictionRejectReason,
+         was_shown: bool,
+-        _model_version: Option<String>,
+-        _e2e_latency: Option<std::time::Duration>,
++        model_version: Option<String>,
++        e2e_latency: Option<std::time::Duration>,
+         cx: &App,
+     ) {
+         match self.edit_prediction_model {
++            EditPredictionModel::Zeta => {
++                let is_cloud = !matches!(
++                    all_language_settings(None, cx).edit_predictions.provider,
++                    EditPredictionProvider::Ollama | EditPredictionProvider::OpenAiCompatibleApi
++                );
++
++                if is_cloud {
++                    let organization_id = self
++                        .user_store
++                        .read(cx)
++                        .current_organization()
++                        .map(|organization| organization.id.clone());
++
++                    self.reject_predictions_tx
++                        .unbounded_send(EditPredictionRejectionPayload {
++                            rejection: EditPredictionRejection {
++                                request_id: prediction_id.to_string(),
++                                reason,
++                                was_shown,
++                                model_version,
++                                e2e_latency_ms: e2e_latency.map(|latency| latency.as_millis()),
++                            },
++                            organization_id,
++                        })
++                        .log_err();
++                }
++            }
+             EditPredictionModel::Mercury => {
+                 mercury::edit_prediction_rejected(
+                     prediction_id,
+                     was_shown,
+                     reason,
+-                    cx.http_client(),
++                    self.client.http_client(),
+                     cx,
+                 );
+             }
+-            EditPredictionModel::Zeta | EditPredictionModel::Fim { .. } => {}
++            EditPredictionModel::Fim { .. } => {}
+         }
+     }
+ 
+@@ -2007,10 +2437,14 @@ impl EditPredictionStore {
+                 all_language_settings(None, cx).edit_predictions.provider,
+                 EditPredictionProvider::Ollama | EditPredictionProvider::OpenAiCompatibleApi
+             );
+-        if is_cloud_zeta {
+-            // Cloud-hosted Zeta is removed in this fork; only self-hosted edit
+-            // prediction (Ollama / OpenAI-compatible) is available, so there is
+-            // no Cloud backend to request from here.
++        if is_cloud_zeta && !self.client.cloud_client().has_credentials() {
++            return Task::ready(Ok(None));
++        }
++
++        if is_cloud_zeta && self.request_backoff_active(cx) {
++            log::debug!(
++                "Skipping Zeta edit prediction request while backing off after Cloud timeout"
++            );
+             return Task::ready(Ok(None));
+         }
+ 
+@@ -2030,18 +2464,45 @@ impl EditPredictionStore {
+             Point::new(diagnostic_search_start, 0)..Point::new(diagnostic_search_end, 0);
+ 
+         let related_files = self.context_for_project(&project, cx);
++        let mode = match all_language_settings(snapshot.file(), cx).edit_predictions_mode() {
++            EditPredictionsMode::Eager => PredictEditsMode::Eager,
++            EditPredictionsMode::Subtle => PredictEditsMode::Subtle,
++        };
++
++        let buffer_id = active_buffer.read(cx).remote_id();
++        let repo_url = project
++            .read(cx)
++            .git_store()
++            .read(cx)
++            .repository_and_path_for_buffer_id(buffer_id, cx)
++            .and_then(|(repo, _)| repo.read(cx).default_remote_url());
+ 
+-        // Data collection (which sent training data to Zed) has been removed;
+-        // edit prediction only ever targets a user-provided self-hosted model.
+-        let is_open_source = false;
+-        let can_collect_data = false;
++        let is_staff_zed_repo = cx.is_staff()
++            && repo_url
++                .as_ref()
++                .is_some_and(|url| is_zed_industries_repo(url));
++        let is_open_source = is_staff_zed_repo
++            || (snapshot
++                .file()
++                .map_or(false, |file| self.is_file_open_source(&project, file, cx))
++                && events.iter().all(|event| event.in_open_source_repo())
++                && related_files.iter().all(|file| file.in_open_source_repo));
++
++        let can_collect_data = !cfg!(test)
++            && is_open_source
++            && self.is_data_collection_enabled(cx)
++            && matches!(self.edit_prediction_model, EditPredictionModel::Zeta);
++        let capture_worktree_id = snapshot.file().map(|file| file.worktree_id(cx));
+         let inputs = EditPredictionModelInput {
++            project: project.clone(),
+             buffer: active_buffer,
+             snapshot,
+             position,
+             events,
+             stored_events: stored_events.clone(),
+             related_files,
++            mode,
++            trigger,
+             diagnostic_search_range,
+             debug_tx,
+             can_collect_data,
+@@ -2050,7 +2511,41 @@ impl EditPredictionStore {
+ 
+         let task = match self.edit_prediction_model {
+             EditPredictionModel::Zeta => {
+-                zeta::request_prediction_with_zeta(self, inputs, cx)
++                let capture_data = if let Some(worktree_id) = capture_worktree_id
++                    && can_collect_data
++                {
++                    let uncommitted_diff_snapshot = uncommitted_diffs_for_events(
++                        project.clone(),
++                        worktree_id,
++                        stored_events.clone(),
++                        cx,
++                    )
++                    .shared();
++                    jump_example::try_start_jump_example_capture(
++                        project_state,
++                        uncommitted_diff_snapshot.clone(),
++                        inputs.project.clone(),
++                        inputs.snapshot.clone(),
++                        inputs.position,
++                        match trigger {
++                            PredictEditsRequestTrigger::Diagnostics
++                            | PredictEditsRequestTrigger::DiagnosticNavigation => {
++                                JumpExampleTrigger::Diagnostic
++                            }
++                            _ => JumpExampleTrigger::Prediction,
++                        },
++                        stored_events,
++                        inputs.diagnostic_search_range.clone(),
++                        can_collect_data,
++                        is_open_source,
++                        cx,
++                    );
++                    rand::random_ratio(1, 10).then(|| uncommitted_diff_snapshot)
++                } else {
++                    None
++                };
++
++                zeta::request_prediction_with_zeta(self, inputs, capture_data, repo_url, cx)
+             }
+             EditPredictionModel::Fim { format } => fim::request_prediction(inputs, format, cx),
+             EditPredictionModel::Mercury => {
+@@ -2203,6 +2698,82 @@ impl EditPredictionStore {
+         anyhow::Ok(jump_location)
+     }
+ 
++    async fn send_raw_llm_request(
++        request: RawCompletionRequest,
++        client: Arc<Client>,
++        custom_url: Option<Arc<Url>>,
++        llm_token: LlmApiToken,
++        organization_id: Option<OrganizationId>,
++        app_version: Version,
++    ) -> Result<(RawCompletionResponse, Option<EditPredictionUsage>)> {
++        let _ = (request, client, custom_url, llm_token, organization_id, app_version);
++        anyhow::bail!("Zed cloud edit prediction is disabled in this Zedium build")
++    }
++
++    pub(crate) async fn send_v3_request(
++        input: ZetaPromptInput,
++        preferred_experiment: Option<String>,
++        client: Arc<Client>,
++        llm_token: LlmApiToken,
++        organization_id: Option<OrganizationId>,
++        app_version: Version,
++        trigger: PredictEditsRequestTrigger,
++        mode: PredictEditsMode,
++    ) -> Result<(PredictEditsV3Response, Option<EditPredictionUsage>)> {
++        let _ = (input, preferred_experiment, client, llm_token, organization_id, app_version, trigger, mode);
++        anyhow::bail!("Zed cloud edit prediction is disabled in this Zedium build")
++    }
++
++    async fn send_api_request<Res>(
++        build: impl Fn(http_client::http::request::Builder) -> Result<http_client::Request<AsyncBody>>,
++        client: Arc<Client>,
++        llm_token: LlmApiToken,
++        organization_id: Option<OrganizationId>,
++        app_version: Version,
++    ) -> Result<(Res, Option<EditPredictionUsage>)>
++    where
++        Res: DeserializeOwned,
++    {
++        let _ = (build, client, llm_token, organization_id, app_version);
++        anyhow::bail!("Zed cloud edit prediction is disabled in this Zedium build")
++    }
++
++    async fn process_api_response<Res>(
++        mut response: http_client::Response<AsyncBody>,
++        app_version: &Version,
++    ) -> Result<(Res, Option<EditPredictionUsage>)>
++    where
++        Res: DeserializeOwned,
++    {
++        if let Some(minimum_required_version) = response
++            .headers()
++            .get(MINIMUM_REQUIRED_VERSION_HEADER_NAME)
++            .and_then(|version| Version::from_str(version.to_str().ok()?).ok())
++        {
++            anyhow::ensure!(
++                *app_version >= minimum_required_version,
++                ZedUpdateRequiredError {
++                    minimum_version: minimum_required_version
++                }
++            );
++        }
++
++        if response.status().is_success() {
++            let usage = EditPredictionUsage::from_headers(response.headers()).ok();
++            let mut body = Vec::new();
++            response.body_mut().read_to_end(&mut body).await?;
++            Ok((serde_json::from_slice(&body)?, usage))
++        } else {
++            let status = response.status();
++            let mut body = String::new();
++            response.body_mut().read_to_string(&mut body).await?;
++            if status == http_client::http::StatusCode::REQUEST_TIMEOUT {
++                return Err(anyhow::Error::new(CloudRequestTimeoutError));
++            }
++            anyhow::bail!("Request failed with status: {status:?}\nBody: {body}");
++        }
++    }
++
+     pub fn refresh_context(
+         &mut self,
+         project: &Entity<Project>,
+@@ -2284,7 +2855,100 @@ impl EditPredictionStore {
+         cx: &mut Context<Self>,
+     ) {
+         let project_state = self.get_or_init_project(project, cx);
+-        project_state.recent_paths = paths.into_iter().collect();
++        project_state.recently_viewed_files = paths
++            .into_iter()
++            .map(|path| RecentFile {
++                path: path.path.as_std_path().into(),
++                cursor_position: None,
++            })
++            .collect();
++    }
++
++    pub fn recently_opened_files_for_project(&self, project: &Entity<Project>) -> Vec<RecentFile> {
++        self.projects
++            .get(&project.entity_id())
++            .map(|project_state| {
++                project_state
++                    .recently_opened_files
++                    .iter()
++                    .cloned()
++                    .collect()
++            })
++            .unwrap_or_default()
++    }
++
++    pub fn recently_viewed_files_for_project(&self, project: &Entity<Project>) -> Vec<RecentFile> {
++        self.projects
++            .get(&project.entity_id())
++            .map(|project_state| {
++                project_state
++                    .recently_viewed_files
++                    .iter()
++                    .cloned()
++                    .collect()
++            })
++            .unwrap_or_default()
++    }
++
++    fn is_file_open_source(
++        &self,
++        project: &Entity<Project>,
++        file: &Arc<dyn File>,
++        cx: &App,
++    ) -> bool {
++        if !file.is_local() || file.is_private() {
++            return false;
++        }
++        let Some(project_state) = self.projects.get(&project.entity_id()) else {
++            return false;
++        };
++        project_state
++            .license_detection_watchers
++            .get(&file.worktree_id(cx))
++            .as_ref()
++            .is_some_and(|watcher| watcher.is_project_open_source())
++    }
++
++    pub(crate) fn is_data_collection_enabled(&self, cx: &App) -> bool {
++        if !self.is_data_collection_allowed_by_organization(cx) {
++            return false;
++        }
++
++        if cx.is_staff() {
++            return true;
++        }
++
++        match all_language_settings(None, cx)
++            .edit_predictions
++            .allow_data_collection
++        {
++            EditPredictionDataCollectionChoice::Yes => true,
++            EditPredictionDataCollectionChoice::No => false,
++            // Fall back to the legacy KV entry captured when the store was
++            // created, preserving existing users' choices without per-request
++            // database reads.
++            EditPredictionDataCollectionChoice::Default => self.legacy_data_collection_enabled,
++        }
++    }
++
++    fn load_legacy_data_collection_enabled(cx: &App) -> bool {
++        KeyValueStore::global(cx)
++            .read_kvp(ZED_PREDICT_DATA_COLLECTION_CHOICE)
++            .log_err()
++            .flatten()
++            .as_deref()
++            == Some("true")
++    }
++
++    pub(crate) fn is_data_collection_allowed_by_organization(&self, cx: &App) -> bool {
++        self.user_store
++            .read(cx)
++            .current_organization_configuration()
++            .is_none_or(|organization_configuration| {
++                organization_configuration
++                    .edit_prediction
++                    .is_feedback_enabled
++            })
+     }
+ 
+     pub fn shown_predictions(&self) -> impl DoubleEndedIterator<Item = &EditPrediction> {
+@@ -2299,6 +2963,22 @@ impl EditPredictionStore {
+         self.rated_predictions.contains(id)
+     }
+ 
++    pub fn rate_prediction(
++        &mut self,
++        prediction: &EditPrediction,
++        rating: EditPredictionRating,
++        feedback: String,
++        expected_output: Option<String>,
++        cx: &mut Context<Self>,
++    ) {
++        // Zedium air-gap: prediction ratings were uploaded to the Zed cloud
++        // LLM service. That feedback upload is stripped.
++        let _ = (rating, feedback, expected_output);
++        self.rated_predictions.insert(prediction.id.clone());
++
++
++        cx.notify();
++    }
+ }
+ 
+ fn collaborator_edit_overlaps_locality_region(
+@@ -2429,6 +3109,18 @@ fn merge_anchor_ranges(
+     start..end
+ }
+ 
++#[derive(Error, Debug)]
++#[error(
++    "You must update to Zed version {minimum_version} or higher to continue using edit predictions."
++)]
++pub struct ZedUpdateRequiredError {
++    minimum_version: Version,
++}
++
++#[derive(Error, Debug)]
++#[error("Cloud request timed out")]
++pub(crate) struct CloudRequestTimeoutError;
++
+ struct ZedPredictUpsell;
+ 
+ fn is_upsell_dismissed(cx: &App) -> bool {
+diff --git a/crates/edit_prediction/src/zed_edit_prediction_delegate.rs b/crates/edit_prediction/src/zed_edit_prediction_delegate.rs
+index 0384781226..f6022fd7f8 100644
+--- a/crates/edit_prediction/src/zed_edit_prediction_delegate.rs
++++ b/crates/edit_prediction/src/zed_edit_prediction_delegate.rs
+@@ -17,8 +17,13 @@ pub struct ZedEditPredictionDelegate {
+ }
+ 
+ impl ZedEditPredictionDelegate {
+-    pub fn new(project: Entity<Project>, cx: &mut Context<Self>) -> Self {
+-        let store = EditPredictionStore::global(cx);
++    pub fn new(
++        project: Entity<Project>,
++        client: &std::sync::Arc<client::Client>,
++        user_store: &Entity<client::UserStore>,
++        cx: &mut Context<Self>,
++    ) -> Self {
++        let store = EditPredictionStore::global(client, user_store, cx);
+         store.update(cx, |store, cx| {
+             store.register_project(&project, cx);
+         });
+diff --git a/crates/edit_prediction/src/zeta.rs b/crates/edit_prediction/src/zeta.rs
+index c5e0839c79..e1922c65b7 100644
+--- a/crates/edit_prediction/src/zeta.rs
++++ b/crates/edit_prediction/src/zeta.rs
+@@ -1,19 +1,28 @@
+ use crate::{
+-    DebugEvent, EditPredictionFinishedDebugEvent, EditPredictionId, EditPredictionModelInput,
+-    EditPredictionStartedDebugEvent, EditPredictionStore, buffer_path_with_id_fallback,
++    CloudRequestTimeoutError, CurrentEditPrediction, DebugEvent, EditPredictionFinishedDebugEvent,
++    EditPredictionId, EditPredictionModelInput, EditPredictionStartedDebugEvent,
++    EditPredictionStore, ZedUpdateRequiredError, buffer_path_with_id_fallback,
+     cursor_excerpt::{self, compute_cursor_excerpt, compute_syntax_ranges},
+     data_collection::UncommittedDiffResult,
+     prediction::EditPredictionResult,
+ };
+-use anyhow::Result;
+-use cloud_llm_client::EditPredictionRejectReason;
++use anyhow::{Context as _, Result};
++use cloud_llm_client::{
++    AcceptEditPredictionBody, EditPredictionRejectReason, predict_edits_v3::RawCompletionRequest,
++};
+ use edit_prediction_types::PredictedCursorPosition;
+-use gpui::{AppContext as _, Entity, Task, prelude::*};
++use futures::future::Shared;
++use gpui::{App, AppContext as _, Entity, Task, TaskExt, WeakEntity, prelude::*};
+ use language::{
+     Buffer, BufferSnapshot, DiagnosticSeverity, EditPredictionPromptFormat, OffsetRangeExt as _,
+     ToOffset as _, ZetaVersion, language_settings::all_language_settings, text_diff,
+ };
++use release_channel::AppVersion;
+ use text::{Anchor, Bias, Point};
++use ui::SharedString;
++use workspace::notifications::simple_message_notification::MessageNotification;
++use workspace::notifications::{NotificationId, show_app_notification};
++use workspace::workspace_error::{ErrorAction, ErrorSeverity, WorkspaceError};
+ use zeta_prompt::{ParsedOutput, ZetaPromptInput};
+ 
+ use std::{ops::Range, path::Path, sync::Arc};
+@@ -28,7 +37,7 @@ use crate::open_ai_compatible::{
+ };
+ 
+ pub fn request_prediction_with_zeta(
+-    _store: &mut EditPredictionStore,
++    store: &mut EditPredictionStore,
+     EditPredictionModelInput {
+         buffer,
+         snapshot,
+@@ -37,11 +46,16 @@ pub fn request_prediction_with_zeta(
+         events,
+         stored_events,
+         debug_tx,
++        mode,
++        trigger,
++        project,
+         diagnostic_search_range,
+         can_collect_data,
+         is_open_source,
+         ..
+     }: EditPredictionModelInput,
++    capture_data: Option<Shared<Task<UncommittedDiffResult>>>,
++    repo_url: Option<String>,
+     cx: &mut Context<EditPredictionStore>,
+ ) -> Task<Result<Option<EditPredictionResult>>> {
+     let settings = &all_language_settings(None, cx).edit_predictions;
+@@ -56,11 +70,21 @@ pub fn request_prediction_with_zeta(
+ 
+     let http_client = cx.http_client();
+     let request_start = cx.background_executor().now();
++    let raw_config = store.zeta2_raw_config().cloned();
++    let preferred_experiment = store.preferred_experiment().map(|s| s.to_owned());
+     let open_ai_compatible_api_key = load_open_ai_compatible_api_key_if_needed(provider, cx);
+ 
+     let excerpt_path = buffer_path_with_id_fallback(snapshot.file(), &snapshot.text, cx);
+ 
+-    let repo_url: Option<String> = None;
++    let repo_url = repo_url.filter(|_| can_collect_data);
++    let client = store.client.clone();
++    let llm_token = store.llm_token.clone();
++    let organization_id = store
++        .user_store
++        .read(cx)
++        .current_organization()
++        .map(|organization| organization.id.clone());
++    let app_version = AppVersion::global(cx);
+ 
+     struct Prediction {
+         prompt_input: ZetaPromptInput,
+@@ -88,12 +112,15 @@ pub fn request_prediction_with_zeta(
+                     _ => None,
+                 })
+                 .unwrap_or_default();
+-            let zeta_format = match local_zeta_version {
+-                ZetaVersion::Zeta1 => None,
+-                ZetaVersion::Zeta2 => Some(ZetaFormat::V0211SeedCoder),
+-                ZetaVersion::Zeta2_1 => Some(ZetaFormat::V0318SeedMultiRegions),
+-            }
+-            .unwrap_or_default();
++            let zeta_format = raw_config
++                .as_ref()
++                .map(|config| config.format)
++                .or(match local_zeta_version {
++                    ZetaVersion::Zeta1 => None,
++                    ZetaVersion::Zeta2 => Some(ZetaFormat::V0211SeedCoder),
++                    ZetaVersion::Zeta2_1 => Some(ZetaFormat::V0318SeedMultiRegions),
++                })
++                .unwrap_or_default();
+ 
+             let cursor_offset = position.to_offset(&snapshot);
+             let (full_context_offset_range, prompt_input) = zeta2_prompt_input(
+@@ -124,7 +151,7 @@ pub fn request_prediction_with_zeta(
+ 
+             log::trace!("Sending edit prediction request");
+ 
+-            let Some((request_id, output, model_version)) =
++            let Some((request_id, output, model_version, usage)) =
+                 (if let Some(custom_settings) = &custom_server_settings {
+                     let max_tokens = custom_settings.max_output_tokens * 4;
+ 
+@@ -163,11 +190,11 @@ pub fn request_prediction_with_zeta(
+                                 cursor_offset_in_new_editable_region: None,
+                             });
+ 
+-                            (request_id, parsed_output, None)
++                            (request_id, parsed_output, None, None)
+                         }
+                         ZetaVersion::Zeta2 | ZetaVersion::Zeta2_1 => {
+                             let Some(prompt) = formatted_prompt.clone() else {
+-                                return Ok(None);
++                                return Ok((None, None));
+                             };
+                             let prefill = get_prefill(&prompt_input, zeta_format);
+                             let prompt = format!("{prompt}{prefill}");
+@@ -198,17 +225,81 @@ pub fn request_prediction_with_zeta(
+                                 )?)
+                             };
+ 
+-                            (request_id, output_text, None)
++                            (request_id, output_text, None, None)
+                         }
+                     })
++                } else if let Some(config) = &raw_config {
++                    let Some(prompt) = format_zeta_prompt(&prompt_input, config.format) else {
++                        return Ok((None, None));
++                    };
++                    let prefill = get_prefill(&prompt_input, config.format);
++                    let prompt = format!("{prompt}{prefill}");
++                    let environment = config
++                        .environment
++                        .clone()
++                        .or_else(|| Some(config.format.to_string().to_lowercase()));
++                    let request = RawCompletionRequest {
++                        model: config.model_id.clone().unwrap_or_default(),
++                        prompt,
++                        temperature: None,
++                        stop: stop_tokens_for_format(config.format)
++                            .iter()
++                            .map(|token| std::borrow::Cow::Borrowed(*token))
++                            .collect(),
++                        max_tokens: Some(2048),
++                        environment,
++                    };
++
++                    let (mut response, usage) = EditPredictionStore::send_raw_llm_request(
++                        request,
++                        client,
++                        None,
++                        llm_token,
++                        organization_id,
++                        app_version,
++                    )
++                    .await?;
++
++                    let request_id = EditPredictionId(response.id.clone().into());
++                    let output = if let Some(choice) = response.choices.pop() {
++                        let response = &choice.text;
++                        let output = format!("{prefill}{response}");
++                        Some(parse_zeta2_model_output(
++                            &output,
++                            config.format,
++                            &prompt_input,
++                        )?)
++                    } else {
++                        None
++                    };
++
++                    Some((request_id, output, None, usage))
+                 } else {
+-                    // Edit prediction requires a user-provided self-hosted model
+-                    // (Ollama or an OpenAI-compatible server). Without one there is
+-                    // no endpoint to query, so produce no prediction.
+-                    None
++                    // Use V3 endpoint - server handles model/version selection and suffix stripping
++                    let (response, usage) = EditPredictionStore::send_v3_request(
++                        prompt_input.clone(),
++                        preferred_experiment.clone(),
++                        client,
++                        llm_token,
++                        organization_id,
++                        app_version,
++                        trigger,
++                        mode,
++                    )
++                    .await?;
++
++                    let request_id = EditPredictionId(response.request_id.into());
++                    let model_version = response.model_version;
++                    let parsed_output = ParsedOutput {
++                        new_editable_region: response.output,
++                        range_in_excerpt: response.editable_range,
++                        cursor_offset_in_new_editable_region: response.cursor_offset,
++                    };
++
++                    Some((request_id, Some(parsed_output), model_version, usage))
+                 })
+             else {
+-                return Ok(None);
++                return Ok((None, None));
+             };
+ 
+             log::trace!("Got edit prediction response");
+@@ -219,7 +310,27 @@ pub fn request_prediction_with_zeta(
+                 cursor_offset_in_new_editable_region: cursor_offset_in_output,
+             }) = output
+             else {
+-                return Ok(Some((request_id, None, model_version)));
++                let editable_range_in_excerpt =
++                    excerpt_range_for_format(zeta_format, &prompt_input.excerpt_ranges).0;
++                let editable_range_in_buffer = editable_range_in_excerpt.start
++                    + full_context_offset_range.start
++                    ..editable_range_in_excerpt.end + full_context_offset_range.start;
++
++                return Ok((
++                    Some((
++                        request_id,
++                        Some(Prediction {
++                            prompt_input,
++                            buffer,
++                            snapshot: snapshot.clone(),
++                            edits: Vec::new(),
++                            cursor_position: None,
++                            editable_range_in_buffer,
++                        }),
++                        model_version,
++                    )),
++                    usage,
++                ));
+             };
+ 
+             let editable_range_in_buffer = editable_range_in_excerpt.start
+@@ -266,12 +377,14 @@ pub fn request_prediction_with_zeta(
+                 editable_range_in_buffer,
+             });
+ 
+-            anyhow::Ok(Some((request_id, prediction, model_version)))
++            anyhow::Ok((Some((request_id, prediction, model_version)), usage))
+         }
+     });
+ 
+-    cx.spawn(async move |_this, cx| {
+-        let Some((id, prediction, model_version)) = request_task.await? else {
++    cx.spawn(async move |this, cx| {
++        let Some((id, prediction, model_version)) =
++            handle_api_response(&this, request_task.await, cx)?
++        else {
+             return Ok(None);
+         };
+         let request_duration = cx.background_executor().now() - request_start;
+@@ -310,10 +423,148 @@ pub fn request_prediction_with_zeta(
+         )
+         .await;
+ 
++        if can_collect_data && let Ok(prediction) = &result.prediction {
++            let weak_this = this.clone();
++            let request_id = prediction.id.clone();
++            let edited_buffer = edited_buffer.clone();
++            let edited_buffer_snapshot = edited_buffer_snapshot.clone();
++            let editable_range_in_buffer = editable_range_in_buffer.clone();
++            let edit_preview = prediction.edit_preview.clone();
++            let model_version = prediction.model_version.clone();
++            let example_task = capture_data.and_then(|uncommitted_diffs| {
++                let (recently_opened_files, recently_viewed_files) = this
++                    .read_with(cx, |this, _| {
++                        (
++                            this.recently_opened_files_for_project(&project),
++                            this.recently_viewed_files_for_project(&project),
++                        )
++                    })
++                    .ok()?;
++                Some(cx.spawn({
++                    let project = project.clone();
++                    let edited_buffer = edited_buffer.clone();
++                    async move |cx| {
++                        let uncommitted_diffs = uncommitted_diffs
++                            .await
++                            .map_err(|error| anyhow::anyhow!("{error:?}"))
++                            .context("failed to capture uncommitted diff")?;
++                        let Some(task) = cx.update(|cx| {
++                            crate::capture_example::capture_example(
++                                project.clone(),
++                                edited_buffer.clone(),
++                                position,
++                                stored_events,
++                                recently_opened_files,
++                                recently_viewed_files,
++                                uncommitted_diffs,
++                                false,
++                                cx,
++                            )
++                        }) else {
++                            return Err(anyhow::anyhow!("failed to capture example"));
++                        };
++                        task.await
++                    }
++                }))
++            });
++            cx.spawn(async move |cx| {
++                let example_spec = if let Some(task) = example_task {
++                    task.await.ok()
++                } else {
++                    None
++                };
++
++                weak_this
++                    .update(cx, |this, cx| {
++                        this.enqueue_settled_prediction(
++                            request_id.clone(),
++                            &project,
++                            &edited_buffer,
++                            &edited_buffer_snapshot,
++                            editable_range_in_buffer,
++                            &edit_preview,
++                            example_spec,
++                            model_version,
++                            request_duration,
++                            cx,
++                        );
++                    })
++                    .ok();
++            })
++            .detach();
++        }
++
+         Ok(Some(result))
+     })
+ }
+ 
++fn handle_api_response<T>(
++    this: &WeakEntity<EditPredictionStore>,
++    response: Result<(T, Option<client::EditPredictionUsage>)>,
++    cx: &mut gpui::AsyncApp,
++) -> Result<T> {
++    match response {
++        Ok((data, usage)) => {
++            if let Some(usage) = usage {
++                this.update(cx, |this, cx| {
++                    this.user_store.update(cx, |user_store, cx| {
++                        user_store.update_edit_prediction_usage(usage, cx);
++                    });
++                })
++                .ok();
++            }
++            Ok(data)
++        }
++        Err(err) => {
++            if err.is::<CloudRequestTimeoutError>() {
++                this.update(cx, |this, cx| this.back_off_requests_after_timeout(cx))
++                    .ok();
++            }
++
++            if err.is::<ZedUpdateRequiredError>() {
++                cx.update(|cx| {
++                    this.update(cx, |this, _cx| {
++                        this.update_required = true;
++                    })
++                    .ok();
++
++                    let message: SharedString = err.to_string().into();
++
++                    struct UpdateRequiredError {
++                        message: SharedString,
++                    }
++                    impl WorkspaceError for UpdateRequiredError {
++                        fn primary_message(&self) -> SharedString {
++                            self.message.clone()
++                        }
++                        fn severity(&self) -> ErrorSeverity {
++                            ErrorSeverity::Critical
++                        }
++                        fn primary_action(&self) -> ErrorAction {
++                            ErrorAction::link("Update Zed", "https://zed.dev/releases")
++                        }
++                    }
++
++                    show_app_notification(
++                        NotificationId::unique::<ZedUpdateRequiredError>(),
++                        cx,
++                        move |cx| {
++                            cx.new({
++                                let message = message.clone();
++                                move |cx| {
++                                    let error = UpdateRequiredError { message };
++                                    MessageNotification::from_workspace_error(error, cx)
++                                }
++                            })
++                        },
++                    );
++                });
++            }
++            Err(err)
++        }
++    }
++}
++
+ const ACTIVE_BUFFER_DIAGNOSTIC_ADDITIONAL_CONTEXT_TOKEN_COUNT: usize = 100;
+ const MAX_ACTIVE_BUFFER_DIAGNOSTICS_TO_COLLECT: usize = 20;
+ const MAX_ACTIVE_BUFFER_DIAGNOSTIC_SNIPPET_TOKENS_TO_COLLECT: usize = 512;
+@@ -446,6 +697,16 @@ pub fn zeta2_prompt_input(
+     (excerpt_offset_range, prompt_input)
+ }
+ 
++pub(crate) fn edit_prediction_accepted(
++    store: &EditPredictionStore,
++    current_prediction: CurrentEditPrediction,
++    cx: &App,
++) {
++    // Zedium air-gap: prediction-acceptance reports were uploaded to the Zed
++    // cloud LLM service. That reporting is stripped.
++    let _ = (store, current_prediction, cx);
++}
++
+ pub fn compute_edits(
+     old_text: String,
+     new_text: &str,
+diff --git a/crates/edit_prediction_ui/src/edit_prediction_context_view.rs b/crates/edit_prediction_ui/src/edit_prediction_context_view.rs
+index e8dd29a255..05d422341f 100644
+--- a/crates/edit_prediction_ui/src/edit_prediction_context_view.rs
++++ b/crates/edit_prediction_ui/src/edit_prediction_context_view.rs
+@@ -61,10 +61,12 @@ actions!(
+ impl EditPredictionContextView {
+     pub fn new(
+         project: Entity<Project>,
++        client: &std::sync::Arc<client::Client>,
++        user_store: &Entity<client::UserStore>,
+         window: &mut gpui::Window,
+         cx: &mut Context<Self>,
+     ) -> Self {
+-        let store = EditPredictionStore::global(cx);
++        let store = EditPredictionStore::global(client, user_store, cx);
+ 
+         let mut debug_rx = store.update(cx, |store, cx| store.debug_info(&project, cx));
+         let _update_task = cx.spawn_in(window, async move |this, cx| {
+diff --git a/crates/edit_prediction_ui/src/edit_prediction_ui.rs b/crates/edit_prediction_ui/src/edit_prediction_ui.rs
+index 83c84d2e67..d9b7affb45 100644
+--- a/crates/edit_prediction_ui/src/edit_prediction_ui.rs
++++ b/crates/edit_prediction_ui/src/edit_prediction_ui.rs
+@@ -30,11 +30,13 @@ pub fn init(cx: &mut App) {
+         workspace.register_action_renderer(|div, _, _, cx| {
+             div.on_action(cx.listener(
+                 move |workspace, _: &OpenEditPredictionContextView, window, cx| {
+-                    let project = workspace.project();
++                    let project = workspace.project().clone();
++                    let client = workspace.client().clone();
++                    let user_store = workspace.user_store().clone();
+                     workspace.split_item(
+                         SplitDirection::Right,
+                         Box::new(cx.new(|cx| {
+-                            EditPredictionContextView::new(project.clone(), window, cx)
++                            EditPredictionContextView::new(project, &client, &user_store, window, cx)
+                         })),
+                         window,
+                         cx,
+diff --git a/crates/extensions_ui/src/extensions_ui.rs b/crates/extensions_ui/src/extensions_ui.rs
+index ed41c281d0..6140f80648 100644
+--- a/crates/extensions_ui/src/extensions_ui.rs
++++ b/crates/extensions_ui/src/extensions_ui.rs
+@@ -201,7 +201,7 @@ pub fn init(cx: &mut App) {
+                             Err(err) => {
+                                 workspace_handle
+                                     .update(cx, |workspace, cx| {
+-                                        workspace.show_portal_error(err.to_string(), cx);
++                                        workspace.show_error(err.to_string(), cx);
+                                     })
+                                     .ok();
+                                 return None;
+@@ -222,7 +222,7 @@ pub fn init(cx: &mut App) {
+                                         // message ("ships source but no compiled
+                                         // extension.wasm…") is user-actionable.
+                                         workspace.show_error(
+-                                            &format!("Failed to install extension: {}", err),
++                                            format!("Failed to install extension: {}", err),
+                                             cx,
+                                         );
+                                     })
+diff --git a/crates/language_models/src/settings.rs b/crates/language_models/src/settings.rs
+index 895bc50ea6..90b47ea17e 100644
+--- a/crates/language_models/src/settings.rs
++++ b/crates/language_models/src/settings.rs
+@@ -5,7 +5,7 @@ use settings::RegisterSetting;
+ 
+ use crate::provider::{
+     lmstudio::LmStudioSettings, ollama::OllamaSettings,
+-    open_ai_compatible::OpenAiCompatibleSettings,
++    open_ai_compatible::OpenAiCompatibleSettings, resolve_custom_headers,
+ };
+ 
+ #[derive(Debug, RegisterSetting)]
+diff --git a/crates/workspace/src/multi_workspace.rs b/crates/workspace/src/multi_workspace.rs
+index 9d9a185f38..6dacf2eed2 100644
+--- a/crates/workspace/src/multi_workspace.rs
++++ b/crates/workspace/src/multi_workspace.rs
+@@ -2337,7 +2337,7 @@ impl Render for MultiWorkspace {
+                     .on_action(cx.listener(|_this: &mut Self, _: &NewProjectTab, window, cx| {
+                         window.dispatch_action(
+                             Box::new(zed_actions::OpenRecent {
+-                                create_new_window: false,
++                                create_new_window: Some(false),
+                             }),
+                             cx,
+                         );
+diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
+index 3fc20683d5..ed3dc1d197 100644
+--- a/crates/zed/src/main.rs
++++ b/crates/zed/src/main.rs
+@@ -634,7 +634,7 @@ fn main() {
+         edit_prediction_ui::init(cx);
+         web_search::init(cx);
+         snippet_provider::init(cx);
+-        edit_prediction_registry::init(cx);
++        edit_prediction_registry::init(app_state.client.clone(), app_state.user_store.clone(), cx);
+         let prompt_builder = PromptBuilder::load(app_state.fs.clone(), stdout_is_a_pty(), cx);
+         project::AgentRegistryStore::init_global(
+             cx,
+diff --git a/crates/zed/src/zed/edit_prediction_registry.rs b/crates/zed/src/zed/edit_prediction_registry.rs
+index a7519301d5..d5cf598e00 100644
+--- a/crates/zed/src/zed/edit_prediction_registry.rs
++++ b/crates/zed/src/zed/edit_prediction_registry.rs
+@@ -14,12 +14,18 @@ use settings::SettingsStore;
+ use std::{cell::RefCell, rc::Rc};
+ use ui::Window;
+ 
+-pub fn init(cx: &mut App) {
+-    edit_prediction::EditPredictionStore::global(cx);
++pub fn init(
++    client: std::sync::Arc<client::Client>,
++    user_store: Entity<client::UserStore>,
++    cx: &mut App,
++) {
++    edit_prediction::EditPredictionStore::global(&client, &user_store, cx);
+ 
+     let editors: Rc<RefCell<HashMap<WeakEntity<Editor>, AnyWindowHandle>>> = Rc::default();
+     cx.observe_new({
+         let editors = editors.clone();
++        let client = client.clone();
++        let user_store = user_store.clone();
+         move |editor: &mut Editor, window, cx: &mut Context<Editor>| {
+             if !editor.mode().is_full() {
+                 return;
+@@ -45,7 +51,7 @@ pub fn init(cx: &mut App) {
+                 .borrow_mut()
+                 .insert(editor_handle, window.window_handle());
+             let provider_config = edit_prediction_provider_config_for_settings(cx);
+-            assign_edit_prediction_provider(editor, provider_config, window, cx);
++            assign_edit_prediction_provider(editor, provider_config, &client, &user_store, window, cx);
+         }
+     })
+     .detach();
+@@ -54,12 +60,14 @@ pub fn init(cx: &mut App) {
+ 
+     cx.observe_global::<SettingsStore>({
+         let mut previous_config = edit_prediction_provider_config_for_settings(cx);
++        let client = client.clone();
++        let user_store = user_store.clone();
+         move |cx| {
+             let new_provider_config = edit_prediction_provider_config_for_settings(cx);
+ 
+             if new_provider_config != previous_config {
+                 previous_config = new_provider_config;
+-                assign_edit_prediction_providers(&editors, new_provider_config, cx);
++                assign_edit_prediction_providers(&editors, new_provider_config, &client, &user_store, cx);
+             }
+         }
+     })
+@@ -151,6 +159,8 @@ fn clear_edit_prediction_store_edit_history(_: &edit_prediction::ClearHistory, c
+ fn assign_edit_prediction_providers(
+     editors: &Rc<RefCell<HashMap<WeakEntity<Editor>, AnyWindowHandle>>>,
+     provider_config: Option<EditPredictionProviderConfig>,
++    client: &std::sync::Arc<client::Client>,
++    user_store: &Entity<client::UserStore>,
+     cx: &mut App,
+ ) {
+     if provider_config == Some(EditPredictionProviderConfig::Codestral) {
+@@ -159,7 +169,7 @@ fn assign_edit_prediction_providers(
+     for (editor, window) in editors.borrow().iter() {
+         _ = window.update(cx, |_window, window, cx| {
+             _ = editor.update(cx, |editor, cx| {
+-                assign_edit_prediction_provider(editor, provider_config, window, cx);
++                assign_edit_prediction_provider(editor, provider_config, client, user_store, window, cx);
+             })
+         });
+     }
+@@ -170,6 +180,8 @@ fn register_backward_compatible_actions(_editor: &mut Editor, _cx: &mut Context<
+ fn assign_edit_prediction_provider(
+     editor: &mut Editor,
+     provider_config: Option<EditPredictionProviderConfig>,
++    client: &std::sync::Arc<client::Client>,
++    user_store: &Entity<client::UserStore>,
+     window: &mut Window,
+     cx: &mut Context<Editor>,
+ ) {
+@@ -185,7 +197,7 @@ fn assign_edit_prediction_provider(
+             editor.set_edit_prediction_provider(Some(provider), window, cx);
+         }
+         Some(EditPredictionProviderConfig::Zed(model)) => {
+-            let ep_store = edit_prediction::EditPredictionStore::global(cx);
++            let ep_store = edit_prediction::EditPredictionStore::global(client, user_store, cx);
+ 
+             if let Some(project) = editor.project() {
+                 ep_store.update(cx, |ep_store, cx| {
+@@ -195,7 +207,8 @@ fn assign_edit_prediction_provider(
+                     }
+                 });
+ 
+-                let provider = cx.new(|cx| ZedEditPredictionDelegate::new(project.clone(), cx));
++                let provider =
++                    cx.new(|cx| ZedEditPredictionDelegate::new(project.clone(), client, user_store, cx));
+                 editor.set_edit_prediction_provider(Some(provider), window, cx);
+             }
+         }

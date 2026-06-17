@@ -5,14 +5,34 @@ Subject: [PATCH] Add centered project tab strip to the title bar
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
+ Cargo.toml                        |   6 --
  crates/title_bar/src/title_bar.rs | 158 +++++++++++++++++++++++++++++-
- 1 file changed, 157 insertions(+), 1 deletion(-)
+ 2 files changed, 157 insertions(+), 7 deletions(-)
 
+diff --git a/Cargo.toml b/Cargo.toml
+index 7e91700129..8babff6941 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -840,14 +840,8 @@ features = [
+ async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
+ windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }
+ calloop = { git = "https://github.com/zed-industries/calloop" }
+-<<<<<<< HEAD
+-livekit = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "c3a55bbc207008f1ca3474b6037fdd3c443cad0f" }
+-libwebrtc = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "c3a55bbc207008f1ca3474b6037fdd3c443cad0f" }
+ notify = { git = "https://github.com/zed-industries/notify", rev = "faecbc33db4f59313e5225ef766bfd9e54a54cfd" }
+ notify-types = { git = "https://github.com/zed-industries/notify", rev = "faecbc33db4f59313e5225ef766bfd9e54a54cfd" }
+-webrtc-sys = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "c3a55bbc207008f1ca3474b6037fdd3c443cad0f" }
+-=======
+->>>>>>> 2bb5b679d0 (strip: drop libwebrtc/webrtc-sys from audio (no-op echo canceller))
+ 
+ [profile.dev]
+ split-debuginfo = "unpacked"
 diff --git a/crates/title_bar/src/title_bar.rs b/crates/title_bar/src/title_bar.rs
-index 401afd9766..f9194dcb22 100644
+index 2cb92e39f4..3b521ba685 100644
 --- a/crates/title_bar/src/title_bar.rs
 +++ b/crates/title_bar/src/title_bar.rs
-@@ -45,6 +45,17 @@ use zed_actions::OpenRemote;
+@@ -47,6 +47,17 @@ use zed_actions::OpenRemote;
  
  pub use onboarding_banner::restore_banner;
  
@@ -30,7 +50,7 @@ index 401afd9766..f9194dcb22 100644
  const MAX_PROJECT_NAME_LENGTH: usize = 40;
  const MAX_BRANCH_NAME_LENGTH: usize = 40;
  const MAX_SHORT_SHA_LENGTH: usize = 8;
-@@ -143,6 +154,9 @@ impl Render for TitleBar {
+@@ -190,6 +201,9 @@ impl Render for TitleBar {
                  .and_then(|ws| ws.read(cx).multi_workspace().cloned())
              {
                  self.multi_workspace = Some(mw.clone());
@@ -40,16 +60,16 @@ index 401afd9766..f9194dcb22 100644
                  self.platform_titlebar.update(cx, |titlebar, _cx| {
                      titlebar.set_multi_workspace(mw);
                  });
-@@ -155,7 +169,7 @@ impl Render for TitleBar {
+@@ -202,7 +216,7 @@ impl Render for TitleBar {
  
          let show_menus = show_menus(cx);
  
--        let mut children = <ArrayVec<_, 4>>::new();
+-        let mut children = <ArrayVec<_, 5>>::new();
 +        let mut children = <ArrayVec<_, 6>>::new();
  
          let mut project_name = None;
          let mut repository = None;
-@@ -255,6 +269,18 @@ impl Render for TitleBar {
+@@ -302,6 +316,18 @@ impl Render for TitleBar {
              }
          }
  
@@ -68,7 +88,7 @@ index 401afd9766..f9194dcb22 100644
          let status = self.client.status();
          let status = &*status.borrow();
          let signed_in = self.user_store.read(cx).current_user().is_some();
-@@ -396,6 +422,10 @@ impl TitleBar {
+@@ -443,6 +469,10 @@ impl TitleBar {
              screen_share_popover_handle: PopoverMenuHandle::default(),
          };
  
@@ -79,7 +99,7 @@ index 401afd9766..f9194dcb22 100644
          this
      }
  
-@@ -718,6 +748,132 @@ impl TitleBar {
+@@ -756,6 +786,132 @@ impl TitleBar {
              .into_any_element()
      }
  

@@ -34,10 +34,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  delete mode 100644 crates/notifications/src/notification_store.rs
 
 diff --git a/Cargo.lock b/Cargo.lock
-index 5d14854b8c..af86e9624d 100644
+index e1c55a9a20..cac353e70b 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -11719,17 +11719,9 @@ dependencies = [
+@@ -11463,17 +11463,9 @@ dependencies = [
  name = "notifications"
  version = "0.1.0"
  dependencies = [
@@ -55,9 +55,9 @@ index 5d14854b8c..af86e9624d 100644
   "workspace",
   "zed_actions",
  ]
-@@ -23262,7 +23254,6 @@ dependencies = [
+@@ -22925,7 +22917,6 @@ dependencies = [
+  "mimalloc",
   "miniprofiler_ui",
-  "nc",
   "node_runtime",
 - "notifications",
   "onboarding",
@@ -541,22 +541,22 @@ index ee952555eb..3634788cad 100644
 -pub use notification_store::*;
  pub mod status_toast;
 diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
-index 7d9dc48f4c..550920d46d 100644
+index e4739ba01a..0fcd251818 100644
 --- a/crates/zed/Cargo.toml
 +++ b/crates/zed/Cargo.toml
-@@ -149,7 +149,6 @@ miniprofiler_ui.workspace = true
+@@ -150,7 +150,6 @@ migrator.workspace = true
+ miniprofiler_ui.workspace = true
  mimalloc = { version = "0.1", optional = true }
- nc.workspace = true
  node_runtime.workspace = true
 -notifications.workspace = true
  onboarding.workspace = true
  outline.workspace = true
  outline_panel.workspace = true
 diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
-index aa71340bb4..ef23dd0cf5 100644
+index e17e698ea0..89e35d9ec2 100644
 --- a/crates/zed/src/main.rs
 +++ b/crates/zed/src/main.rs
-@@ -725,7 +725,6 @@ fn main() {
+@@ -722,7 +722,6 @@ fn main() {
          theme_selector::init(cx);
          settings_profile_selector::init(cx);
          language_tools::init(cx);
@@ -565,10 +565,10 @@ index aa71340bb4..ef23dd0cf5 100644
          git_graph::init(cx);
          markdown_preview::init(cx);
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index 01718e001d..b6dedcc161 100644
+index 51c4b0612f..f18f6a84ce 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
-@@ -5433,8 +5433,6 @@ mod tests {
+@@ -5519,8 +5519,6 @@ mod tests {
              theme_settings::init(theme::LoadThemes::JustBase, cx);
              audio::init(cx);
              channel::init(&app_state.client, app_state.user_store.clone(), cx);

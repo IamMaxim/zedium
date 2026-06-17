@@ -1,6 +1,28 @@
 # Release Readiness — Zedium v1
 
-## 0. Rebased to upstream v1.5.4 (2026-06-09)
+## 0. Rebased to upstream v1.7.2 (2026-06-17)
+
+The baseline was bumped **`v1.5.4` → `v1.7.2`**. The patch series was replayed onto
+`v1.7.2` via `git rebase --onto`; conflicts were resolved preserving upstream changes
+and re-deriving the telemetry/cloud strip against the substantially-rewritten upstream.
+v1.7.2 heavily rewrote edit-prediction (Zeta cloud) and added new telemetry surfaces
+(`CompactionTelemetry`, hang-detection telemetry, an Anthropic inline-assist event upload
+to `anthropic.com/v1/log/zed`) plus copilot + Zed-AI onboarding. The strip was re-derived:
+local edit-prediction kept (ollama/openai_compatible/mercury), Zeta cloud + copilot +
+onboarding gutted; `crates/denoise` and `git_graph` were removed upstream (not re-added).
+
+Result: **66 patches**, a full `cargo build -p zed` green, `./tools/verify.sh` green
+(**42 patterns / 24 banned crates**), `just apply` replays cleanly from `v1.7.2`, and the
+**GAP-8 runtime air-gap smoke PASS on v1.7.2** (below).
+
+**GAP-8 runtime air-gap smoke — PASS on v1.7.2 (2026-06-17).** Ran `tools/airgap-smoke.sh`
+(= `strace -f -e trace=connect,network`, 30s dwell) against the debug `zedium` built from
+the v1.7.2 applied tree. All 6 `AF_INET` `connect()` calls were to loopback only
+(`127.0.0.1`): port-0 socket probes plus the user-opt-in local-LLM probes (Ollama `11434`,
+LM Studio `1234`). **Zero connects to any external host.** User also confirmed a live
+manual session. Air-gap is verified both statically (`just verify`) and at runtime.
+
+## 1. Rebased to upstream v1.5.4 (2026-06-09)
 
 The baseline was bumped **`v1.4.2` → `v1.5.4`** (3 minor releases). The 44-patch
 v1.4.2 series was replayed with `git am -3`; conflicts were resolved preserving

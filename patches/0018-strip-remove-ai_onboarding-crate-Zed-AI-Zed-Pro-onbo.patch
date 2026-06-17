@@ -20,15 +20,15 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
  Cargo.toml                                    |   2 -
  crates/agent_ui/Cargo.toml                    |   1 -
- crates/agent_ui/src/agent_panel.rs            | 209 +--------
+ crates/agent_ui/src/agent_panel.rs            | 216 +--------
  crates/agent_ui/src/ui.rs                     |   2 -
- crates/agent_ui/src/ui/end_trial_upsell.rs    | 113 -----
+ crates/agent_ui/src/ui/end_trial_upsell.rs    | 116 -----
  crates/ai_onboarding/Cargo.toml               |  26 --
  crates/ai_onboarding/LICENSE-GPL              |   1 -
  .../src/agent_api_keys_onboarding.rs          | 150 ------
  .../src/agent_panel_onboarding_card.rs        |  65 ---
  .../src/agent_panel_onboarding_content.rs     |  90 ----
- crates/ai_onboarding/src/ai_onboarding.rs     | 432 ------------------
+ crates/ai_onboarding/src/ai_onboarding.rs     | 436 ------------------
  .../src/edit_prediction_onboarding_content.rs |  39 --
  crates/ai_onboarding/src/plan_definitions.rs  |  56 ---
  .../ai_onboarding/src/young_account_banner.rs |  22 -
@@ -36,7 +36,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  crates/edit_prediction/src/edit_prediction.rs |  14 -
  .../edit_prediction/src/onboarding_modal.rs   | 149 ------
  crates/language_models/Cargo.toml             |   1 -
- 18 files changed, 9 insertions(+), 1364 deletions(-)
+ 18 files changed, 11 insertions(+), 1376 deletions(-)
  delete mode 100644 crates/agent_ui/src/ui/end_trial_upsell.rs
  delete mode 100644 crates/ai_onboarding/Cargo.toml
  delete mode 120000 crates/ai_onboarding/LICENSE-GPL
@@ -50,7 +50,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  delete mode 100644 crates/edit_prediction/src/onboarding_modal.rs
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 723d9d9e91..ca9d62310c 100644
+index a424fba264..cc684981df 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -10,7 +10,6 @@ members = [
@@ -61,7 +61,7 @@ index 723d9d9e91..ca9d62310c 100644
      "crates/anthropic",
      "crates/askpass",
      "crates/assets",
-@@ -262,7 +261,6 @@ agent_servers = { path = "crates/agent_servers" }
+@@ -259,7 +258,6 @@ agent_servers = { path = "crates/agent_servers" }
  agent_settings = { path = "crates/agent_settings" }
  agent_skills = { path = "crates/agent_skills" }
  agent_ui = { path = "crates/agent_ui" }
@@ -70,7 +70,7 @@ index 723d9d9e91..ca9d62310c 100644
  askpass = { path = "crates/askpass" }
  assets = { path = "crates/assets" }
 diff --git a/crates/agent_ui/Cargo.toml b/crates/agent_ui/Cargo.toml
-index d4bb0764ba..5b4cbbf626 100644
+index 4787fb377a..ff570561a7 100644
 --- a/crates/agent_ui/Cargo.toml
 +++ b/crates/agent_ui/Cargo.toml
 @@ -34,7 +34,6 @@ async-channel.workspace = true
@@ -82,11 +82,12 @@ index d4bb0764ba..5b4cbbf626 100644
  heapless.workspace = true
  audio = { workspace = true, optional = true }
 diff --git a/crates/agent_ui/src/agent_panel.rs b/crates/agent_ui/src/agent_panel.rs
-index cb0de6070e..fe06f0348d 100644
+index 69b2fa983c..1943a0e185 100644
 --- a/crates/agent_ui/src/agent_panel.rs
 +++ b/crates/agent_ui/src/agent_panel.rs
-@@ -1,13 +1,4 @@
+@@ -1,14 +1,4 @@
 -use std::{
+-    cell::Cell,
 -    fmt,
 -    path::PathBuf,
 -    rc::Rc,
@@ -96,20 +97,20 @@ index cb0de6070e..fe06f0348d 100644
 -    },
 -    time::Duration,
 -};
-+use std::{fmt, path::PathBuf, rc::Rc, sync::Arc, time::Duration};
++use std::{cell::Cell, fmt, path::PathBuf, rc::Rc, sync::Arc, time::Duration};
  
- use acp_thread::{AcpThread, AcpThreadEvent, MentionUri, ThreadStatus};
+ use acp_thread::{AcpThread, AcpThreadEvent, MentionUri, ThreadStatus, line_range_suffix};
  use agent::{ContextServerRegistry, SharedThread, ThreadStore};
-@@ -15,7 +6,7 @@ use agent_client_protocol::schema as acp;
+@@ -16,7 +6,7 @@ use agent_client_protocol::schema as acp;
  use agent_servers::AgentServer;
  use agent_settings::UserAgentsMd;
  use collections::HashSet;
 -use db::kvp::{Dismissable, KeyValueStore};
 +use db::kvp::KeyValueStore;
  use itertools::Itertools;
- use project::AgentId;
+ use project::{AgentId, ProjectItem};
  use serde::{Deserialize, Serialize};
-@@ -25,8 +16,8 @@ use zed_actions::{
+@@ -26,8 +16,8 @@ use zed_actions::{
      DecreaseBufferFontSize, IncreaseBufferFontSize, ResetBufferFontSize,
      agent::{
          AddSelectionToThread, ConflictContent, LogoutAgent, OpenSettings, ReauthenticateAgent,
@@ -119,8 +120,8 @@ index cb0de6070e..fe06f0348d 100644
 +        ReviewBranchDiff,
      },
      assistant::{
-         CreateSkillFromUrl, FocusAgent, OpenGlobalAgentsMdRules, OpenProjectAgentsMdRules,
-@@ -43,24 +34,22 @@ use crate::thread_metadata_store::{ThreadId, ThreadMetadataStore, ThreadMetadata
+         FocusAgent, ManageSkills, OpenGlobalAgentsMdRules, OpenProjectAgentsMdRules, Toggle,
+@@ -47,26 +37,22 @@ use crate::thread_metadata_store::{ThreadId, ThreadMetadataStore, ThreadMetadata
  use crate::{
      AddContextServer, AgentDiffPane, ConversationView, CopyThreadToClipboard, Follow,
      LoadThreadFromClipboard, NewTerminalThread, NewThread, OpenActiveThreadAsMarkdown,
@@ -129,8 +130,11 @@ index cb0de6070e..fe06f0348d 100644
 +    OpenAgentDiff, ResetFastModeWarnings, ShowAllSidebarThreadMetadata, ShowThreadMetadata,
 +    ToggleNewThreadMenu, ToggleOptionsMenu,
      agent_configuration::{AgentConfiguration, AssistantConfigurationEvent},
-     conversation_view::{AcpThreadViewEvent, ThreadView, reset_fast_mode_warnings},
+-    conversation_view::{
+-        AcpThreadViewEvent, RootThreadUpdated, ThreadView, reset_fast_mode_warnings,
+-    },
 -    ui::{AgentNotification, AgentNotificationEvent, EndTrialUpsell},
++    conversation_view::{AcpThreadViewEvent, RootThreadUpdated, ThreadView, reset_fast_mode_warnings},
 +    ui::{AgentNotification, AgentNotificationEvent},
  };
  use crate::{
@@ -139,17 +143,18 @@ index cb0de6070e..fe06f0348d 100644
  };
  use agent_settings::AgentSettings;
 -use ai_onboarding::AgentPanelOnboarding;
- use anyhow::Result;
+-use anyhow::{Context as _, Result, anyhow};
++use anyhow::Result;
  #[cfg(feature = "audio")]
  use audio::{Audio, Sound};
  use chrono::{DateTime, Utc};
--use client::{UserStore, zed_urls};
+-use client::UserStore;
 -use cloud_api_types::Plan;
 +use client::zed_urls;
  use collections::HashMap;
  use editor::{Editor, MultiBuffer};
  use extension_host::ExtensionStore;
-@@ -426,23 +415,6 @@ pub fn init(cx: &mut App) {
+@@ -468,23 +454,6 @@ pub fn init(cx: &mut App) {
                          });
                      }
                  })
@@ -173,7 +178,7 @@ index cb0de6070e..fe06f0348d 100644
                  .register_action(|_workspace, _: &ResetFastModeWarnings, _window, cx| {
                      reset_fast_mode_warnings(cx);
                  })
-@@ -946,7 +918,6 @@ pub struct AgentPanel {
+@@ -1147,7 +1116,6 @@ pub struct AgentPanel {
      workspace: WeakEntity<Workspace>,
      /// Workspace id is used as a database key
      workspace_id: Option<WorkspaceId>,
@@ -181,7 +186,7 @@ index cb0de6070e..fe06f0348d 100644
      project: Entity<Project>,
      fs: Arc<dyn Fs>,
      language_registry: Arc<LanguageRegistry>,
-@@ -970,8 +941,6 @@ pub struct AgentPanel {
+@@ -1170,8 +1138,6 @@ pub struct AgentPanel {
      _project_subscription: Subscription,
      zoomed: bool,
      pending_serialization: Option<Task<Result<()>>>,
@@ -190,9 +195,9 @@ index cb0de6070e..fe06f0348d 100644
      selected_agent: Agent,
      _thread_view_subscription: Option<Subscription>,
      _active_thread_focus_subscription: Option<Subscription>,
-@@ -1290,10 +1259,8 @@ impl AgentPanel {
-         cx: &mut Context<Self>,
-     ) -> Self {
+@@ -1480,10 +1446,8 @@ impl AgentPanel {
+ 
+     pub(crate) fn new(workspace: &Workspace, _window: &mut Window, cx: &mut Context<Self>) -> Self {
          let fs = workspace.app_state().fs.clone();
 -        let user_store = workspace.app_state().user_store.clone();
          let project = workspace.project();
@@ -201,7 +206,7 @@ index cb0de6070e..fe06f0348d 100644
          let workspace_id = workspace.database_id();
          let workspace = workspace.weak_handle();
  
-@@ -1304,22 +1271,6 @@ impl AgentPanel {
+@@ -1494,22 +1458,6 @@ impl AgentPanel {
  
          let base_view = BaseView::Uninitialized;
  
@@ -224,7 +229,7 @@ index cb0de6070e..fe06f0348d 100644
          // Subscribe to extension events to sync agent servers when extensions change
          let extension_subscription = ExtensionStore::try_global(cx).map(|store| {
              cx.subscribe(&store, |this, _source, event, cx| match event {
-@@ -1366,7 +1317,6 @@ impl AgentPanel {
+@@ -1556,7 +1504,6 @@ impl AgentPanel {
              last_created_entry_kind: AgentPanelEntryKind::Thread,
              overlay_view: None,
              workspace,
@@ -232,7 +237,7 @@ index cb0de6070e..fe06f0348d 100644
              project: project.clone(),
              fs: fs.clone(),
              language_registry,
-@@ -1387,12 +1337,10 @@ impl AgentPanel {
+@@ -1576,12 +1523,10 @@ impl AgentPanel {
              _project_subscription,
              zoomed: false,
              pending_serialization: None,
@@ -245,7 +250,7 @@ index cb0de6070e..fe06f0348d 100644
              _base_view_observation: None,
              _draft_editor_observation: None,
              _active_draft_reclaim_observation: None,
-@@ -5579,132 +5527,6 @@ impl AgentPanel {
+@@ -6205,132 +6150,6 @@ impl AgentPanel {
              .child(toolbar_content)
      }
  
@@ -378,7 +383,7 @@ index cb0de6070e..fe06f0348d 100644
      fn render_drag_target(&self, cx: &Context<Self>) -> Div {
          let is_local = self.project.read(cx).is_local();
          div()
-@@ -5909,7 +5731,6 @@ impl Render for AgentPanel {
+@@ -6534,7 +6353,6 @@ impl Render for AgentPanel {
                  }
              }))
              .child(self.render_toolbar(window, cx))
@@ -386,7 +391,7 @@ index cb0de6070e..fe06f0348d 100644
              .map(|parent| match self.visible_surface() {
                  VisibleSurface::Uninitialized if !self.has_open_project(cx) => {
                      parent.child(self.render_no_project_state(cx))
-@@ -5924,8 +5745,7 @@ impl Render for AgentPanel {
+@@ -6549,8 +6367,7 @@ impl Render for AgentPanel {
                  VisibleSurface::Configuration(configuration) => {
                      parent.children(configuration.cloned())
                  }
@@ -396,7 +401,7 @@ index cb0de6070e..fe06f0348d 100644
  
          match self.visible_font_size() {
              WhichFontSize::AgentFont => {
-@@ -5939,17 +5759,6 @@ impl Render for AgentPanel {
+@@ -6564,17 +6381,6 @@ impl Render for AgentPanel {
      }
  }
  
@@ -432,10 +437,10 @@ index 4d355de28e..d92351724c 100644
  pub use undo_reject_toast::*;
 diff --git a/crates/agent_ui/src/ui/end_trial_upsell.rs b/crates/agent_ui/src/ui/end_trial_upsell.rs
 deleted file mode 100644
-index 54abfb2a57..0000000000
+index e294071123..0000000000
 --- a/crates/agent_ui/src/ui/end_trial_upsell.rs
 +++ /dev/null
-@@ -1,113 +0,0 @@
+@@ -1,116 +0,0 @@
 -use std::sync::Arc;
 -
 -use ai_onboarding::{AgentPanelOnboardingCard, PlanDefinitions};
@@ -539,14 +544,17 @@ index 54abfb2a57..0000000000
 -        "End of Trial Upsell Banner"
 -    }
 -
--    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
--        Some(
--            v_flex()
--                .child(EndTrialUpsell {
--                    dismiss_upsell: Arc::new(|_, _| {}),
--                })
--                .into_any_element(),
--        )
+-    fn description() -> &'static str {
+-        "A banner shown in the agent panel when a user's trial has ended, \
+-        inviting them to upgrade to a paid plan to continue using the agent."
+-    }
+-
+-    fn preview(_window: &mut Window, _cx: &mut App) -> AnyElement {
+-        v_flex()
+-            .child(EndTrialUpsell {
+-                dismiss_upsell: Arc::new(|_, _| {}),
+-            })
+-            .into_any_element()
 -    }
 -}
 diff --git a/crates/ai_onboarding/Cargo.toml b/crates/ai_onboarding/Cargo.toml
@@ -914,10 +922,10 @@ index 494177da3c..0000000000
 -}
 diff --git a/crates/ai_onboarding/src/ai_onboarding.rs b/crates/ai_onboarding/src/ai_onboarding.rs
 deleted file mode 100644
-index 5571276594..0000000000
+index 3db2a2465b..0000000000
 --- a/crates/ai_onboarding/src/ai_onboarding.rs
 +++ /dev/null
-@@ -1,432 +0,0 @@
+@@ -1,436 +0,0 @@
 -mod agent_api_keys_onboarding;
 -mod agent_panel_onboarding_card;
 -mod agent_panel_onboarding_content;
@@ -1286,7 +1294,13 @@ index 5571276594..0000000000
 -        "Agent New User Onboarding"
 -    }
 -
--    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
+-    fn description() -> &'static str {
+-        "The onboarding surface shown to new agent panel users, \
+-        guiding them through signing in to Zed and selecting a plan \
+-        before they can start using the agent."
+-    }
+-
+-    fn preview(_window: &mut Window, _cx: &mut App) -> AnyElement {
 -        fn onboarding(
 -            sign_in_status: SignInStatus,
 -            plan: Option<Plan>,
@@ -1312,42 +1326,40 @@ index 5571276594..0000000000
 -                .into_any_element()
 -        }
 -
--        Some(
--            v_flex()
--                .min_w_0()
--                .gap_4()
--                .children(vec![
--                    single_example(
--                        "Not Signed-in",
--                        onboarding(SignInStatus::SignedOut, None, false),
--                    ),
--                    single_example(
--                        "Young Account",
--                        onboarding(SignInStatus::SignedIn, None, true),
--                    ),
--                    single_example(
--                        "Free Plan",
--                        onboarding(SignInStatus::SignedIn, Some(Plan::ZedFree), false),
--                    ),
--                    single_example(
--                        "Pro Trial",
--                        onboarding(SignInStatus::SignedIn, Some(Plan::ZedProTrial), false),
--                    ),
--                    single_example(
--                        "Pro Plan",
--                        onboarding(SignInStatus::SignedIn, Some(Plan::ZedPro), false),
--                    ),
--                    single_example(
--                        "Business Plan",
--                        onboarding(SignInStatus::SignedIn, Some(Plan::ZedBusiness), false),
--                    ),
--                    single_example(
--                        "Student Plan",
--                        onboarding(SignInStatus::SignedIn, Some(Plan::ZedStudent), false),
--                    ),
--                ])
--                .into_any_element(),
--        )
+-        v_flex()
+-            .min_w_0()
+-            .gap_4()
+-            .children(vec![
+-                single_example(
+-                    "Not Signed-in",
+-                    onboarding(SignInStatus::SignedOut, None, false),
+-                ),
+-                single_example(
+-                    "Young Account",
+-                    onboarding(SignInStatus::SignedIn, None, true),
+-                ),
+-                single_example(
+-                    "Free Plan",
+-                    onboarding(SignInStatus::SignedIn, Some(Plan::ZedFree), false),
+-                ),
+-                single_example(
+-                    "Pro Trial",
+-                    onboarding(SignInStatus::SignedIn, Some(Plan::ZedProTrial), false),
+-                ),
+-                single_example(
+-                    "Pro Plan",
+-                    onboarding(SignInStatus::SignedIn, Some(Plan::ZedPro), false),
+-                ),
+-                single_example(
+-                    "Business Plan",
+-                    onboarding(SignInStatus::SignedIn, Some(Plan::ZedBusiness), false),
+-                ),
+-                single_example(
+-                    "Student Plan",
+-                    onboarding(SignInStatus::SignedIn, Some(Plan::ZedStudent), false),
+-                ),
+-            ])
+-            .into_any_element()
 -    }
 -}
 diff --git a/crates/ai_onboarding/src/edit_prediction_onboarding_content.rs b/crates/ai_onboarding/src/edit_prediction_onboarding_content.rs
@@ -1486,7 +1498,7 @@ index c4a7887364..0000000000
 -    }
 -}
 diff --git a/crates/edit_prediction/Cargo.toml b/crates/edit_prediction/Cargo.toml
-index eb4cce9f65..86fcd667bf 100644
+index c92392bce6..8316b9a56b 100644
 --- a/crates/edit_prediction/Cargo.toml
 +++ b/crates/edit_prediction/Cargo.toml
 @@ -15,7 +15,6 @@ path = "src/edit_prediction.rs"
@@ -1498,10 +1510,10 @@ index eb4cce9f65..86fcd667bf 100644
  heapless.workspace = true
  buffer_diff.workspace = true
 diff --git a/crates/edit_prediction/src/edit_prediction.rs b/crates/edit_prediction/src/edit_prediction.rs
-index 651c391d49..ef2f40d276 100644
+index 3fab384a7d..c8b72688c4 100644
 --- a/crates/edit_prediction/src/edit_prediction.rs
 +++ b/crates/edit_prediction/src/edit_prediction.rs
-@@ -75,7 +75,6 @@ mod license_detection;
+@@ -78,7 +78,6 @@ mod license_detection;
  pub mod mercury;
  pub mod metrics;
  pub mod ollama;
@@ -1509,7 +1521,7 @@ index 651c391d49..ef2f40d276 100644
  pub mod open_ai_response;
  mod prediction;
  
-@@ -95,7 +94,6 @@ use crate::example_spec::RecentFile;
+@@ -103,7 +102,6 @@ use crate::jump_example::{
  use crate::license_detection::LicenseDetectionWatcher;
  use crate::mercury::Mercury;
  pub use crate::metrics::{KeptRateResult, compute_kept_rate};
@@ -1517,7 +1529,7 @@ index 651c391d49..ef2f40d276 100644
  pub use crate::prediction::EditPrediction;
  pub use crate::prediction::EditPredictionId;
  use crate::prediction::EditPredictionResult;
-@@ -3358,18 +3356,6 @@ pub fn should_show_upsell_modal(cx: &App) -> bool {
+@@ -3509,18 +3507,6 @@ pub fn should_show_upsell_modal(cx: &App) -> bool {
  
  pub fn init(cx: &mut App) {
      cx.observe_new(move |workspace: &mut Workspace, _, _cx| {
@@ -1692,7 +1704,7 @@ index 1971b7d6b1..0000000000
 -    }
 -}
 diff --git a/crates/language_models/Cargo.toml b/crates/language_models/Cargo.toml
-index b1bb51c1c4..92c191981f 100644
+index 484eda2731..3b723a1306 100644
 --- a/crates/language_models/Cargo.toml
 +++ b/crates/language_models/Cargo.toml
 @@ -12,7 +12,6 @@ workspace = true

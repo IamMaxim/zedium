@@ -10,7 +10,7 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
  2 files changed, 20 insertions(+), 60 deletions(-)
 
 diff --git a/crates/workspace/src/multi_workspace.rs b/crates/workspace/src/multi_workspace.rs
-index 3fba33cbce..6f9bf159b1 100644
+index b5ad2f6c7f..370baae685 100644
 --- a/crates/workspace/src/multi_workspace.rs
 +++ b/crates/workspace/src/multi_workspace.rs
 @@ -7,7 +7,7 @@ use gpui::{
@@ -22,7 +22,7 @@ index 3fba33cbce..6f9bf159b1 100644
  use remote::RemoteConnectionOptions;
  use settings::Settings;
  pub use settings::SidebarSide;
-@@ -323,9 +323,8 @@ impl MultiWorkspace {
+@@ -331,9 +331,8 @@ impl MultiWorkspace {
          });
          let quit_subscription = cx.on_app_quit(Self::app_will_quit);
          let settings_subscription = cx.observe_global_in::<settings::SettingsStore>(window, {
@@ -34,7 +34,7 @@ index 3fba33cbce..6f9bf159b1 100644
              move |this, window, cx| {
                  let multi_workspace_enabled = this.multi_workspace_enabled(cx);
                  if previous_multi_workspace_enabled && !multi_workspace_enabled {
-@@ -398,7 +397,7 @@ impl MultiWorkspace {
+@@ -408,7 +407,7 @@ impl MultiWorkspace {
      }
  
      pub fn multi_workspace_enabled(&self, cx: &App) -> bool {

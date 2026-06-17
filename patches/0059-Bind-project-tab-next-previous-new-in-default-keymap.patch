@@ -10,10 +10,10 @@ Subject: [PATCH] Bind project tab next/previous/new in default keymaps
  3 files changed, 6 insertions(+)
 
 diff --git a/assets/keymaps/default-linux.json b/assets/keymaps/default-linux.json
-index 8965c91f1c..6d9ef36888 100644
+index a31d122cf9..d5af986d51 100644
 --- a/assets/keymaps/default-linux.json
 +++ b/assets/keymaps/default-linux.json
-@@ -648,6 +648,8 @@
+@@ -640,6 +640,8 @@
        "ctrl-j": "workspace::ToggleBottomDock",
        "ctrl-alt-j": "multi_workspace::ToggleWorkspaceSidebar",
        "ctrl-alt-;": "multi_workspace::FocusWorkspaceSidebar",
@@ -23,10 +23,10 @@ index 8965c91f1c..6d9ef36888 100644
        "ctrl-alt-0": "workspace::ResetActiveDockSize",
        // For 0px parameter, uses UI font size value.
 diff --git a/assets/keymaps/default-macos.json b/assets/keymaps/default-macos.json
-index ec49c37ac7..32134781fe 100644
+index 43f5d0d83c..824b2d2078 100644
 --- a/assets/keymaps/default-macos.json
 +++ b/assets/keymaps/default-macos.json
-@@ -704,6 +704,8 @@
+@@ -695,6 +695,8 @@
        "cmd-j": "workspace::ToggleBottomDock",
        "cmd-alt-j": "multi_workspace::ToggleWorkspaceSidebar",
        "cmd-alt-;": "multi_workspace::FocusWorkspaceSidebar",
@@ -36,10 +36,10 @@ index ec49c37ac7..32134781fe 100644
        // For 0px parameter, uses UI font size value.
        "ctrl-alt-0": "workspace::ResetActiveDockSize",
 diff --git a/assets/keymaps/default-windows.json b/assets/keymaps/default-windows.json
-index c8b2b346c2..177353d936 100644
+index 4763b666fe..e1598e4f38 100644
 --- a/assets/keymaps/default-windows.json
 +++ b/assets/keymaps/default-windows.json
-@@ -640,6 +640,8 @@
+@@ -631,6 +631,8 @@
        "ctrl-j": "workspace::ToggleBottomDock",
        "ctrl-alt-j": "multi_workspace::ToggleWorkspaceSidebar",
        "ctrl-alt-;": "multi_workspace::FocusWorkspaceSidebar",

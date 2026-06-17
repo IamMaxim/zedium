@@ -48,10 +48,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  7 files changed, 55 insertions(+), 544 deletions(-)
 
 diff --git a/crates/agent_servers/src/custom.rs b/crates/agent_servers/src/custom.rs
-index 77c9595f17..ed76e80c23 100644
+index 376b5f1c2f..c656d0ccc1 100644
 --- a/crates/agent_servers/src/custom.rs
 +++ b/crates/agent_servers/src/custom.rs
-@@ -302,12 +302,6 @@ impl AgentServer for CustomAgentServer {
+@@ -216,12 +216,6 @@ impl AgentServer for CustomAgentServer {
                  .unwrap_or_default()
          });
  
@@ -65,7 +65,7 @@ index 77c9595f17..ed76e80c23 100644
          if delegate.store.read(cx).no_browser() {
              extra_env.insert("NO_BROWSER".to_owned(), "1".to_owned());
 diff --git a/crates/agent_ui/src/agent_registry_ui.rs b/crates/agent_ui/src/agent_registry_ui.rs
-index 7a0a4c7658..d8bc74058f 100644
+index 0112fcb79d..72d3efeea6 100644
 --- a/crates/agent_ui/src/agent_registry_ui.rs
 +++ b/crates/agent_ui/src/agent_registry_ui.rs
 @@ -119,8 +119,6 @@ impl AgentRegistryPage {
@@ -174,10 +174,10 @@ index 7a0a4c7658..d8bc74058f 100644
  
      fn render_agents(
 diff --git a/crates/agent_ui/src/agent_ui.rs b/crates/agent_ui/src/agent_ui.rs
-index a657d863af..02126c545d 100644
+index a1392d0602..a3d427f97a 100644
 --- a/crates/agent_ui/src/agent_ui.rs
 +++ b/crates/agent_ui/src/agent_ui.rs
-@@ -581,10 +581,6 @@ pub fn init(
+@@ -605,10 +605,6 @@ pub fn init(
                      .find_map(|item| item.downcast::<AgentRegistryPage>());
  
                  if let Some(existing) = existing {
@@ -189,10 +189,10 @@ index a657d863af..02126c545d 100644
                  } else {
                      let registry_page = AgentRegistryPage::new(workspace, window, cx);
 diff --git a/crates/extensions_ui/src/extensions_ui.rs b/crates/extensions_ui/src/extensions_ui.rs
-index b38286fa84..8a482f59ed 100644
+index 52dcdd2791..251ad9973f 100644
 --- a/crates/extensions_ui/src/extensions_ui.rs
 +++ b/crates/extensions_ui/src/extensions_ui.rs
-@@ -1434,50 +1434,6 @@ impl ExtensionsPage {
+@@ -1439,50 +1439,6 @@ impl ExtensionsPage {
              }
          }
  
@@ -694,10 +694,10 @@ index 8cfba22f6d..40f099651e 100644
  }
  
 diff --git a/crates/project/src/agent_server_store.rs b/crates/project/src/agent_server_store.rs
-index a61975faef..bfeb50af13 100644
+index caeb28612e..7e35977249 100644
 --- a/crates/project/src/agent_server_store.rs
 +++ b/crates/project/src/agent_server_store.rs
-@@ -307,15 +307,7 @@ impl AgentServerStore {
+@@ -312,15 +312,7 @@ impl AgentServerStore {
              .get::<AllAgentServersSettings>(None)
              .clone();
  

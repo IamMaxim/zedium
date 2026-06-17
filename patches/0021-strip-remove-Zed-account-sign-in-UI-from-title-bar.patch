@@ -15,9 +15,9 @@ user_store field (still used by project-host display).
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
  crates/title_bar/src/plan_chip.rs          |  44 ----
- crates/title_bar/src/title_bar.rs          | 287 +--------------------
+ crates/title_bar/src/title_bar.rs          | 264 +--------------------
  crates/title_bar/src/title_bar_settings.rs |   2 -
- 3 files changed, 8 insertions(+), 325 deletions(-)
+ 3 files changed, 8 insertions(+), 302 deletions(-)
  delete mode 100644 crates/title_bar/src/plan_chip.rs
 
 diff --git a/crates/title_bar/src/plan_chip.rs b/crates/title_bar/src/plan_chip.rs
@@ -71,7 +71,7 @@ index 237e507ed8..0000000000
 -    }
 -}
 diff --git a/crates/title_bar/src/title_bar.rs b/crates/title_bar/src/title_bar.rs
-index 01eed1ce96..401afd9766 100644
+index b73e7aae12..2cb92e39f4 100644
 --- a/crates/title_bar/src/title_bar.rs
 +++ b/crates/title_bar/src/title_bar.rs
 @@ -1,11 +1,8 @@
@@ -86,13 +86,13 @@ index 01eed1ce96..401afd9766 100644
  use arrayvec::ArrayVec;
  use git_ui::worktree_picker::WorktreePicker;
  pub use platform_title_bar::{
-@@ -19,14 +16,12 @@ use crate::application_menu::{
+@@ -19,14 +16,13 @@ use crate::application_menu::{
      ActivateDirection, ActivateMenuLeft, ActivateMenuRight, OpenApplicationMenu,
  };
  
 -use client::{Client, UserStore, zed_urls};
--use cloud_api_types::Plan;
 +use client::{Client, UserStore};
+ use command_palette_hooks::CommandPaletteFilter;
  
  use gpui::{
 -    Action, Anchor, Animation, AnimationExt, AnyElement, App, Context, Element, Entity, Focusable,
@@ -105,9 +105,9 @@ index 01eed1ce96..401afd9766 100644
  };
  use onboarding_banner::OnboardingBanner;
  use project::{
-@@ -37,18 +32,14 @@ use remote::RemoteConnectionOptions;
- use settings::Settings as _;
+@@ -38,18 +34,14 @@ use settings::{Settings as _, SettingsStore};
  
+ use std::any::TypeId;
  use std::sync::Arc;
 -use std::time::Duration;
  use theme::ActiveTheme;
@@ -127,7 +127,7 @@ index 01eed1ce96..401afd9766 100644
  
  use zed_actions::OpenRemote;
  
-@@ -266,21 +257,7 @@ impl Render for TitleBar {
+@@ -312,21 +304,7 @@ impl Render for TitleBar {
  
          let status = self.client.status();
          let status = &*status.borrow();
@@ -150,7 +150,7 @@ index 01eed1ce96..401afd9766 100644
  
          children.push(
              h_flex()
-@@ -294,29 +271,6 @@ impl Render for TitleBar {
+@@ -340,29 +318,6 @@ impl Render for TitleBar {
                  .gap_1()
                  .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                  .children(self.render_connection_status(status, cx))
@@ -180,7 +180,7 @@ index 01eed1ce96..401afd9766 100644
                  .into_any_element(),
          );
  
-@@ -1020,229 +974,4 @@ impl TitleBar {
+@@ -1051,207 +1006,4 @@ impl TitleBar {
              _ => None,
          }
      }
@@ -207,32 +207,24 @@ index 01eed1ce96..401afd9766 100644
 -    pub fn render_user_menu_button(&mut self, cx: &mut Context<Self>) -> impl Element {
 -        let user_store = self.user_store.clone();
 -        let workspace = self.workspace.clone();
--        let user_store_read = user_store.read(cx);
--        let user = user_store_read.current_user();
+-        let user = user_store.read(cx).current_user();
 -
 -        let user_avatar = user.as_ref().map(|u| u.avatar_uri.clone());
 -        let user_login = user.as_ref().map(|u| u.github_login.clone());
 -
 -        let is_signed_in = user.is_some();
 -
--        let has_subscription_period = user_store_read.subscription_period().is_some();
--        let plan = user_store_read.plan().filter(|_| {
--            // Since the user might be on the legacy free plan we filter based on whether we have a subscription period.
--            has_subscription_period
--        });
--
--        let has_organization = user_store_read.current_organization().is_some();
--
--        let current_organization = user_store_read.current_organization();
+-        let current_organization = user_store.read(cx).current_organization();
 -        let business_organization = current_organization
 -            .as_ref()
 -            .filter(|organization| !organization.is_personal);
--        let organizations: Vec<_> = user_store_read
+-        let organizations: Vec<_> = user_store
+-            .read(cx)
 -            .organizations()
 -            .iter()
--            .map(|org| {
--                let plan = user_store_read.plan_for_organization(&org.id);
--                (org.clone(), plan)
+-            .map(|organization| {
+-                let plan = user_store.read(cx).plan_for_organization(&organization.id);
+-                (organization.clone(), plan)
 -            })
 -            .collect();
 -
@@ -268,7 +260,6 @@ index 01eed1ce96..401afd9766 100644
 -                let is_editor = matches!(current_layout, WindowLayout::Editor(_));
 -                let is_agent = matches!(current_layout, WindowLayout::Agent(_));
 -                let is_custom = matches!(current_layout, WindowLayout::Custom(_));
--                let fs = <dyn fs::Fs>::global(cx);
 -
 -                ContextMenu::build(window, cx, |menu, _, _cx| {
 -                    menu.when(is_signed_in, |this| {
@@ -281,9 +272,6 @@ index 01eed1ce96..401afd9766 100644
 -                                    .w_full()
 -                                    .justify_between()
 -                                    .child(Label::new(user_login))
--                                    .when(!has_organization, |parent| {
--                                        parent.child(PlanChip::new(plan.unwrap_or(Plan::ZedFree)))
--                                    })
 -                                    .into_any_element()
 -                            },
 -                            move |_, cx| {
@@ -292,7 +280,7 @@ index 01eed1ce96..401afd9766 100644
 -                        )
 -                        .separator()
 -                    })
--                    .when(has_organization, |this| {
+-                    .map(|this| {
 -                        let mut this = this.header("Organization");
 -
 -                        for (organization, plan) in &organizations {
@@ -361,36 +349,26 @@ index 01eed1ce96..401afd9766 100644
 -                        zed_actions::Extensions::default().boxed_clone(),
 -                    )
 -                    .when(ai_enabled, |menu| {
--                        let fs = fs.clone();
 -                        menu.separator()
 -                            .submenu("Panel Layout", move |menu, _window, _cx| {
--                                let fs = fs.clone();
 -                                menu.toggleable_entry(
 -                                    "Classic",
 -                                    is_editor,
 -                                    IconPosition::Start,
--                                    None,
--                                    {
--                                        let fs = fs.clone();
--                                        move |_window, cx| {
--                                            drop(AgentSettings::set_layout(
--                                                WindowLayout::Editor(None),
--                                                fs.clone(),
--                                                cx,
--                                            ));
--                                        }
+-                                    Some(UseClassicLayout.boxed_clone()),
+-                                    move |window, cx| {
+-                                        window.dispatch_action(UseClassicLayout.boxed_clone(), cx);
 -                                    },
 -                                )
--                                .toggleable_entry("Agentic", is_agent, IconPosition::Start, None, {
--                                    let fs = fs.clone();
--                                    move |_window, cx| {
--                                        drop(AgentSettings::set_layout(
--                                            WindowLayout::Agent(None),
--                                            fs.clone(),
--                                            cx,
--                                        ));
--                                    }
--                                })
+-                                .toggleable_entry(
+-                                    "Agentic",
+-                                    is_agent,
+-                                    IconPosition::Start,
+-                                    Some(UseAgenticLayout.boxed_clone()),
+-                                    move |window, cx| {
+-                                        window.dispatch_action(UseAgenticLayout.boxed_clone(), cx);
+-                                    },
+-                                )
 -                                .when(is_custom, |menu| {
 -                                    menu.item(
 -                                        ContextMenuEntry::new("Custom")

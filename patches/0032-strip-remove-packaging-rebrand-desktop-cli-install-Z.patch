@@ -71,10 +71,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  delete mode 100644 crates/zed/resources/windows/zed.sh
 
 diff --git a/crates/cli/src/main.rs b/crates/cli/src/main.rs
-index a033e3c7ed..3a1cadcd6f 100644
+index cf391f735d..9147814e09 100644
 --- a/crates/cli/src/main.rs
 +++ b/crates/cli/src/main.rs
-@@ -869,10 +869,10 @@ mod linux {
+@@ -877,10 +877,10 @@ mod linux {
                  let cli = env::current_exe()?;
                  let dir = cli.parent().context("no parent path for cli")?;
  
@@ -88,7 +88,7 @@ index a033e3c7ed..3a1cadcd6f 100644
                  possible_locations
                      .iter()
                      .find_map(|p| dir.join(p).canonicalize().ok().filter(|path| path != &cli))
-@@ -1037,7 +1037,7 @@ mod flatpak {
+@@ -1045,7 +1045,7 @@ mod flatpak {
  
              if !is_app_location_set {
                  args.push("--zed".into());
@@ -97,7 +97,7 @@ index a033e3c7ed..3a1cadcd6f 100644
              }
  
              let error = exec::execvp("/usr/bin/flatpak-spawn", args);
-@@ -1048,11 +1048,11 @@ mod flatpak {
+@@ -1056,11 +1056,11 @@ mod flatpak {
  
      pub fn set_bin_if_no_escape(mut args: super::Args) -> super::Args {
          if env::var(NO_ESCAPE_ENV_NAME).is_ok()
@@ -112,7 +112,7 @@ index a033e3c7ed..3a1cadcd6f 100644
          }
          args
      }
-@@ -1207,9 +1207,10 @@ mod windows {
+@@ -1215,9 +1215,10 @@ mod windows {
                  let cli = std::env::current_exe()?;
                  let dir = cli.parent().context("no parent path for cli")?;
  
@@ -125664,7 +125664,7 @@ deleted file mode 100644
 index e69de29bb2..0000000000
 diff --git a/crates/zed/resources/flatpak/zed.metainfo.xml.in b/crates/zed/resources/flatpak/zed.metainfo.xml.in
 deleted file mode 100644
-index b8a88d9221..0000000000
+index ec31f4c285..0000000000
 --- a/crates/zed/resources/flatpak/zed.metainfo.xml.in
 +++ /dev/null
 @@ -1,85 +0,0 @@
@@ -125672,7 +125672,7 @@ index b8a88d9221..0000000000
 -<component type="desktop-application">
 -    <id>$APP_ID</id>
 -    <metadata_license>MIT</metadata_license>
--    <project_license>AGPL-3.0-or-later and Apache-2.0 and GPL-3.0-or-later</project_license>
+-    <project_license>Apache-2.0 and GPL-3.0-or-later</project_license>
 -
 -    <name>$APP_NAME</name>
 -    <summary>High-performance, multiplayer code editor</summary>

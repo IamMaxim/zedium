@@ -42,7 +42,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  3 files changed, 8 insertions(+), 118 deletions(-)
 
 diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
-index 23aa6ea836..2d641aa945 100644
+index 78251d8c0a..e0c6f2c339 100644
 --- a/crates/client/src/client.rs
 +++ b/crates/client/src/client.rs
 @@ -10,7 +10,7 @@ use anyhow::{Context as _, Result, anyhow};
@@ -190,10 +190,10 @@ index 23aa6ea836..2d641aa945 100644
  
      #[test]
 diff --git a/crates/http_client/src/http_client.rs b/crates/http_client/src/http_client.rs
-index 9228c2fe13..0548d3784e 100644
+index 0ebb6189a9..44701bd88a 100644
 --- a/crates/http_client/src/http_client.rs
 +++ b/crates/http_client/src/http_client.rs
-@@ -12,7 +12,6 @@ pub use http::{self, Method, Request, Response, StatusCode, Uri, request::Builde
+@@ -12,7 +12,6 @@ use http::{HeaderName, HeaderValue};
  
  use futures::future::BoxFuture;
  use parking_lot::Mutex;
@@ -201,7 +201,7 @@ index 9228c2fe13..0548d3784e 100644
  use std::sync::Arc;
  #[cfg(feature = "test-support")]
  use std::{any::type_name, fmt};
-@@ -209,48 +208,6 @@ impl HttpClientWithUrl {
+@@ -261,48 +260,6 @@ impl HttpClientWithUrl {
      pub fn build_url(&self, path: &str) -> String {
          format!("{}{}", self.base_url(), path)
      }

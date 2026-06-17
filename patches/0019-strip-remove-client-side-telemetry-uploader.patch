@@ -23,7 +23,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
  Cargo.lock                                    |   4 +
  crates/agent_ui/src/inline_prompt_editor.rs   |  10 -
- crates/client/src/client.rs                   |  40 +-
+ crates/client/src/client.rs                   |  28 +-
  crates/client/src/telemetry.rs                | 955 ------------------
  .../client/src/telemetry/event_coalescer.rs   | 283 ------
  crates/client/src/user.rs                     |  46 +-
@@ -39,16 +39,16 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  crates/zed/src/zed.rs                         |   4 -
  crates/zed/src/zed/app_menus.rs               |   1 -
  crates/zed/src/zed/telemetry_log.rs           | 625 ------------
- 18 files changed, 127 insertions(+), 2139 deletions(-)
+ 18 files changed, 130 insertions(+), 2124 deletions(-)
  delete mode 100644 crates/client/src/telemetry.rs
  delete mode 100644 crates/client/src/telemetry/event_coalescer.rs
  delete mode 100644 crates/zed/src/zed/telemetry_log.rs
 
 diff --git a/Cargo.lock b/Cargo.lock
-index a3aea1f5b7..4629cff565 100644
+index aabaf2e59d..1cfbff5c27 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -18330,11 +18330,15 @@ dependencies = [
+@@ -17993,11 +17993,15 @@ dependencies = [
   "anyhow",
   "gpui",
   "human_bytes",
@@ -65,10 +65,10 @@ index a3aea1f5b7..4629cff565 100644
  
  [[package]]
 diff --git a/crates/agent_ui/src/inline_prompt_editor.rs b/crates/agent_ui/src/inline_prompt_editor.rs
-index 4b880992d6..0b4107639c 100644
+index cfee7135e6..d9faf4b6d7 100644
 --- a/crates/agent_ui/src/inline_prompt_editor.rs
 +++ b/crates/agent_ui/src/inline_prompt_editor.rs
-@@ -439,16 +439,6 @@ impl<T: 'static> PromptEditor<T> {
+@@ -438,16 +438,6 @@ impl<T: 'static> PromptEditor<T> {
                  self.mention_set
                      .update(cx, |mention_set, _cx| mention_set.remove_invalid(&snapshot));
  
@@ -86,7 +86,7 @@ index 4b880992d6..0b4107639c 100644
                  if self
                      .prompt_history_ix
 diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
-index 6ea00eac90..963b2964bb 100644
+index 0238cc33c2..a199546af0 100644
 --- a/crates/client/src/client.rs
 +++ b/crates/client/src/client.rs
 @@ -3,7 +3,6 @@ pub mod test;
@@ -130,25 +130,20 @@ index 6ea00eac90..963b2964bb 100644
      credentials_provider: ClientCredentialsProvider,
      state: RwLock<ClientState>,
      handler_set: Mutex<ProtoMessageHandlerSet>,
-@@ -536,31 +532,15 @@ impl<T: 'static> Drop for PendingEntitySubscription<T> {
+@@ -536,6 +532,7 @@ impl<T: 'static> Drop for PendingEntitySubscription<T> {
      }
  }
  
--#[derive(Copy, Clone, Deserialize, Debug, RegisterSetting)]
--pub struct TelemetrySettings {
--    pub diagnostics: bool,
--    pub metrics: bool,
--}
--
--impl settings::Settings for TelemetrySettings {
--    fn from_settings(content: &SettingsContent) -> Self {
--        Self {
--            diagnostics: content.telemetry.as_ref().unwrap().diagnostics.unwrap(),
--            metrics: content.telemetry.as_ref().unwrap().metrics.unwrap(),
--        }
--    }
--}
--
++<<<<<<< HEAD
+ #[derive(Copy, Clone, Deserialize, Debug, RegisterSetting)]
+ pub struct TelemetrySettings {
+     pub diagnostics: bool,
+@@ -554,16 +551,17 @@ impl settings::Settings for TelemetrySettings {
+     }
+ }
+ 
++=======
++>>>>>>> 8cda407bd5 (strip: remove client-side telemetry uploader)
  impl Client {
      pub fn new(
 -        clock: Arc<dyn SystemClock>,
@@ -163,7 +158,7 @@ index 6ea00eac90..963b2964bb 100644
              cloud_client: Arc::new(CloudApiClient::new(http.clone())),
              http,
              credentials_provider: ClientCredentialsProvider::new(cx),
-@@ -737,7 +717,6 @@ impl Client {
+@@ -740,7 +738,6 @@ impl Client {
                  }));
              }
              Status::SignedOut | Status::UpgradeRequired => {
@@ -171,7 +166,7 @@ index 6ea00eac90..963b2964bb 100644
                  state._reconnect_task.take();
                  state._cloud_connection_task.take();
              }
-@@ -1293,8 +1272,8 @@ impl Client {
+@@ -1296,8 +1293,8 @@ impl Client {
          let user_agent = http.user_agent().cloned();
          let credentials = credentials.clone();
          let rpc_url = self.rpc_url(http, release_channel);
@@ -182,7 +177,7 @@ index 6ea00eac90..963b2964bb 100644
          cx.spawn(async move |cx| {
              use HttpOrHttps::*;
  
-@@ -1444,7 +1423,7 @@ impl Client {
+@@ -1447,7 +1444,7 @@ impl Client {
                          serde_urlencoded::to_string(&NativeAppSignInQueryParams {
                              native_app_port: port,
                              native_app_public_key: public_key,
@@ -191,34 +186,34 @@ index 6ea00eac90..963b2964bb 100644
                          })?
                      ));
  
-@@ -1565,7 +1544,7 @@ impl Client {
+@@ -1568,7 +1565,7 @@ impl Client {
          llm_token: &LlmApiToken,
-         organization_id: Option<OrganizationId>,
+         organization_id: OrganizationId,
      ) -> Result<String> {
 -        let system_id = self.telemetry().system_id().map(|x| x.to_string());
 +        let system_id: Option<String> = None;
          let cloud_client = self.cloud_client();
          match llm_token
              .cached(&cloud_client, system_id, organization_id)
-@@ -1610,7 +1589,7 @@ impl Client {
+@@ -1613,7 +1610,7 @@ impl Client {
          llm_token: &LlmApiToken,
-         organization_id: Option<OrganizationId>,
+         organization_id: OrganizationId,
      ) -> Result<String> {
 -        let system_id = self.telemetry().system_id().map(|x| x.to_string());
 +        let system_id: Option<String> = None;
          let cloud_client = self.cloud_client();
          match llm_token
              .refresh(&cloud_client, system_id, organization_id)
-@@ -1630,7 +1609,7 @@ impl Client {
+@@ -1633,7 +1630,7 @@ impl Client {
          llm_token: &LlmApiToken,
-         organization_id: Option<OrganizationId>,
+         organization_id: OrganizationId,
      ) -> Result<String> {
 -        let system_id = self.telemetry().system_id().map(|x| x.to_string());
 +        let system_id: Option<String> = None;
          let cloud_client = self.cloud_client();
          match llm_token
              .clear_and_refresh(&cloud_client, system_id, organization_id)
-@@ -1822,9 +1801,6 @@ impl Client {
+@@ -1825,9 +1822,6 @@ impl Client {
          });
      }
  
@@ -1581,10 +1576,10 @@ index c05518cdba..eff77fd3d5 100644
                      cx.update(|cx| {
                          this.update(cx, |this, cx| {
 diff --git a/crates/editor/src/editor.rs b/crates/editor/src/editor.rs
-index 75824795a4..e47e172ac1 100644
+index 136b2ece7d..4ae52f1654 100644
 --- a/crates/editor/src/editor.rs
 +++ b/crates/editor/src/editor.rs
-@@ -9306,15 +9306,6 @@ impl Editor {
+@@ -9364,15 +9364,6 @@ impl Editor {
  
                  cx.emit(EditorEvent::BufferEdited);
                  cx.emit(SearchEvent::MatchesInvalidated);
@@ -1646,7 +1641,7 @@ index 8c6b21d5cb..1f48c4f40c 100644
              tasks: Vec::new(),
  
 diff --git a/crates/extension_host/src/extension_store_test.rs b/crates/extension_host/src/extension_store_test.rs
-index 011e1a1d6b..f60434b15f 100644
+index 6868701eb9..9b1a745c0f 100644
 --- a/crates/extension_host/src/extension_store_test.rs
 +++ b/crates/extension_host/src/extension_store_test.rs
 @@ -288,7 +288,6 @@ async fn test_extension_store(cx: &mut TestAppContext) {
@@ -1674,7 +1669,7 @@ index 011e1a1d6b..f60434b15f 100644
              cx,
          )
 diff --git a/crates/onboarding/src/basics_page.rs b/crates/onboarding/src/basics_page.rs
-index 8474261f46..2968c08b6c 100644
+index 7ff60ef831..6965b46006 100644
 --- a/crates/onboarding/src/basics_page.rs
 +++ b/crates/onboarding/src/basics_page.rs
 @@ -1,7 +1,7 @@
@@ -1782,7 +1777,7 @@ index 8474261f46..2968c08b6c 100644
  fn render_base_keymap_section(tab_index: &mut isize, cx: &mut App) -> impl IntoElement {
      let base_keymap = match BaseKeymap::get_global(cx) {
          BaseKeymap::VSCode => Some(0),
-@@ -679,6 +599,4 @@ pub(crate) fn render_basics_page(user_store: &Entity<UserStore>, cx: &mut App) -
+@@ -677,6 +597,4 @@ pub(crate) fn render_basics_page(user_store: &Entity<UserStore>, cx: &mut App) -
          .child(render_import_settings_section(&mut tab_index, cx))
          .child(render_vim_mode_switch(&mut tab_index, cx))
          .child(render_worktree_auto_trust_switch(&mut tab_index, cx))
@@ -1790,10 +1785,10 @@ index 8474261f46..2968c08b6c 100644
 -        .child(render_telemetry_section(&mut tab_index, cx))
  }
 diff --git a/crates/project/src/project.rs b/crates/project/src/project.rs
-index 8544e0b833..bbdd9996f0 100644
+index 061f8265ab..0783602e03 100644
 --- a/crates/project/src/project.rs
 +++ b/crates/project/src/project.rs
-@@ -3766,9 +3766,6 @@ impl Project {
+@@ -3782,9 +3782,6 @@ impl Project {
              WorktreeStoreEvent::WorktreeOrderChanged => cx.emit(Event::WorktreeOrderChanged),
              WorktreeStoreEvent::WorktreeUpdateSent(_) => {}
              WorktreeStoreEvent::WorktreeUpdatedEntries(worktree_id, changes) => {
@@ -1925,10 +1920,10 @@ index 2c7a169ef0..4ddbd2faf3 100644
      zed,
      [
 diff --git a/crates/terminal_view/src/terminal_element.rs b/crates/terminal_view/src/terminal_element.rs
-index 99918d4784..98f95944ef 100644
+index cd0ed9241f..6aa9f7f5a2 100644
 --- a/crates/terminal_view/src/terminal_element.rs
 +++ b/crates/terminal_view/src/terminal_element.rs
-@@ -1532,11 +1532,8 @@ impl InputHandler for TerminalInputHandler {
+@@ -1570,11 +1570,8 @@ impl InputHandler for TerminalInputHandler {
          });
  
          self.workspace
@@ -1942,7 +1937,7 @@ index 99918d4784..98f95944ef 100644
              .ok();
      }
 diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
-index b175c77617..09beafe35f 100644
+index 6a3bef89b1..e356f3392b 100644
 --- a/crates/zed/src/main.rs
 +++ b/crates/zed/src/main.rs
 @@ -23,11 +23,11 @@ use cli::FORCE_CLI_MODE_ENV_VAR_NAME;
@@ -1977,7 +1972,7 @@ index b175c77617..09beafe35f 100644
  use uuid::Uuid;
  use workspace::{
      AppState, MultiWorkspace, SerializedWorkspaceLocation, SessionWorkspace, Toast,
-@@ -310,8 +310,8 @@ fn main() {
+@@ -308,8 +308,8 @@ fn main() {
              app_version,
              app_commit_sha,
              *release_channel::RELEASE_CHANNEL,
@@ -1988,8 +1983,8 @@ index b175c77617..09beafe35f 100644
          );
          println!("Zed System Specs (from CLI):\n{}", system_specs);
          return;
-@@ -341,10 +341,6 @@ fn main() {
-         Application::with_platform(gpui_platform::current_platform(false)).with_assets(Assets);
+@@ -338,10 +338,6 @@ fn main() {
+     let app = build_application().with_assets(Assets);
  
      let app_db = db::AppDatabase::new();
 -    let system_id = app.background_executor().spawn(system_id());
@@ -1999,7 +1994,7 @@ index b175c77617..09beafe35f 100644
      let session_id = Uuid::new_v4().to_string();
      let session = app.background_executor().spawn(Session::new(
          session_id.clone(),
-@@ -593,30 +589,10 @@ fn main() {
+@@ -590,30 +586,10 @@ fn main() {
          client::init(&client, cx);
          feature_flags::FeatureFlagStore::init(cx);
  
@@ -2031,7 +2026,7 @@ index b175c77617..09beafe35f 100644
          let app_session = cx.new(|cx| AppSession::new(session, cx));
  
          let app_state = Arc::new(AppState {
-@@ -657,7 +633,6 @@ fn main() {
+@@ -654,7 +630,6 @@ fn main() {
          );
          language_models::init(app_state.user_store.clone(), app_state.client.clone(), cx);
          acp_tools::init(cx);
@@ -2039,7 +2034,7 @@ index b175c77617..09beafe35f 100644
          zed::remote_debug::init(cx);
          edit_prediction_ui::init(cx);
          web_search::init(cx);
-@@ -783,7 +758,6 @@ fn main() {
+@@ -779,7 +754,6 @@ fn main() {
              }
          })
          .detach();
@@ -2047,7 +2042,7 @@ index b175c77617..09beafe35f 100644
  
          let fs = app_state.fs.clone();
          load_user_themes_in_background(fs.clone(), cx);
-@@ -1370,43 +1344,6 @@ async fn authenticate(client: Arc<Client>, cx: &AsyncApp) -> Result<()> {
+@@ -1384,43 +1358,6 @@ async fn authenticate(client: Arc<Client>, cx: &AsyncApp) -> Result<()> {
      Ok(())
  }
  
@@ -2091,7 +2086,7 @@ index b175c77617..09beafe35f 100644
  pub(crate) async fn restore_or_create_workspace(
      app_state: Arc<AppState>,
      cx: &mut AsyncApp,
-@@ -1789,20 +1726,6 @@ struct Args {
+@@ -1798,20 +1735,6 @@ struct Args {
      etw_socket: Option<String>,
  }
  
@@ -2113,7 +2108,7 @@ index b175c77617..09beafe35f 100644
      match std::fs::canonicalize(Path::new(&arg)) {
          Ok(path) => format!("file://{}", path.display()),
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index 92b2c4d3ef..4f8c15592f 100644
+index 0a9608f73c..2d7a72b460 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
 @@ -9,7 +9,6 @@ mod open_listener;
@@ -2124,7 +2119,7 @@ index 92b2c4d3ef..4f8c15592f 100644
  #[cfg(all(target_os = "macos", feature = "visual-tests"))]
  pub mod visual_tests;
  #[cfg(target_os = "windows")]
-@@ -1315,9 +1314,6 @@ fn initialize_pane(
+@@ -1373,9 +1372,6 @@ fn initialize_pane(
              toolbar.add_item(dap_log_item, window, cx);
              let acp_tools_item = cx.new(|_| acp_tools::AcpToolsToolbarItemView::new());
              toolbar.add_item(acp_tools_item, window, cx);
@@ -2135,10 +2130,10 @@ index 92b2c4d3ef..4f8c15592f 100644
              toolbar.add_item(syntax_tree_item, window, cx);
              let migration_banner =
 diff --git a/crates/zed/src/zed/app_menus.rs b/crates/zed/src/zed/app_menus.rs
-index 91878af680..4e264d3861 100644
+index ba81a0a243..c08e4d1acb 100644
 --- a/crates/zed/src/zed/app_menus.rs
 +++ b/crates/zed/src/zed/app_menus.rs
-@@ -293,7 +293,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
+@@ -282,7 +282,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
              name: "Help".into(),
              disabled: false,
              items: vec![
@@ -2148,7 +2143,7 @@ index 91878af680..4e264d3861 100644
                  MenuItem::separator(),
 diff --git a/crates/zed/src/zed/telemetry_log.rs b/crates/zed/src/zed/telemetry_log.rs
 deleted file mode 100644
-index 062fd5f0f2..0000000000
+index a935e29d94..0000000000
 --- a/crates/zed/src/zed/telemetry_log.rs
 +++ /dev/null
 @@ -1,625 +0,0 @@
@@ -2672,7 +2667,7 @@ index 062fd5f0f2..0000000000
 -            } else {
 -                div()
 -                    .size_full()
--                    .flex_grow()
+-                    .flex_grow_1()
 -                    .child(
 -                        list(self.list_state.clone(), cx.processor(Self::render_entry))
 -                            .with_sizing_behavior(gpui::ListSizingBehavior::Auto)

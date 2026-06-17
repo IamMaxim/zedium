@@ -49,17 +49,17 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  crates/call/src/call_impl/diagnostics.rs      |  232 -
  crates/call/src/call_impl/mod.rs              |  806 --
  crates/call/src/call_impl/participant.rs      |   51 -
- crates/call/src/call_impl/room.rs             | 1885 -----
+ crates/call/src/call_impl/room.rs             | 1886 -----
  crates/call/src/call_settings.rs              |   17 -
  crates/collab/.env.toml                       |   18 -
- crates/collab/Cargo.toml                      |  138 -
- crates/collab/LICENSE-AGPL                    |    1 -
+ crates/collab/Cargo.toml                      |  137 -
+ crates/collab/LICENSE-GPL                     |    1 -
  crates/collab/README.md                       |   65 -
  crates/collab/k8s/collab.template.yml         |  178 -
  crates/collab/k8s/environments/production.sh  |    2 -
  crates/collab/k8s/environments/staging.sh     |    3 -
- .../20221109000000_test_schema.sql            |  447 -
- .../migrations/20251208000000_test_schema.sql |  850 --
+ .../20221109000000_test_schema.sql            |  445 -
+ .../migrations/20251208000000_test_schema.sql |  846 --
  crates/collab/seed.default.json               |   33 -
  crates/collab/seed/github_users.json          |  602 --
  crates/collab/src/api.rs                      |   74 -
@@ -68,7 +68,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  crates/collab/src/auth.rs                     |   86 -
  crates/collab/src/bin/dotenv.rs               |   12 -
  crates/collab/src/completion.rs               |    2 -
- crates/collab/src/db.rs                       |  777 --
+ crates/collab/src/db.rs                       |  770 --
  crates/collab/src/db/ids.rs                   |  315 -
  crates/collab/src/db/queries.rs               |   13 -
  crates/collab/src/db/queries/buffers.rs       | 1049 ---
@@ -78,11 +78,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  .../src/db/queries/dev_server_projects.rs     |    1 -
  crates/collab/src/db/queries/extensions.rs    |  403 -
  crates/collab/src/db/queries/notifications.rs |  281 -
- crates/collab/src/db/queries/projects.rs      | 1398 ----
- crates/collab/src/db/queries/rooms.rs         | 1433 ----
+ crates/collab/src/db/queries/projects.rs      | 1401 ----
+ crates/collab/src/db/queries/rooms.rs         | 1434 ----
  crates/collab/src/db/queries/servers.rs       |  230 -
- .../collab/src/db/queries/shared_threads.rs   |   77 -
- crates/collab/src/db/queries/users.rs         |   43 -
+ .../collab/src/db/queries/shared_threads.rs   |   76 -
+ crates/collab/src/db/queries/users.rs         |   36 -
  crates/collab/src/db/tables.rs                |   29 -
  crates/collab/src/db/tables/buffer.rs         |   48 -
  .../collab/src/db/tables/buffer_operation.rs  |   34 -
@@ -96,7 +96,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  crates/collab/src/db/tables/extension.rs      |   27 -
  .../collab/src/db/tables/extension_version.rs |  102 -
  crates/collab/src/db/tables/follower.rs       |   50 -
- .../collab/src/db/tables/language_server.rs   |   32 -
+ .../collab/src/db/tables/language_server.rs   |   33 -
  crates/collab/src/db/tables/notification.rs   |   29 -
  .../collab/src/db/tables/notification_kind.rs |   15 -
  .../src/db/tables/observed_buffer_edits.rs    |   43 -
@@ -108,7 +108,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  .../collab/src/db/tables/room_participant.rs  |   62 -
  crates/collab/src/db/tables/server.rs         |   15 -
  crates/collab/src/db/tables/shared_thread.rs  |   32 -
- crates/collab/src/db/tables/user.rs           |   45 -
+ crates/collab/src/db/tables/user.rs           |   43 -
  crates/collab/src/db/tables/worktree.rs       |   37 -
  .../db/tables/worktree_diagnostic_summary.rs  |   21 -
  crates/collab/src/db/tables/worktree_entry.rs |   31 -
@@ -131,22 +131,22 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  .../collab/tests/integration/channel_tests.rs | 1476 ----
  .../tests/integration/collab_panel_tests.rs   |  356 -
  .../collab/tests/integration/collab_tests.rs  |   54 -
- crates/collab/tests/integration/db_tests.rs   |  221 -
- .../integration/db_tests/buffer_tests.rs      |  352 -
- .../integration/db_tests/channel_tests.rs     | 1029 ---
- .../tests/integration/db_tests/db_tests.rs    |  377 -
+ crates/collab/tests/integration/db_tests.rs   |  209 -
+ .../integration/db_tests/buffer_tests.rs      |  302 -
+ .../integration/db_tests/channel_tests.rs     |  969 ---
+ .../tests/integration/db_tests/db_tests.rs    |  348 -
  .../integration/db_tests/extension_tests.rs   |  131 -
  .../tests/integration/db_tests/migrations.rs  |   47 -
- .../collab/tests/integration/editor_tests.rs  | 6069 --------------
+ .../collab/tests/integration/editor_tests.rs  | 6251 --------------
  .../tests/integration/following_tests.rs      | 2486 ------
- crates/collab/tests/integration/git_tests.rs  | 1407 ----
- .../tests/integration/integration_tests.rs    | 7303 -----------------
+ crates/collab/tests/integration/git_tests.rs  | 1405 ----
+ .../tests/integration/integration_tests.rs    | 7404 -----------------
  .../tests/integration/notification_tests.rs   |  164 -
  .../random_channel_buffer_tests.rs            |  285 -
  .../random_project_collaboration_tests.rs     | 1687 ----
- .../integration/randomized_test_helpers.rs    |  700 --
- .../remote_editing_collaboration_tests.rs     | 1626 ----
- .../collab/tests/integration/test_server.rs   |  975 ---
+ .../integration/randomized_test_helpers.rs    |  694 --
+ .../remote_editing_collaboration_tests.rs     | 1773 ----
+ .../collab/tests/integration/test_server.rs   |  972 ---
  crates/collab_ui/Cargo.toml                   |   77 -
  crates/collab_ui/LICENSE-GPL                  |    1 -
  crates/collab_ui/src/call_stats_modal.rs      |  270 -
@@ -159,8 +159,8 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  .../incoming_call_notification.rs             |  134 -
  .../project_shared_notification.rs            |  151 -
  crates/collab_ui/src/panel_settings.rs        |   23 -
- crates/git_ui/Cargo.toml                      |    1 -
- crates/git_ui/src/git_panel.rs                |   68 +-
+ crates/git_ui/Cargo.toml                      |    2 -
+ crates/git_ui/src/git_panel.rs                |   74 +-
  crates/livekit_api/Cargo.toml                 |   30 -
  crates/livekit_api/LICENSE-GPL                |    1 -
  crates/livekit_api/build.rs                   |    9 -
@@ -183,7 +183,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  crates/livekit_client/src/lib.rs              |  253 -
  crates/livekit_client/src/livekit_client.rs   |  562 --
  .../src/livekit_client/linux.rs               |  203 -
- .../src/livekit_client/playback.rs            | 1107 ---
+ .../src/livekit_client/playback.rs            | 1038 ---
  crates/livekit_client/src/mock_client.rs      |   39 -
  .../src/mock_client/participant.rs            |  222 -
  .../src/mock_client/publication.rs            |   91 -
@@ -192,14 +192,14 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  .../src/remote_video_track_view.rs            |  109 -
  crates/livekit_client/src/test.rs             |  855 --
  crates/title_bar/Cargo.toml                   |    4 -
- crates/title_bar/src/collab.rs                |  707 --
+ crates/title_bar/src/collab.rs                |  765 --
  crates/title_bar/src/title_bar.rs             |   63 -
  crates/zed/Cargo.toml                         |    3 -
  crates/zed/src/main.rs                        |   19 +-
  crates/zed/src/visual_test_runner.rs          |    1 -
  crates/zed/src/zed.rs                         |   11 -
  crates/zed/src/zed/app_menus.rs               |    2 -
- 157 files changed, 8 insertions(+), 62567 deletions(-)
+ 157 files changed, 5 insertions(+), 62816 deletions(-)
  delete mode 100644 crates/call/Cargo.toml
  delete mode 120000 crates/call/LICENSE-GPL
  delete mode 100644 crates/call/src/call.rs
@@ -210,7 +210,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  delete mode 100644 crates/call/src/call_settings.rs
  delete mode 100644 crates/collab/.env.toml
  delete mode 100644 crates/collab/Cargo.toml
- delete mode 120000 crates/collab/LICENSE-AGPL
+ delete mode 120000 crates/collab/LICENSE-GPL
  delete mode 100644 crates/collab/README.md
  delete mode 100644 crates/collab/k8s/collab.template.yml
  delete mode 100644 crates/collab/k8s/environments/production.sh
@@ -349,18 +349,18 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  delete mode 100644 crates/title_bar/src/collab.rs
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 8efedabe9a..efb5a0878c 100644
+index 88a1a32e0f..7140522628 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -22,7 +22,6 @@ members = [
-     "crates/bedrock",
+@@ -23,7 +23,6 @@ members = [
+     "crates/benchmarks",
      "crates/breadcrumbs",
      "crates/buffer_diff",
 -    "crates/call",
      "crates/channel",
      "crates/cli",
      "crates/client",
-@@ -31,8 +30,6 @@ members = [
+@@ -32,8 +31,6 @@ members = [
      "crates/cloud_api_types",
      "crates/cloud_llm_client",
      "crates/codestral",
@@ -369,7 +369,7 @@ index 8efedabe9a..efb5a0878c 100644
      "crates/collections",
      "crates/command_palette",
      "crates/command_palette_hooks",
-@@ -124,8 +121,6 @@ members = [
+@@ -123,8 +120,6 @@ members = [
      "crates/language_tools",
      "crates/languages",
      "crates/line_ending_selector",
@@ -378,7 +378,7 @@ index 8efedabe9a..efb5a0878c 100644
      "crates/lmstudio",
      "crates/lsp",
      "crates/markdown",
-@@ -287,7 +282,6 @@ aws_http_client = { path = "crates/aws_http_client" }
+@@ -284,7 +279,6 @@ aws_http_client = { path = "crates/aws_http_client" }
  bedrock = { path = "crates/bedrock" }
  breadcrumbs = { path = "crates/breadcrumbs" }
  buffer_diff = { path = "crates/buffer_diff" }
@@ -386,7 +386,7 @@ index 8efedabe9a..efb5a0878c 100644
  channel = { path = "crates/channel" }
  cli = { path = "crates/cli" }
  client = { path = "crates/client" }
-@@ -295,8 +289,6 @@ clock = { path = "crates/clock" }
+@@ -292,8 +286,6 @@ clock = { path = "crates/clock" }
  cloud_api_client = { path = "crates/cloud_api_client" }
  cloud_api_types = { path = "crates/cloud_api_types" }
  cloud_llm_client = { path = "crates/cloud_llm_client" }
@@ -395,7 +395,7 @@ index 8efedabe9a..efb5a0878c 100644
  collections = { path = "crates/collections", version = "0.1.0" }
  command_palette = { path = "crates/command_palette" }
  command_palette_hooks = { path = "crates/command_palette_hooks" }
-@@ -383,8 +375,6 @@ language_selector = { path = "crates/language_selector" }
+@@ -379,8 +371,6 @@ language_selector = { path = "crates/language_selector" }
  language_tools = { path = "crates/language_tools" }
  languages = { path = "crates/languages" }
  line_ending_selector = { path = "crates/line_ending_selector" }
@@ -1594,10 +1594,10 @@ index 58d3329f85..0000000000
 -}
 diff --git a/crates/call/src/call_impl/room.rs b/crates/call/src/call_impl/room.rs
 deleted file mode 100644
-index f269dfdfbb..0000000000
+index 108c5a4630..0000000000
 --- a/crates/call/src/call_impl/room.rs
 +++ /dev/null
-@@ -1,1885 +0,0 @@
+@@ -1,1886 +0,0 @@
 -use crate::{
 -    call_settings::CallSettings,
 -    participant::{LocalParticipant, RemoteParticipant},
@@ -2495,7 +2495,8 @@ index f269dfdfbb..0000000000
 -                            if this.created.elapsed() > Duration::from_millis(100) {
 -                                if let proto::ChannelRole::Guest = role {
 -                                    Audio::play_sound(Sound::GuestJoined, cx);
--                                } else {
+-                                // Do not play join sound in large meetings
+-                                } else if this.remote_participants().len() < 10 {
 -                                    Audio::play_sound(Sound::Joined, cx);
 -                                }
 -                            }
@@ -3532,10 +3533,10 @@ index d0b7376f0c..0000000000
 -# LOG_JSON=true
 diff --git a/crates/collab/Cargo.toml b/crates/collab/Cargo.toml
 deleted file mode 100644
-index 6f9ac77202..0000000000
+index 9ad0949e15..0000000000
 --- a/crates/collab/Cargo.toml
 +++ /dev/null
-@@ -1,138 +0,0 @@
+@@ -1,137 +0,0 @@
 -[package]
 -authors = ["Nathan Sobo <nathan@zed.dev>"]
 -default-run = "collab"
@@ -3543,7 +3544,7 @@ index 6f9ac77202..0000000000
 -name = "collab"
 -version = "0.44.0"
 -publish.workspace = true
--license = "AGPL-3.0-or-later"
+-license = "GPL-3.0-or-later"
 -
 -[lints]
 -workspace = true
@@ -3635,7 +3636,6 @@ index 6f9ac77202..0000000000
 -file_finder.workspace = true
 -fs = { workspace = true, features = ["test-support"] }
 -git = { workspace = true, features = ["test-support"] }
--git_graph = { workspace = true, features = ["test-support"] }
 -git_hosting_providers.workspace = true
 -git_ui = { workspace = true, features = ["test-support"] }
 -gpui = { workspace = true, features = ["test-support"] }
@@ -3674,13 +3674,13 @@ index 6f9ac77202..0000000000
 -worktree = { workspace = true, features = ["test-support"] }
 -zed_actions.workspace = true
 -zlog.workspace = true
-diff --git a/crates/collab/LICENSE-AGPL b/crates/collab/LICENSE-AGPL
+diff --git a/crates/collab/LICENSE-GPL b/crates/collab/LICENSE-GPL
 deleted file mode 120000
-index 5f5cf25dc4..0000000000
---- a/crates/collab/LICENSE-AGPL
+index 89e542f750..0000000000
+--- a/crates/collab/LICENSE-GPL
 +++ /dev/null
 @@ -1 +0,0 @@
--../../LICENSE-AGPL
+-../../LICENSE-GPL
 \ No newline at end of file
 diff --git a/crates/collab/README.md b/crates/collab/README.md
 deleted file mode 100644
@@ -3956,30 +3956,26 @@ index bfa59bbe2c..0000000000
 -DATABASE_MAX_CONNECTIONS=5
 diff --git a/crates/collab/migrations.sqlite/20221109000000_test_schema.sql b/crates/collab/migrations.sqlite/20221109000000_test_schema.sql
 deleted file mode 100644
-index 9c39dd4c26..0000000000
+index 730c3da999..0000000000
 --- a/crates/collab/migrations.sqlite/20221109000000_test_schema.sql
 +++ /dev/null
-@@ -1,447 +0,0 @@
+@@ -1,445 +0,0 @@
+--- WARNING: If you are modifying this file you MUST open a PR to the Cloud repository prior to merging any changes.
+--- If you are not Zed staff you MUST coordinate with a staff member to apply the schema migrations before this PR is merged.
+-
 -CREATE TABLE "users" (
 -    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
--    "github_login" VARCHAR,
 -    "admin" BOOLEAN,
 -    "email_address" VARCHAR(255) DEFAULT NULL,
 -    "name" TEXT,
 -    "connected_once" BOOLEAN NOT NULL DEFAULT false,
 -    "created_at" TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 -    "metrics_id" TEXT,
--    "github_user_id" INTEGER NOT NULL,
 -    "accepted_tos_at" TIMESTAMP WITHOUT TIME ZONE,
--    "github_user_created_at" TIMESTAMP WITHOUT TIME ZONE,
 -    "custom_llm_monthly_allowance_in_cents" INTEGER
 -);
 -
--CREATE UNIQUE INDEX "index_users_github_login" ON "users" ("github_login");
--
 -CREATE INDEX "index_users_on_email_address" ON "users" ("email_address");
--
--CREATE UNIQUE INDEX "index_users_on_github_user_id" ON "users" ("github_user_id");
 -
 -CREATE TABLE "contacts" (
 -    "id" INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4122,6 +4118,7 @@ index 9c39dd4c26..0000000000
 -    "language_server_id" INTEGER NOT NULL,
 -    "error_count" INTEGER NOT NULL,
 -    "warning_count" INTEGER NOT NULL,
+-    "info_count" INTEGER NOT NULL DEFAULT 0,
 -    PRIMARY KEY (project_id, worktree_id, path),
 -    FOREIGN KEY (project_id, worktree_id) REFERENCES worktrees (project_id, id) ON DELETE CASCADE
 -);
@@ -4134,6 +4131,7 @@ index 9c39dd4c26..0000000000
 -    "id" INTEGER NOT NULL,
 -    "project_id" INTEGER NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
 -    "name" VARCHAR NOT NULL,
+-    "language_name" VARCHAR,
 -    "capabilities" TEXT NOT NULL,
 -    "worktree_id" BIGINT,
 -    PRIMARY KEY (project_id, id)
@@ -4409,12 +4407,15 @@ index 9c39dd4c26..0000000000
 -CREATE INDEX "index_shared_threads_user_id" ON "shared_threads" ("user_id");
 diff --git a/crates/collab/migrations/20251208000000_test_schema.sql b/crates/collab/migrations/20251208000000_test_schema.sql
 deleted file mode 100644
-index 3a3329af77..0000000000
+index 8b136c347a..0000000000
 --- a/crates/collab/migrations/20251208000000_test_schema.sql
 +++ /dev/null
-@@ -1,850 +0,0 @@
+@@ -1,846 +0,0 @@
 --- This file is auto-generated. Do not modify it by hand.
 --- To regenerate, run `cargo xtask db dump-schema app --collab` from the Cloud repository.
+---
+--- WARNING: If you are modifying this file you MUST open a PR to the Cloud repository prior to merging any changes.
+--- If you are not Zed staff you MUST coordinate with a staff member to apply the schema migrations before this PR is merged.
 -
 -CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 -
@@ -4639,7 +4640,8 @@ index 3a3329af77..0000000000
 -    id bigint NOT NULL,
 -    name character varying NOT NULL,
 -    capabilities text NOT NULL,
--    worktree_id bigint
+-    worktree_id bigint,
+-    language_name character varying
 -);
 -
 -CREATE TABLE public.notification_kinds (
@@ -4832,15 +4834,12 @@ index 3a3329af77..0000000000
 -
 -CREATE TABLE public.users (
 -    id integer NOT NULL,
--    github_login character varying,
 -    admin boolean NOT NULL,
 -    email_address character varying(255) DEFAULT NULL::character varying,
 -    connected_once boolean DEFAULT false NOT NULL,
 -    created_at timestamp without time zone DEFAULT now() NOT NULL,
--    github_user_id integer NOT NULL,
 -    metrics_id uuid DEFAULT gen_random_uuid() NOT NULL,
 -    accepted_tos_at timestamp without time zone,
--    github_user_created_at timestamp without time zone,
 -    custom_llm_monthly_allowance_in_cents integer,
 -    name text
 -);
@@ -4861,7 +4860,8 @@ index 3a3329af77..0000000000
 -    path character varying NOT NULL,
 -    language_server_id bigint NOT NULL,
 -    error_count integer NOT NULL,
--    warning_count integer NOT NULL
+-    warning_count integer NOT NULL,
+-    info_count integer DEFAULT 0 NOT NULL
 -);
 -
 -CREATE TABLE public.worktree_entries (
@@ -5111,8 +5111,6 @@ index 3a3329af77..0000000000
 -
 -CREATE INDEX index_settings_files_on_project_id_and_wt_id ON public.worktree_settings_files USING btree (project_id, worktree_id);
 -
--CREATE UNIQUE INDEX index_users_github_login ON public.users USING btree (github_login);
--
 -CREATE INDEX index_users_on_email_address ON public.users USING btree (email_address);
 -
 -CREATE INDEX index_worktree_diagnostic_summaries_on_project_id ON public.worktree_diagnostic_summaries USING btree (project_id);
@@ -5127,13 +5125,9 @@ index 3a3329af77..0000000000
 -
 -CREATE INDEX trigram_index_extensions_name ON public.extensions USING gin (name public.gin_trgm_ops);
 -
--CREATE INDEX trigram_index_users_on_github_login ON public.users USING gin (github_login public.gin_trgm_ops);
--
 -CREATE INDEX trigram_index_users_on_name ON public.users USING gin (name public.gin_trgm_ops);
 -
 -CREATE UNIQUE INDEX uix_channels_parent_path_name ON public.channels USING btree (parent_path, name) WHERE ((parent_path IS NOT NULL) AND (parent_path <> ''::text));
--
--CREATE UNIQUE INDEX uix_users_on_github_user_id ON public.users USING btree (github_user_id);
 -
 -ALTER TABLE ONLY public.breakpoints
 -    ADD CONSTRAINT breakpoints_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id) ON DELETE CASCADE;
@@ -6699,10 +6693,10 @@ index 634355b467..0000000000
 -use rpc::proto;
 diff --git a/crates/collab/src/db.rs b/crates/collab/src/db.rs
 deleted file mode 100644
-index 10c4f7c961..0000000000
+index 60e49fc39a..0000000000
 --- a/crates/collab/src/db.rs
 +++ /dev/null
-@@ -1,777 +0,0 @@
+@@ -1,770 +0,0 @@
 -mod ids;
 -pub mod queries;
 -mod tables;
@@ -7068,13 +7062,6 @@ index 10c4f7c961..0000000000
 -    pub mac_count: i64,
 -    pub windows_count: i64,
 -    pub unknown_count: i64,
--}
--
--/// The parameters to create a new user.
--#[derive(Debug, Serialize, Deserialize)]
--pub struct NewUserParams {
--    pub github_login: String,
--    pub github_user_id: i32,
 -}
 -
 -/// The result of creating a new user.
@@ -11097,10 +11084,10 @@ index e92c269b7e..0000000000
 -}
 diff --git a/crates/collab/src/db/queries/projects.rs b/crates/collab/src/db/queries/projects.rs
 deleted file mode 100644
-index cae1f238b1..0000000000
+index 3cf82e8518..0000000000
 --- a/crates/collab/src/db/queries/projects.rs
 +++ /dev/null
-@@ -1,1398 +0,0 @@
+@@ -1,1401 +0,0 @@
 -use anyhow::Context as _;
 -use collections::HashSet;
 -use util::ResultExt;
@@ -11689,6 +11676,7 @@ index cae1f238b1..0000000000
 -                project_id: ActiveValue::set(project_id),
 -                id: ActiveValue::set(server.id as i64),
 -                name: ActiveValue::set(server.name.clone()),
+-                language_name: ActiveValue::set(server.language_name.clone()),
 -                worktree_id: ActiveValue::set(server.worktree_id.map(|id| id as i64)),
 -                capabilities: ActiveValue::set(update.capabilities.clone()),
 -            })
@@ -11699,6 +11687,7 @@ index cae1f238b1..0000000000
 -                ])
 -                .update_columns([
 -                    language_server::Column::Name,
+-                    language_server::Column::LanguageName,
 -                    language_server::Column::Capabilities,
 -                    language_server::Column::WorktreeId,
 -                ])
@@ -12089,6 +12078,7 @@ index cae1f238b1..0000000000
 -                        id: language_server.id as u64,
 -                        name: language_server.name,
 -                        worktree_id: language_server.worktree_id.map(|id| id as u64),
+-                        language_name: language_server.language_name,
 -                    },
 -                    capabilities: language_server.capabilities,
 -                })
@@ -12501,10 +12491,10 @@ index cae1f238b1..0000000000
 -}
 diff --git a/crates/collab/src/db/queries/rooms.rs b/crates/collab/src/db/queries/rooms.rs
 deleted file mode 100644
-index 6e43b34507..0000000000
+index a04cd53410..0000000000
 --- a/crates/collab/src/db/queries/rooms.rs
 +++ /dev/null
-@@ -1,1433 +0,0 @@
+@@ -1,1434 +0,0 @@
 -use anyhow::Context as _;
 -
 -use super::*;
@@ -13331,6 +13321,7 @@ index 6e43b34507..0000000000
 -                    id: language_server.id as u64,
 -                    name: language_server.name,
 -                    worktree_id: language_server.worktree_id.map(|id| id as u64),
+-                    language_name: language_server.language_name,
 -                },
 -                capabilities: language_server.capabilities,
 -            })
@@ -14176,10 +14167,10 @@ index da6ff77cf0..0000000000
 -}
 diff --git a/crates/collab/src/db/queries/shared_threads.rs b/crates/collab/src/db/queries/shared_threads.rs
 deleted file mode 100644
-index 2a02b247eb..0000000000
+index 9cb320d45d..0000000000
 --- a/crates/collab/src/db/queries/shared_threads.rs
 +++ /dev/null
-@@ -1,77 +0,0 @@
+@@ -1,76 +0,0 @@
 -use chrono::Utc;
 -
 -use super::*;
@@ -14246,11 +14237,10 @@ index 2a02b247eb..0000000000
 -                return Ok(None);
 -            };
 -
--            let user = user::Entity::find_by_id(thread.user_id).one(&*tx).await?;
--
--            let username = user
--                .map(|u| u.github_login)
--                .unwrap_or_else(|| "Unknown".to_string());
+-            // We can no longer read the `github_login` from Collab.
+-            //
+-            // Opting to just use "Unknown" here, as the feature is staff-only and infrequently used.
+-            let username = "Unknown".to_string();
 -
 -            Ok(Some((thread, username)))
 -        })
@@ -14259,29 +14249,22 @@ index 2a02b247eb..0000000000
 -}
 diff --git a/crates/collab/src/db/queries/users.rs b/crates/collab/src/db/queries/users.rs
 deleted file mode 100644
-index 6f84ae8ab5..0000000000
+index 8ec6ba8368..0000000000
 --- a/crates/collab/src/db/queries/users.rs
 +++ /dev/null
-@@ -1,43 +0,0 @@
+@@ -1,36 +0,0 @@
 -use super::*;
 -
 -impl Database {
 -    /// Creates a new user.
 -    #[cfg(feature = "test-support")]
--    pub async fn create_user(&self, admin: bool, params: NewUserParams) -> Result<NewUserResult> {
+-    pub async fn create_user(&self, admin: bool) -> Result<NewUserResult> {
 -        self.transaction(|tx| async {
 -            let tx = tx;
 -            let user = user::Entity::insert(user::ActiveModel {
--                github_login: ActiveValue::set(params.github_login.clone()),
--                github_user_id: ActiveValue::set(params.github_user_id),
 -                admin: ActiveValue::set(admin),
 -                ..Default::default()
 -            })
--            .on_conflict(
--                OnConflict::column(user::Column::GithubUserId)
--                    .update_columns([user::Column::Admin, user::Column::GithubLogin])
--                    .to_owned(),
--            )
 -            .exec_with_returning(&*tx)
 -            .await?;
 -
@@ -15023,10 +15006,10 @@ index ffd45434e9..0000000000
 -impl ActiveModelBehavior for ActiveModel {}
 diff --git a/crates/collab/src/db/tables/language_server.rs b/crates/collab/src/db/tables/language_server.rs
 deleted file mode 100644
-index 705aae292b..0000000000
+index 5eddaa8484..0000000000
 --- a/crates/collab/src/db/tables/language_server.rs
 +++ /dev/null
-@@ -1,32 +0,0 @@
+@@ -1,33 +0,0 @@
 -use crate::db::ProjectId;
 -use sea_orm::entity::prelude::*;
 -
@@ -15038,6 +15021,7 @@ index 705aae292b..0000000000
 -    #[sea_orm(primary_key)]
 -    pub id: i64,
 -    pub name: String,
+-    pub language_name: Option<String>,
 -    pub capabilities: String,
 -    pub worktree_id: Option<i64>,
 -}
@@ -15602,10 +15586,10 @@ index 6969a6e69e..0000000000
 -impl ActiveModelBehavior for ActiveModel {}
 diff --git a/crates/collab/src/db/tables/user.rs b/crates/collab/src/db/tables/user.rs
 deleted file mode 100644
-index 75dd72f1c1..0000000000
+index e8bb135c1b..0000000000
 --- a/crates/collab/src/db/tables/user.rs
 +++ /dev/null
-@@ -1,45 +0,0 @@
+@@ -1,43 +0,0 @@
 -use crate::db::UserId;
 -use sea_orm::entity::prelude::*;
 -use serde::Serialize;
@@ -15616,8 +15600,6 @@ index 75dd72f1c1..0000000000
 -pub struct Model {
 -    #[sea_orm(primary_key)]
 -    pub id: UserId,
--    pub github_login: String,
--    pub github_user_id: i32,
 -    pub admin: bool,
 -    pub connected_once: bool,
 -}
@@ -16558,7 +16540,7 @@ index 9265f682a1..0000000000
 -}
 diff --git a/crates/collab/src/rpc.rs b/crates/collab/src/rpc.rs
 deleted file mode 100644
-index acc3708a6d..0000000000
+index ef46033d12..0000000000
 --- a/crates/collab/src/rpc.rs
 +++ /dev/null
 @@ -1,4235 +0,0 @@
@@ -16594,7 +16576,7 @@ index acc3708a6d..0000000000
 -    response::IntoResponse,
 -    routing::get,
 -};
--use collections::{HashMap, HashSet};
+-use collections::{HashSet, TypeIdHashMap};
 -pub use connection_pool::{ConnectionPool, ZedVersion};
 -use core::fmt::{self, Debug, Formatter};
 -use futures::TryFutureExt as _;
@@ -16877,7 +16859,7 @@ index acc3708a6d..0000000000
 -    peer: Arc<Peer>,
 -    pub connection_pool: Arc<parking_lot::Mutex<ConnectionPool>>,
 -    app_state: Arc<AppState>,
--    handlers: HashMap<TypeId, MessageHandler>,
+-    handlers: TypeIdHashMap<MessageHandler>,
 -    teardown: watch::Sender<bool>,
 -}
 -
@@ -19249,7 +19231,7 @@ index acc3708a6d..0000000000
 -        .into_iter()
 -        .map(|user| proto::User {
 -            id: user.id.to_proto(),
--            avatar_url: format!("https://github.com/{}.png?size=128", user.github_login),
+-            avatar_url: user.avatar_url,
 -            github_login: user.github_login,
 -            name: user.name,
 -        })
@@ -19287,7 +19269,7 @@ index acc3708a6d..0000000000
 -        .filter(|user| user.id != session.user_id())
 -        .map(|user| proto::User {
 -            id: user.id.to_proto(),
--            avatar_url: format!("https://github.com/{}.png?size=128", user.github_login),
+-            avatar_url: user.avatar_url,
 -            github_login: user.github_login,
 -            name: user.name,
 -        })
@@ -25316,10 +25298,10 @@ index 921319487b..0000000000
 -}
 diff --git a/crates/collab/tests/integration/db_tests.rs b/crates/collab/tests/integration/db_tests.rs
 deleted file mode 100644
-index 4142a4575b..0000000000
+index bc2c99d2a2..0000000000
 --- a/crates/collab/tests/integration/db_tests.rs
 +++ /dev/null
-@@ -1,221 +0,0 @@
+@@ -1,209 +0,0 @@
 -mod buffer_tests;
 -mod channel_tests;
 -mod db_tests;
@@ -25327,7 +25309,6 @@ index 4142a4575b..0000000000
 -mod migrations;
 -
 -use std::sync::Arc;
--use std::sync::atomic::{AtomicI32, Ordering::SeqCst};
 -use std::time::Duration;
 -
 -use collections::HashSet;
@@ -25527,26 +25508,15 @@ index 4142a4575b..0000000000
 -    result
 -}
 -
--static GITHUB_USER_ID: AtomicI32 = AtomicI32::new(5);
--
--async fn new_test_user(db: &Arc<Database>, email: &str) -> UserId {
--    db.create_user(
--        false,
--        NewUserParams {
--            github_login: email[0..email.find('@').unwrap()].to_string(),
--            github_user_id: GITHUB_USER_ID.fetch_add(1, SeqCst),
--        },
--    )
--    .await
--    .unwrap()
--    .user_id
+-async fn new_test_user(db: &Arc<Database>) -> UserId {
+-    db.create_user(false).await.unwrap().user_id
 -}
 diff --git a/crates/collab/tests/integration/db_tests/buffer_tests.rs b/crates/collab/tests/integration/db_tests/buffer_tests.rs
 deleted file mode 100644
-index 35ce57cbf4..0000000000
+index 0a82fea800..0000000000
 --- a/crates/collab/tests/integration/db_tests/buffer_tests.rs
 +++ /dev/null
-@@ -1,352 +0,0 @@
+@@ -1,302 +0,0 @@
 -use super::*;
 -use crate::test_both_dbs;
 -use language::proto::{self, serialize_version};
@@ -25560,41 +25530,11 @@ index 35ce57cbf4..0000000000
 -);
 -
 -async fn test_channel_buffers(db: &Arc<Database>) {
--    let a_id = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user_a".into(),
--                github_user_id: 101,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
--    let b_id = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user_b".into(),
--                github_user_id: 102,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
+-    let a_id = db.create_user(false).await.unwrap().user_id;
+-    let b_id = db.create_user(false).await.unwrap().user_id;
 -
 -    // This user will not be a part of the channel
--    let c_id = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user_c".into(),
--                github_user_id: 103,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
+-    let c_id = db.create_user(false).await.unwrap().user_id;
 -
 -    let owner_id = db.create_server("production").await.unwrap().0 as u32;
 -
@@ -25729,28 +25669,8 @@ index 35ce57cbf4..0000000000
 -);
 -
 -async fn test_channel_buffers_last_operations(db: &Database) {
--    let user_id = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user_a".into(),
--                github_user_id: 101,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
--    let observer_id = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user_b".into(),
--                github_user_id: 102,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
+-    let user_id = db.create_user(false).await.unwrap().user_id;
+-    let observer_id = db.create_user(false).await.unwrap().user_id;
 -    let owner_id = db.create_server("production").await.unwrap().0 as u32;
 -    let connection_id = ConnectionId {
 -        owner_id,
@@ -25901,13 +25821,13 @@ index 35ce57cbf4..0000000000
 -}
 diff --git a/crates/collab/tests/integration/db_tests/channel_tests.rs b/crates/collab/tests/integration/db_tests/channel_tests.rs
 deleted file mode 100644
-index e7752c2795..0000000000
+index 2fd2217f3b..0000000000
 --- a/crates/collab/tests/integration/db_tests/channel_tests.rs
 +++ /dev/null
-@@ -1,1029 +0,0 @@
+@@ -1,969 +0,0 @@
 -use super::{assert_channel_tree_matches, channel_tree, new_test_user};
 -use crate::test_both_dbs;
--use collab::db::{Channel, ChannelId, ChannelRole, Database, NewUserParams, RoomId};
+-use collab::db::{Channel, ChannelId, ChannelRole, Database, RoomId};
 -use rpc::{
 -    ConnectionId,
 -    proto::{self, reorder_channel},
@@ -25917,8 +25837,8 @@ index e7752c2795..0000000000
 -test_both_dbs!(test_channels, test_channels_postgres, test_channels_sqlite);
 -
 -async fn test_channels(db: &Arc<Database>) {
--    let a_id = new_test_user(db, "user1@example.com").await;
--    let b_id = new_test_user(db, "user2@example.com").await;
+-    let a_id = new_test_user(db).await;
+-    let b_id = new_test_user(db).await;
 -
 -    let zed_id = db.create_root_channel("zed", a_id).await.unwrap();
 -
@@ -26025,8 +25945,8 @@ index e7752c2795..0000000000
 -async fn test_joining_channels(db: &Arc<Database>) {
 -    let owner_id = db.create_server("test").await.unwrap().0 as u32;
 -
--    let user_1 = new_test_user(db, "user1@example.com").await;
--    let user_2 = new_test_user(db, "user2@example.com").await;
+-    let user_1 = new_test_user(db).await;
+-    let user_2 = new_test_user(db).await;
 -
 -    let channel_1 = db.create_root_channel("channel_1", user_1).await.unwrap();
 -
@@ -26056,9 +25976,9 @@ index e7752c2795..0000000000
 -async fn test_channel_invites(db: &Arc<Database>) {
 -    db.create_server("test").await.unwrap();
 -
--    let user_1 = new_test_user(db, "user1@example.com").await;
--    let user_2 = new_test_user(db, "user2@example.com").await;
--    let user_3 = new_test_user(db, "user3@example.com").await;
+-    let user_1 = new_test_user(db).await;
+-    let user_2 = new_test_user(db).await;
+-    let user_3 = new_test_user(db).await;
 -
 -    let channel_1_1_id = db.create_root_channel("channel_1", user_1).await.unwrap();
 -
@@ -26168,29 +26088,9 @@ index e7752c2795..0000000000
 -async fn test_channel_renames(db: &Arc<Database>) {
 -    db.create_server("test").await.unwrap();
 -
--    let user_1 = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user1".into(),
--                github_user_id: 5,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
+-    let user_1 = db.create_user(false).await.unwrap().user_id;
 -
--    let user_2 = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user2".into(),
--                github_user_id: 6,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
+-    let user_2 = db.create_user(false).await.unwrap().user_id;
 -
 -    let zed_id = db.create_root_channel("zed", user_1).await.unwrap();
 -
@@ -26215,17 +26115,7 @@ index e7752c2795..0000000000
 -);
 -
 -async fn test_db_channel_moving(db: &Arc<Database>) {
--    let a_id = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user1".into(),
--                github_user_id: 5,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
+-    let a_id = db.create_user(false).await.unwrap().user_id;
 -
 -    let zed_id = db.create_root_channel("zed", a_id).await.unwrap();
 -
@@ -26303,29 +26193,9 @@ index e7752c2795..0000000000
 -);
 -
 -async fn test_channel_reordering(db: &Arc<Database>) {
--    let admin_id = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "admin".into(),
--                github_user_id: 1,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
+-    let admin_id = db.create_user(false).await.unwrap().user_id;
 -
--    let user_id = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user".into(),
--                github_user_id: 2,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
+-    let user_id = db.create_user(false).await.unwrap().user_id;
 -
 -    // Create a root channel with some sub-channels
 -    let root_id = db.create_root_channel("root", admin_id).await.unwrap();
@@ -26494,17 +26364,7 @@ index e7752c2795..0000000000
 -);
 -
 -async fn test_db_channel_moving_bugs(db: &Arc<Database>) {
--    let user_id = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user1".into(),
--                github_user_id: 5,
--            },
--        )
--        .await
--        .unwrap()
--        .user_id;
+-    let user_id = db.create_user(false).await.unwrap().user_id;
 -
 -    let zed_id = db.create_root_channel("zed", user_id).await.unwrap();
 -
@@ -26564,9 +26424,9 @@ index e7752c2795..0000000000
 -);
 -
 -async fn test_user_is_channel_participant(db: &Arc<Database>) {
--    let admin = new_test_user(db, "admin@example.com").await;
--    let member = new_test_user(db, "member@example.com").await;
--    let guest = new_test_user(db, "guest@example.com").await;
+-    let admin = new_test_user(db).await;
+-    let member = new_test_user(db).await;
+-    let guest = new_test_user(db).await;
 -
 -    let zed_channel = db.create_root_channel("zed", admin).await.unwrap();
 -    let internal_channel_id = db
@@ -26879,8 +26739,8 @@ index e7752c2795..0000000000
 -async fn test_delete_channel_with_active_call(db: &Arc<Database>) {
 -    let owner_id = db.create_server("test").await.unwrap().0 as u32;
 -
--    let user_1 = new_test_user(db, "user1@example.com").await;
--    let user_2 = new_test_user(db, "user2@example.com").await;
+-    let user_1 = new_test_user(db).await;
+-    let user_2 = new_test_user(db).await;
 -
 -    let parent_channel_id = db
 -        .create_root_channel("parent_channel", user_1)
@@ -26936,10 +26796,10 @@ index e7752c2795..0000000000
 -}
 diff --git a/crates/collab/tests/integration/db_tests/db_tests.rs b/crates/collab/tests/integration/db_tests/db_tests.rs
 deleted file mode 100644
-index 17123db1b4..0000000000
+index 15a90fcfed..0000000000
 --- a/crates/collab/tests/integration/db_tests/db_tests.rs
 +++ /dev/null
-@@ -1,377 +0,0 @@
+@@ -1,348 +0,0 @@
 -use crate::test_both_dbs;
 -
 -use super::*;
@@ -26957,19 +26817,8 @@ index 17123db1b4..0000000000
 -
 -async fn test_add_contacts(db: &Arc<Database>) {
 -    let mut user_ids = Vec::new();
--    for i in 0..3 {
--        user_ids.push(
--            db.create_user(
--                false,
--                NewUserParams {
--                    github_login: format!("user{i}"),
--                    github_user_id: i,
--                },
--            )
--            .await
--            .unwrap()
--            .user_id,
--        );
+-    for _ in 0..3 {
+-        user_ids.push(db.create_user(false).await.unwrap().user_id);
 -    }
 -
 -    let user_1 = user_ids[0];
@@ -27116,26 +26965,8 @@ index 17123db1b4..0000000000
 -async fn test_project_count(db: &Arc<Database>) {
 -    let owner_id = db.create_server("test").await.unwrap().0 as u32;
 -
--    let user1 = db
--        .create_user(
--            true,
--            NewUserParams {
--                github_login: "admin".into(),
--                github_user_id: 0,
--            },
--        )
--        .await
--        .unwrap();
--    let user2 = db
--        .create_user(
--            false,
--            NewUserParams {
--                github_login: "user".into(),
--                github_user_id: 1,
--            },
--        )
--        .await
--        .unwrap();
+-    let user1 = db.create_user(true).await.unwrap();
+-    let user2 = db.create_user(false).await.unwrap();
 -
 -    let room_id = RoomId::from_proto(
 -        db.create_room(user1.user_id, ConnectionId { owner_id, id: 0 }, "")
@@ -27210,7 +27041,7 @@ index 17123db1b4..0000000000
 -    use collab::db::SharedThreadId;
 -    use uuid::Uuid;
 -
--    let user_id = new_test_user(db, "user1@example.com").await;
+-    let user_id = new_test_user(db).await;
 -
 -    let thread_id = SharedThreadId(Uuid::new_v4());
 -    let title = "My Test Thread";
@@ -27227,7 +27058,7 @@ index 17123db1b4..0000000000
 -    assert_eq!(thread.title, title);
 -    assert_eq!(thread.data, data);
 -    assert_eq!(thread.user_id, user_id);
--    assert_eq!(username, "user1");
+-    assert_eq!(username, "Unknown");
 -}
 -
 -test_both_dbs!(
@@ -27240,7 +27071,7 @@ index 17123db1b4..0000000000
 -    use collab::db::SharedThreadId;
 -    use uuid::Uuid;
 -
--    let user_id = new_test_user(db, "user1@example.com").await;
+-    let user_id = new_test_user(db).await;
 -
 -    let thread_id = SharedThreadId(Uuid::new_v4());
 -
@@ -27281,8 +27112,8 @@ index 17123db1b4..0000000000
 -    use collab::db::SharedThreadId;
 -    use uuid::Uuid;
 -
--    let user1_id = new_test_user(db, "user1@example.com").await;
--    let user2_id = new_test_user(db, "user2@example.com").await;
+-    let user1_id = new_test_user(db).await;
+-    let user2_id = new_test_user(db).await;
 -
 -    let thread_id = SharedThreadId(Uuid::new_v4());
 -
@@ -27509,10 +27340,10 @@ index dcae79956b..0000000000
 -}
 diff --git a/crates/collab/tests/integration/editor_tests.rs b/crates/collab/tests/integration/editor_tests.rs
 deleted file mode 100644
-index 016ae3dd16..0000000000
+index e4e8fbfae0..0000000000
 --- a/crates/collab/tests/integration/editor_tests.rs
 +++ /dev/null
-@@ -1,6069 +0,0 @@
+@@ -1,6251 +0,0 @@
 -use crate::TestServer;
 -use call::ActiveCall;
 -use collab::rpc::RECONNECT_TIMEOUT;
@@ -29036,6 +28867,177 @@ index 016ae3dd16..0000000000
 -            status.pending_work[&token].message.as_ref().unwrap(),
 -            "the-message-2"
 -        );
+-    });
+-}
+-
+-#[gpui::test]
+-async fn test_local_registration_for_new_available_server_from_remote(
+-    cx_a: &mut TestAppContext,
+-    cx_b: &mut TestAppContext,
+-) {
+-    let mut server = TestServer::start(cx_a.executor()).await;
+-    let executor = cx_a.executor();
+-    let client_a = server.create_client(cx_a, "user_a").await;
+-    let client_b = server.create_client(cx_b, "user_b").await;
+-    server
+-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b)])
+-        .await;
+-    let active_call_a = cx_a.read(ActiveCall::global);
+-
+-    client_a.language_registry().add(rust_lang());
+-    client_b.language_registry().add(rust_lang());
+-
+-    // Client B has an "available" adapter for "the-language-server",
+-    // but it's not regitstered for Rust
+-    client_b
+-        .language_registry()
+-        .register_fake_available_lsp_adapter(
+-            "the-language-server",
+-            FakeLspAdapter {
+-                name: "the-language-server",
+-                ..Default::default()
+-            },
+-        );
+-
+-    client_a
+-        .fs()
+-        .insert_tree(
+-            path!("/dir"),
+-            json!({
+-                "main.rs": "const ONE: usize = 1;",
+-            }),
+-        )
+-        .await;
+-    let (project_a, _) = client_a.build_local_project(path!("/dir"), cx_a).await;
+-    let project_id = active_call_a
+-        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
+-        .await
+-        .unwrap();
+-
+-    executor.run_until_parked();
+-    let project_b = client_b.join_remote_project(project_id, cx_b).await;
+-
+-    // Client A starts the language server.
+-    let mut fake_language_servers = client_a.language_registry().register_fake_lsp(
+-        "Rust",
+-        FakeLspAdapter {
+-            name: "the-language-server",
+-            ..Default::default()
+-        },
+-    );
+-
+-    let _buffer_a = project_a
+-        .update(cx_a, |p, cx| {
+-            p.open_local_buffer_with_lsp(path!("/dir/main.rs"), cx)
+-        })
+-        .await
+-        .unwrap();
+-
+-    let _fake_language_server = fake_language_servers.next().await.unwrap();
+-    executor.run_until_parked();
+-
+-    // Verify client B has registered the adapter for Rust locally
+-    project_b.read_with(cx_b, |project, cx| {
+-        let statuses = project.language_server_statuses(cx).collect::<Vec<_>>();
+-        assert_eq!(statuses.len(), 1);
+-        assert_eq!(statuses[0].1.name.0, "the-language-server");
+-    });
+-
+-    let rust_adapters = client_b
+-        .language_registry()
+-        .lsp_adapters(&language::LanguageName::new("Rust"));
+-    assert!(
+-        rust_adapters
+-            .iter()
+-            .any(|a| a.name().0 == "the-language-server")
+-    );
+-}
+-
+-#[gpui::test]
+-async fn test_local_registration_for_existing_available_server_from_remote(
+-    cx_a: &mut TestAppContext,
+-    cx_b: &mut TestAppContext,
+-) {
+-    let mut server = TestServer::start(cx_a.executor()).await;
+-    let executor = cx_a.executor();
+-    let client_a = server.create_client(cx_a, "user_a").await;
+-    let client_b = server.create_client(cx_b, "user_b").await;
+-    server
+-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b)])
+-        .await;
+-    let active_call_a = cx_a.read(ActiveCall::global);
+-
+-    client_a.language_registry().add(rust_lang());
+-    client_b.language_registry().add(rust_lang());
+-
+-    // Client B has an "available" adapter for "the-language-server",
+-    // but it's not regitstered for Rust
+-    client_b
+-        .language_registry()
+-        .register_fake_available_lsp_adapter(
+-            "the-language-server",
+-            FakeLspAdapter {
+-                name: "the-language-server",
+-                ..Default::default()
+-            },
+-        );
+-
+-    client_a
+-        .fs()
+-        .insert_tree(
+-            path!("/dir"),
+-            json!({
+-                "main.rs": "const ONE: usize = 1;",
+-            }),
+-        )
+-        .await;
+-    let (project_a, _) = client_a.build_local_project(path!("/dir"), cx_a).await;
+-
+-    // Client A starts the language server FIRST.
+-    let mut fake_language_servers = client_a.language_registry().register_fake_lsp(
+-        "Rust",
+-        FakeLspAdapter {
+-            name: "the-language-server",
+-            ..Default::default()
+-        },
+-    );
+-
+-    let _buffer_a = project_a
+-        .update(cx_a, |p, cx| {
+-            p.open_local_buffer_with_lsp(path!("/dir/main.rs"), cx)
+-        })
+-        .await
+-        .unwrap();
+-
+-    let _fake_language_server = fake_language_servers.next().await.unwrap();
+-    executor.run_until_parked();
+-
+-    let project_id = active_call_a
+-        .update(cx_a, |call, cx| call.share_project(project_a.clone(), cx))
+-        .await
+-        .unwrap();
+-
+-    executor.run_until_parked();
+-
+-    // Client B joins the remote project.
+-    let project_b = client_b.join_remote_project(project_id, cx_b).await;
+-    executor.run_until_parked();
+-
+-    // Verify client B has registered the adapter for Rust locally.
+-    let rust_adapters = client_b
+-        .language_registry()
+-        .lsp_adapters(&language::LanguageName::new("Rust"));
+-    assert!(
+-        rust_adapters
+-            .iter()
+-            .any(|a| a.name().0 == "the-language-server"),
+-        "Adapter should have been registered upon joining"
+-    );
+-
+-    project_b.read_with(cx_b, |project, cx| {
+-        let statuses = project.language_server_statuses(cx).collect::<Vec<_>>();
+-        assert_eq!(statuses.len(), 1);
+-        assert_eq!(statuses[0].1.name.0, "the-language-server");
 -    });
 -}
 -
@@ -33579,7 +33581,18 @@ index 016ae3dd16..0000000000
 -    git::blame::BlameEntry {
 -        sha: sha.parse().unwrap(),
 -        range,
--        ..Default::default()
+-        original_line_number: 0,
+-        author: None,
+-        author_mail: None,
+-        author_time: None,
+-        author_tz: None,
+-        committer_name: None,
+-        committer_email: None,
+-        committer_time: None,
+-        committer_tz: None,
+-        summary: None,
+-        previous: None,
+-        filename: String::new(),
 -    }
 -}
 diff --git a/crates/collab/tests/integration/following_tests.rs b/crates/collab/tests/integration/following_tests.rs
@@ -36076,10 +36089,10 @@ index 2a80a6f0b1..0000000000
 -}
 diff --git a/crates/collab/tests/integration/git_tests.rs b/crates/collab/tests/integration/git_tests.rs
 deleted file mode 100644
-index 26faeb7c5f..0000000000
+index d5f71085d5..0000000000
 --- a/crates/collab/tests/integration/git_tests.rs
 +++ /dev/null
-@@ -1,1407 +0,0 @@
+@@ -1,1405 +0,0 @@
 -use std::{
 -    path::{self, Path, PathBuf},
 -    sync::Arc,
@@ -36093,7 +36106,7 @@ index 26faeb7c5f..0000000000
 -    repository::{CommitData, InitialGraphCommitData, RepoPath, Worktree as GitWorktree},
 -    status::{DiffStat, FileStatus, StatusCode, TrackedStatus},
 -};
--use git_graph::GitGraph;
+-use git_ui::git_graph::GitGraph;
 -use git_ui::{git_panel::GitPanel, project_diff::ProjectDiff};
 -use gpui::{
 -    AppContext as _, BackgroundExecutor, Entity, IntoElement as _, SharedString, TestAppContext,
@@ -36845,11 +36858,9 @@ index 26faeb7c5f..0000000000
 -        .await;
 -    cx_a.update(|cx| {
 -        git_ui::init(cx);
--        git_graph::init(cx);
 -    });
 -    cx_b.update(|cx| {
 -        git_ui::init(cx);
--        git_graph::init(cx);
 -    });
 -    let active_call_a = cx_a.read(ActiveCall::global);
 -
@@ -36863,7 +36874,7 @@ index 26faeb7c5f..0000000000
 -
 -    let search_query = "graph search match";
 -    let mut rng = StdRng::seed_from_u64(7);
--    let commits = git_graph::generate_random_commit_dag(&mut rng, 12, true);
+-    let commits = git_ui::git_graph::generate_random_commit_dag(&mut rng, 12, true);
 -
 -    let dot_git = Path::new(path!("/project/.git"));
 -    client_a.fs().set_graph_commits(dot_git, commits.clone());
@@ -37489,10 +37500,10 @@ index 26faeb7c5f..0000000000
 -}
 diff --git a/crates/collab/tests/integration/integration_tests.rs b/crates/collab/tests/integration/integration_tests.rs
 deleted file mode 100644
-index 7fc56a3c86..0000000000
+index dac33f9855..0000000000
 --- a/crates/collab/tests/integration/integration_tests.rs
 +++ /dev/null
-@@ -1,7303 +0,0 @@
+@@ -1,7404 +0,0 @@
 -use crate::{
 -    RoomParticipants, TestClient, TestServer, channel_id, following_tests::join_channel,
 -    room_participants,
@@ -40377,6 +40388,107 @@ index 7fc56a3c86..0000000000
 -            buffer,
 -            &new_staged_text,
 -            &[(2..3, "", "three\n", DiffHunkStatus::added_none())],
+-        );
+-    });
+-}
+-
+-#[gpui::test(iterations = 10)]
+-async fn test_git_diff_index_matches_head(
+-    executor: BackgroundExecutor,
+-    cx_a: &mut TestAppContext,
+-    cx_b: &mut TestAppContext,
+-) {
+-    let mut server = TestServer::start(executor.clone()).await;
+-    let client_a = server.create_client(cx_a, "user_a").await;
+-    let client_b = server.create_client(cx_b, "user_b").await;
+-    server
+-        .create_room(&mut [(&client_a, cx_a), (&client_b, cx_b)])
+-        .await;
+-    let active_call_a = cx_a.read(ActiveCall::global);
+-
+-    let committed_text = "
+-        one
+-        two
+-        three
+-    "
+-    .unindent();
+-    let file_contents = "
+-        one
+-        TWO
+-        three
+-    "
+-    .unindent();
+-
+-    client_a
+-        .fs()
+-        .insert_tree(
+-            "/dir",
+-            json!({
+-                ".git": {},
+-                "a.txt": file_contents,
+-            }),
+-        )
+-        .await;
+-    client_a
+-        .fs()
+-        .set_head_and_index_for_repo(Path::new("/dir/.git"), &[("a.txt", committed_text.clone())]);
+-
+-    let (project_local, worktree_id) = client_a.build_local_project("/dir", cx_a).await;
+-    let project_id = active_call_a
+-        .update(cx_a, |call, cx| {
+-            call.share_project(project_local.clone(), cx)
+-        })
+-        .await
+-        .unwrap();
+-    let project_remote = client_b.join_remote_project(project_id, cx_b).await;
+-
+-    // Open the uncommitted diff on the guest, without opening it on the host
+-    // first, so that the host loads the diff bases in response to the guest's
+-    // request.
+-    let remote_buffer = project_remote
+-        .update(cx_b, |p, cx| {
+-            p.open_buffer((worktree_id, rel_path("a.txt")), cx)
+-        })
+-        .await
+-        .unwrap();
+-    let remote_uncommitted_diff = project_remote
+-        .update(cx_b, |p, cx| {
+-            p.open_uncommitted_diff(remote_buffer.clone(), cx)
+-        })
+-        .await
+-        .unwrap();
+-    executor.run_until_parked();
+-
+-    // The guest's index and head texts share one allocation, which is only
+-    // possible if the host detected that the index matches the head and sent
+-    // `Mode::IndexMatchesHead`.
+-    let buffer_id = remote_buffer.read_with(cx_b, |buffer, _| buffer.remote_id());
+-    project_remote.read_with(cx_b, |project, cx| {
+-        assert!(
+-            project
+-                .git_store()
+-                .read(cx)
+-                .index_matches_head_for_buffer(buffer_id, cx),
+-            "the host should send IndexMatchesHead when the index is clean"
+-        );
+-    });
+-
+-    remote_uncommitted_diff.read_with(cx_b, |diff, cx| {
+-        let buffer = remote_buffer.read(cx);
+-        assert_eq!(
+-            diff.base_text_string(cx).as_deref(),
+-            Some(committed_text.as_str())
+-        );
+-        assert_hunks(
+-            diff.snapshot(cx).hunks_in_row_range(0..3, buffer),
+-            buffer,
+-            &diff.base_text_string(cx).unwrap(),
+-            &[(
+-                1..2,
+-                "two\n",
+-                "TWO\n",
+-                DiffHunkStatus::modified(DiffHunkSecondaryStatus::HasSecondaryHunk),
+-            )],
 -        );
 -    });
 -}
@@ -46952,14 +47064,14 @@ index c997f16ad3..0000000000
 -}
 diff --git a/crates/collab/tests/integration/randomized_test_helpers.rs b/crates/collab/tests/integration/randomized_test_helpers.rs
 deleted file mode 100644
-index 98e64ced41..0000000000
+index 7e1aa2677b..0000000000
 --- a/crates/collab/tests/integration/randomized_test_helpers.rs
 +++ /dev/null
-@@ -1,700 +0,0 @@
+@@ -1,694 +0,0 @@
 -use crate::{TestClient, TestServer};
 -use async_trait::async_trait;
 -use collab::{
--    db::{self, NewUserParams, UserId},
+-    db::{self, UserId},
 -    rpc::{CLEANUP_TIMEOUT, RECONNECT_TIMEOUT},
 -};
 -use futures::StreamExt;
@@ -47182,13 +47294,7 @@ index 98e64ced41..0000000000
 -            let user_id = server
 -                .app_state
 -                .db
--                .create_user(
--                    false,
--                    NewUserParams {
--                        github_login: username.clone(),
--                        github_user_id: ix as i32,
--                    },
--                )
+-                .create_user(false)
 -                .await
 -                .unwrap()
 -                .user_id;
@@ -47658,10 +47764,10 @@ index 98e64ced41..0000000000
 -}
 diff --git a/crates/collab/tests/integration/remote_editing_collaboration_tests.rs b/crates/collab/tests/integration/remote_editing_collaboration_tests.rs
 deleted file mode 100644
-index 86bd71f6eb..0000000000
+index 87784b6328..0000000000
 --- a/crates/collab/tests/integration/remote_editing_collaboration_tests.rs
 +++ /dev/null
-@@ -1,1626 +0,0 @@
+@@ -1,1773 +0,0 @@
 -use crate::TestServer;
 -use call::ActiveCall;
 -use collections::{HashMap, HashSet};
@@ -47685,7 +47791,10 @@ index 86bd71f6eb..0000000000
 -use project::{
 -    ProjectPath,
 -    debugger::session::ThreadId,
--    lsp_store::{FormatTrigger, LspFormatTarget},
+-    lsp_store::{
+-        FormatTrigger, LspFormatTarget,
+-        log_store::{self, GlobalLogStore},
+-    },
 -    trusted_worktrees::{PathTrust, TrustedWorktrees},
 -};
 -use remote::RemoteClient;
@@ -48501,6 +48610,150 @@ index 86bd71f6eb..0000000000
 -    );
 -}
 -
+-#[gpui::test(iterations = 10)]
+-async fn test_ssh_restarting_language_server_replaces_remote_status(
+-    executor: BackgroundExecutor,
+-    cx_a: &mut TestAppContext,
+-    server_cx: &mut TestAppContext,
+-) {
+-    cx_a.set_name("a");
+-    server_cx.set_name("server");
+-
+-    cx_a.update(|cx| {
+-        release_channel::init(semver::Version::new(0, 0, 0), cx);
+-    });
+-    server_cx.update(|cx| {
+-        release_channel::init(semver::Version::new(0, 0, 0), cx);
+-    });
+-
+-    let mut server = TestServer::start(executor.clone()).await;
+-    let client_a = server.create_client(cx_a, "user_a").await;
+-    let log_store = cx_a.update(|cx| log_store::init(false, cx));
+-
+-    let (opts, server_ssh, _) = RemoteClient::fake_server(cx_a, server_cx);
+-    let remote_fs = FakeFs::new(server_cx.executor());
+-    remote_fs
+-        .insert_tree(path!("/project"), json!({ "a.rs": "fn main() {}" }))
+-        .await;
+-
+-    client_a.language_registry().add(rust_lang());
+-
+-    server_cx.update(HeadlessProject::init);
+-    let languages = Arc::new(LanguageRegistry::new(server_cx.executor()));
+-    languages.add(rust_lang());
+-    let mut fake_language_servers = languages.register_fake_lsp(
+-        "Rust",
+-        FakeLspAdapter {
+-            name: "the-language-server",
+-            ..Default::default()
+-        },
+-    );
+-    let _headless_project = server_cx.new(|cx| {
+-        HeadlessProject::new(
+-            HeadlessAppState {
+-                session: server_ssh,
+-                fs: remote_fs.clone(),
+-                http_client: Arc::new(BlockedHttpClient),
+-                node_runtime: NodeRuntime::unavailable(),
+-                languages,
+-                extension_host_proxy: Arc::new(ExtensionHostProxy::new()),
+-                startup_time: std::time::Instant::now(),
+-            },
+-            false,
+-            cx,
+-        )
+-    });
+-
+-    let client_ssh = RemoteClient::connect_mock(opts, cx_a).await;
+-    let (project_a, worktree_id) = client_a
+-        .build_ssh_project(path!("/project"), client_ssh, false, cx_a)
+-        .await;
+-    log_store.update(cx_a, |log_store, cx| log_store.add_project(&project_a, cx));
+-
+-    let (buffer, _handle) = project_a
+-        .update(cx_a, |project, cx| {
+-            project.open_buffer_with_lsp((worktree_id, rel_path("a.rs")), cx)
+-        })
+-        .await
+-        .unwrap();
+-
+-    let first_server = fake_language_servers.next().await.unwrap();
+-    let first_server_id = first_server.server.server_id();
+-    executor.run_until_parked();
+-
+-    project_a.read_with(cx_a, |project, cx| {
+-        let statuses = project.language_server_statuses(cx).collect::<Vec<_>>();
+-        assert_eq!(statuses.len(), 1);
+-        assert_eq!(statuses[0].0, first_server_id);
+-        assert_eq!(statuses[0].1.name.0, "the-language-server");
+-    });
+-    cx_a.read_global::<GlobalLogStore, _>(|global, cx| {
+-        let log_store = global.0.read(cx);
+-        let matching_server_ids = log_store
+-            .language_servers
+-            .iter()
+-            .filter_map(|(server_id, state)| {
+-                state
+-                    .name
+-                    .as_ref()
+-                    .is_some_and(|name| name.0 == "the-language-server")
+-                    .then_some(*server_id)
+-            })
+-            .collect::<Vec<_>>();
+-        assert_eq!(matching_server_ids, vec![first_server_id]);
+-    });
+-
+-    project_a.update(cx_a, |project, cx| {
+-        project.restart_language_servers_for_buffers(vec![buffer], HashSet::default(), true, cx);
+-    });
+-
+-    let restarted_server = fake_language_servers.next().await.unwrap();
+-    let restarted_server_id = restarted_server.server.server_id();
+-    assert_ne!(restarted_server_id, first_server_id);
+-    executor.run_until_parked();
+-
+-    project_a.read_with(cx_a, |project, cx| {
+-        let statuses = project.language_server_statuses(cx).collect::<Vec<_>>();
+-        assert_eq!(
+-            statuses.len(),
+-            1,
+-            "restarting a remote language server should replace the previous status entry"
+-        );
+-        assert_eq!(
+-            statuses[0].0, restarted_server_id,
+-            "restarting a remote language server should publish the replacement server id"
+-        );
+-        assert_ne!(
+-            statuses[0].0, first_server_id,
+-            "restarting a remote language server should remove the previous server id"
+-        );
+-        assert_eq!(statuses[0].1.name.0, "the-language-server");
+-    });
+-    cx_a.read_global::<GlobalLogStore, _>(|global, cx| {
+-        let log_store = global.0.read(cx);
+-        let matching_server_ids = log_store
+-            .language_servers
+-            .iter()
+-            .filter_map(|(server_id, state)| {
+-                state
+-                    .name
+-                    .as_ref()
+-                    .is_some_and(|name| name.0 == "the-language-server")
+-                    .then_some(*server_id)
+-            })
+-            .collect::<Vec<_>>();
+-        assert_eq!(
+-            matching_server_ids,
+-            vec![restarted_server_id],
+-            "restarting a remote language server should replace the old log store entry"
+-        );
+-        assert!(
+-            !log_store.language_servers.contains_key(&first_server_id),
+-            "restarting a remote language server should remove the previous log store entry"
+-        );
+-    });
+-}
+-
 -#[gpui::test]
 -async fn test_remote_server_debugger(
 -    cx_a: &mut TestAppContext,
@@ -49290,10 +49543,10 @@ index 86bd71f6eb..0000000000
 -}
 diff --git a/crates/collab/tests/integration/test_server.rs b/crates/collab/tests/integration/test_server.rs
 deleted file mode 100644
-index 89bfc2dac9..0000000000
+index de4c4a4e16..0000000000
 --- a/crates/collab/tests/integration/test_server.rs
 +++ /dev/null
-@@ -1,975 +0,0 @@
+@@ -1,972 +0,0 @@
 -use anyhow::anyhow;
 -use call::ActiveCall;
 -use channel::{ChannelBuffer, ChannelStore};
@@ -49470,7 +49723,6 @@ index 89bfc2dac9..0000000000
 -            }
 -            let settings = SettingsStore::test(cx);
 -            cx.set_global(settings);
--            theme_settings::init(theme::LoadThemes::JustBase, cx);
 -            release_channel::init(semver::Version::new(0, 0, 0), cx);
 -        });
 -
@@ -49653,9 +49905,7 @@ index 89bfc2dac9..0000000000
 -            collab_ui::init(&app_state, cx);
 -            file_finder::init(cx);
 -            menu::init();
--            cx.bind_keys(
--                settings::KeymapFile::load_asset_allow_partial_failure(os_keymap, cx).unwrap(),
--            );
+-            cx.bind_keys(settings::KeymapFile::load_asset_cached(os_keymap, cx).unwrap());
 -            language_model::LanguageModelRegistry::test(cx);
 -        });
 -
@@ -50638,7 +50888,7 @@ index cfbdf82c3b..0000000000
 -}
 diff --git a/crates/collab_ui/src/channel_view.rs b/crates/collab_ui/src/channel_view.rs
 deleted file mode 100644
-index db79654a10..0000000000
+index 46ad202f73..0000000000
 --- a/crates/collab_ui/src/channel_view.rs
 +++ /dev/null
 @@ -1,711 +0,0 @@
@@ -50960,7 +51210,7 @@ index db79654a10..0000000000
 -            return;
 -        };
 -
--        let link = channel.notes_link(closest_heading.map(|heading| heading.text), cx);
+-        let link = channel.notes_link(closest_heading.map(|heading| heading.text.to_string()), cx);
 -        cx.write_to_clipboard(ClipboardItem::new_string(link));
 -        self.workspace
 -            .update(cx, |workspace, cx| {
@@ -51355,7 +51605,7 @@ index db79654a10..0000000000
 -}
 diff --git a/crates/collab_ui/src/collab_panel.rs b/crates/collab_ui/src/collab_panel.rs
 deleted file mode 100644
-index b24c97e078..0000000000
+index 907c462aa6..0000000000
 --- a/crates/collab_ui/src/collab_panel.rs
 +++ /dev/null
 @@ -1,4187 +0,0 @@
@@ -51527,7 +51777,7 @@ index b24c97e078..0000000000
 -                })
 -                .detach_and_notify_err(workspace_handle, window, cx);
 -            } else {
--                workspace.show_error(&"There’s no active call; join one first.", cx);
+-                workspace.show_error("There’s no active call; join one first.", cx);
 -            }
 -        });
 -        workspace.register_action(|workspace, _: &ShareProject, window, cx| {
@@ -56823,25 +57073,41 @@ index 3d6de1015a..0000000000
 -    }
 -}
 diff --git a/crates/git_ui/Cargo.toml b/crates/git_ui/Cargo.toml
-index 6150984129..76f84de5c0 100644
+index 5de0201637..a58dd7fbb9 100644
 --- a/crates/git_ui/Cargo.toml
 +++ b/crates/git_ui/Cargo.toml
-@@ -21,7 +21,6 @@ alacritty_terminal.workspace = true
- anyhow.workspace = true
+@@ -14,7 +14,6 @@ path = "src/git_ui.rs"
+ 
+ [features]
+ test-support = ["multi_buffer/test-support", "remote_connection/test-support"]
+-call = ["dep:call"]
+ 
+ [dependencies]
+ agent_settings.workspace = true
+@@ -22,7 +21,6 @@ anyhow.workspace = true
  askpass.workspace = true
+ async-channel.workspace = true
  buffer_diff.workspace = true
--call.workspace = true
+-call = { workspace = true, optional = true }
  collections.workspace = true
  component.workspace = true
  db.workspace = true
 diff --git a/crates/git_ui/src/git_panel.rs b/crates/git_ui/src/git_panel.rs
-index fe821983ec..32068133d0 100644
+index 364d2c520e..c77215ae31 100644
 --- a/crates/git_ui/src/git_panel.rs
 +++ b/crates/git_ui/src/git_panel.rs
-@@ -3399,57 +3399,10 @@ impl GitPanel {
+@@ -3377,66 +3377,12 @@ impl GitPanel {
          }
      }
  
+-    #[cfg(not(feature = "call"))]
+     fn potential_co_authors(&self, _cx: &App) -> Vec<(String, String)> {
++        // Co-author attribution required collab participants; with the call
++        // crate removed there is never an active room, so the list is empty.
+         Vec::new()
+     }
+ 
+-    #[cfg(feature = "call")]
 -    fn potential_co_authors(&self, cx: &App) -> Vec<(String, String)> {
 -        let mut new_co_authors = Vec::new();
 -        let project = self.project.read(cx);
@@ -56883,6 +57149,7 @@ index fe821983ec..32068133d0 100644
 -        new_co_authors
 -    }
 -
+-    #[cfg(feature = "call")]
 -    fn local_committer(&self, room: &call::Room, cx: &App) -> Option<(String, String)> {
 -        let user = room.local_participant_user(cx)?;
 -        let committer = self.local_committer.as_ref()?;
@@ -56893,35 +57160,34 @@ index fe821983ec..32068133d0 100644
 -            .or_else(|| user.name.clone())
 -            .unwrap_or_else(|| user.github_login.clone().to_string());
 -        Some((name, email))
-+    fn potential_co_authors(&self, _cx: &App) -> Vec<(String, String)> {
-+        // Co-author attribution required collab participants; with the call
-+        // crate removed there is never an active room, so the list is empty.
-+        Vec::new()
-     }
- 
-     fn toggle_fill_co_authors(
-@@ -6654,19 +6607,10 @@ impl Render for GitPanel {
-     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-         let project = self.project.read(cx);
-         let has_entries = !self.entries.is_empty();
--        let room = self.workspace.upgrade().and_then(|_workspace| {
--            call::ActiveCall::try_global(cx).and_then(|call| call.read(cx).room().cloned())
--        });
+-    }
 -
+     fn toggle_fill_co_authors(
+         &mut self,
+         _: &ToggleFillCoAuthors,
+@@ -6669,21 +6615,7 @@ impl Render for GitPanel {
+         let has_entries = !self.entries.is_empty();
          let has_write_access = self.has_write_access(cx);
  
--        let has_co_authors = room.is_some_and(|room| {
--            self.load_local_committer(cx);
--            let room = room.read(cx);
--            room.remote_participants()
--                .values()
--                .any(|remote_participant| remote_participant.can_write())
--        });
+-        #[cfg(feature = "call")]
+-        let has_co_authors = self
+-            .workspace
+-            .upgrade()
+-            .and_then(|_workspace| {
+-                call::ActiveCall::try_global(cx).and_then(|call| call.read(cx).room().cloned())
+-            })
+-            .is_some_and(|room| {
+-                self.load_local_committer(cx);
+-                let room = room.read(cx);
+-                room.remote_participants()
+-                    .values()
+-                    .any(|remote_participant| remote_participant.can_write())
+-            });
+-        #[cfg(not(feature = "call"))]
 +        // No collab room exists post-strip; co-author UI is always inert.
-+        let has_co_authors = false;
+         let has_co_authors = false;
  
          v_flex()
-             .id("git_panel")
 diff --git a/crates/livekit_api/Cargo.toml b/crates/livekit_api/Cargo.toml
 deleted file mode 100644
 index 2b2438c25e..0000000000
@@ -59010,7 +59276,7 @@ index 89e542f750..0000000000
 \ No newline at end of file
 diff --git a/crates/livekit_client/examples/test_app.rs b/crates/livekit_client/examples/test_app.rs
 deleted file mode 100644
-index eb87aa6cae..0000000000
+index f21bc9d320..0000000000
 --- a/crates/livekit_client/examples/test_app.rs
 +++ /dev/null
 @@ -1,392 +0,0 @@
@@ -59366,7 +59632,7 @@ index eb87aa6cae..0000000000
 -                    .overflow_y_scroll()
 -                    .flex()
 -                    .flex_col()
--                    .flex_grow()
+-                    .flex_grow_1()
 -                    .children(self.remote_participants.iter().map(|(identity, state)| {
 -                        div()
 -                            .h(px(1080.0))
@@ -60444,10 +60710,10 @@ index fe7189e901..0000000000
 -}
 diff --git a/crates/livekit_client/src/livekit_client/playback.rs b/crates/livekit_client/src/livekit_client/playback.rs
 deleted file mode 100644
-index cea5b1169b..0000000000
+index bed43d22d6..0000000000
 --- a/crates/livekit_client/src/livekit_client/playback.rs
 +++ /dev/null
-@@ -1,1107 +0,0 @@
+@@ -1,1038 +0,0 @@
 -use anyhow::{Context as _, Result};
 -
 -use audio::{AudioSettings, CHANNEL_COUNT, SAMPLE_RATE};
@@ -60472,9 +60738,6 @@ index cea5b1169b..0000000000
 -};
 -use log::info;
 -use parking_lot::Mutex;
--use rodio::Source;
--use rodio::conversions::SampleTypeConverter;
--use rodio::source::{AutomaticGainControlSettings, LimitSettings};
 -use serde::{Deserialize, Serialize};
 -use settings::Settings;
 -use std::cell::RefCell;
@@ -60499,8 +60762,27 @@ index cea5b1169b..0000000000
 -
 -impl AudioStack {
 -    pub(crate) fn new(executor: BackgroundExecutor) -> Self {
+-        // AGC2's `adaptive_digital` is what actually levels speech toward a target;
+-        // the `gain_controller2.enabled` master switch alone leaves it off, which
+-        // historically meant capture was effectively unleveled. Defaults match
+-        // what Chrome/Meet ship with -- in particular `max_gain_db = 50` paired
+-        // with `max_output_noise_level_dbfs = -50`, which lets the AGC reach
+-        // very quiet talkers while the noise-level estimator backs off before
+-        // boosting amplifies the noise floor.
 -        let apm = Arc::new(Mutex::new(apm::AudioProcessingModule::new(
--            true, true, true, true,
+-            apm::AudioProcessingConfig {
+-                echo_canceller_enabled: true,
+-                gain_controller2: apm::GainController2Config {
+-                    enabled: true,
+-                    adaptive_digital: apm::AdaptiveDigitalConfig {
+-                        enabled: true,
+-                        ..Default::default()
+-                    },
+-                    ..Default::default()
+-                },
+-                high_pass_filter_enabled: true,
+-                noise_suppression_enabled: true,
+-            },
 -        )));
 -        let mixer = Arc::new(Mutex::new(audio_mixer::AudioMixer::new()));
 -        Self {
@@ -60768,14 +61050,6 @@ index cea5b1169b..0000000000
 -                        let ten_ms_buffer_size =
 -                            (config.channels() as u32 * config.sample_rate() / 100) as usize;
 -                        let mut buf: Vec<i16> = Vec::with_capacity(ten_ms_buffer_size);
--                        let mut rodio_effects = RodioEffectsAdaptor::new(buf.len())
--                            .automatic_gain_control(AutomaticGainControlSettings {
--                                target_level: 0.50,
--                                attack_time: Duration::from_secs(1),
--                                release_time: Duration::from_secs(0),
--                                absolute_max_gain: 5.0,
--                            })
--                            .limit(LimitSettings::live_performance());
 -
 -                        let stream = device
 -                            .build_input_stream_raw(
@@ -60807,20 +61081,6 @@ index cea5b1169b..0000000000
 -                                                    sample_rate,
 -                                                )
 -                                                .to_owned();
--
--                                            if audio::LIVE_SETTINGS
--                                                .auto_microphone_volume
--                                                .load(Ordering::Relaxed)
--                                            {
--                                                rodio_effects
--                                                    .inner_mut()
--                                                    .inner_mut()
--                                                    .fill_buffer_with(&sampled);
--                                                sampled.clear();
--                                                sampled.extend(SampleTypeConverter::<_, i16>::new(
--                                                    rodio_effects.by_ref(),
--                                                ));
--                                            }
 -
 -                                            apm.lock()
 -                                                .process_stream(
@@ -60862,69 +61122,6 @@ index cea5b1169b..0000000000
 -            device_change_listener.next().await;
 -            drop(end_on_drop_tx)
 -        }
--    }
--}
--
--/// This allows using of Rodio's effects library within our home brewn audio
--/// pipeline. The alternative would be inlining Rodio's effects which is
--/// problematic from a legal stance. We would then have to make clear that code
--/// is not owned by zed-industries while the code would be surrounded by
--/// zed-industries owned code.
--///
--/// This adaptor does incur a slight performance penalty (copying into a
--/// pre-allocated vec and back) however the impact will be immeasurably low.
--///
--/// There is no latency impact.
--pub struct RodioEffectsAdaptor {
--    input: Vec<rodio::Sample>,
--    pos: usize,
--}
--
--impl RodioEffectsAdaptor {
--    // This implementation incorrect terminology confusing everyone. A normal
--    // audio frame consists of all samples for one moment in time (one for mono,
--    // two for stereo). Here a frame of audio refers to a 10ms buffer of samples.
--    fn new(samples_per_frame: usize) -> Self {
--        Self {
--            input: Vec::with_capacity(samples_per_frame),
--            pos: 0,
--        }
--    }
--
--    fn fill_buffer_with(&mut self, integer_samples: &[i16]) {
--        self.input.clear();
--        self.input.extend(SampleTypeConverter::<_, f32>::new(
--            integer_samples.iter().copied(),
--        ));
--        self.pos = 0;
--    }
--}
--
--impl Iterator for RodioEffectsAdaptor {
--    type Item = rodio::Sample;
--
--    fn next(&mut self) -> Option<Self::Item> {
--        let sample = self.input.get(self.pos)?;
--        self.pos += 1;
--        Some(*sample)
--    }
--}
--
--impl rodio::Source for RodioEffectsAdaptor {
--    fn current_span_len(&self) -> Option<usize> {
--        None
--    }
--
--    fn channels(&self) -> rodio::ChannelCount {
--        rodio::nz!(2)
--    }
--
--    fn sample_rate(&self) -> rodio::SampleRate {
--        rodio::nz!(48000)
--    }
--
--    fn total_duration(&self) -> Option<Duration> {
--        None
 -    }
 -}
 -
@@ -63072,7 +63269,7 @@ index 955f92dc19..0000000000
 -    }
 -}
 diff --git a/crates/title_bar/Cargo.toml b/crates/title_bar/Cargo.toml
-index 782b485d3e..64d263a918 100644
+index 9fddce407f..ad1354175e 100644
 --- a/crates/title_bar/Cargo.toml
 +++ b/crates/title_bar/Cargo.toml
 @@ -16,7 +16,6 @@ doctest = false
@@ -63091,7 +63288,7 @@ index 782b485d3e..64d263a918 100644
  channel.workspace = true
  chrono.workspace = true
  client.workspace = true
-@@ -44,7 +42,6 @@ db.workspace = true
+@@ -45,7 +43,6 @@ db.workspace = true
  git_ui.workspace = true
  gpui = { workspace = true, features = ["screen-capture"] }
  icons.workspace = true
@@ -63099,7 +63296,7 @@ index 782b485d3e..64d263a918 100644
  notifications.workspace = true
  project.workspace = true
  recent_projects.workspace = true
-@@ -67,7 +64,6 @@ arrayvec = "0.7.6"
+@@ -68,7 +65,6 @@ arrayvec = "0.7.6"
  windows.workspace = true
  
  [dev-dependencies]
@@ -63109,10 +63306,10 @@ index 782b485d3e..64d263a918 100644
  notifications = { workspace = true, features = ["test-support"] }
 diff --git a/crates/title_bar/src/collab.rs b/crates/title_bar/src/collab.rs
 deleted file mode 100644
-index 7f652ab754..0000000000
+index 6b56f7306b..0000000000
 --- a/crates/title_bar/src/collab.rs
 +++ /dev/null
-@@ -1,707 +0,0 @@
+@@ -1,765 +0,0 @@
 -use std::rc::Rc;
 -use std::sync::Arc;
 -
@@ -63120,7 +63317,7 @@ index 7f652ab754..0000000000
 -use channel::ChannelStore;
 -use client::{User, proto::PeerId};
 -use gpui::{
--    AnyElement, Hsla, IntoElement, MouseButton, Path, ScreenCaptureSource, Styled, TaskExt,
+-    AnyElement, Empty, Hsla, IntoElement, MouseButton, Path, ScreenCaptureSource, Styled, TaskExt,
 -    WeakEntity, canvas, point,
 -};
 -use gpui::{App, Task, Window};
@@ -63133,7 +63330,8 @@ index 7f652ab754..0000000000
 -use theme::ActiveTheme;
 -use ui::{
 -    Avatar, AvatarAudioStatusIndicator, ContextMenu, ContextMenuItem, Divider, DividerColor,
--    Facepile, PopoverMenu, SplitButton, SplitButtonStyle, TintColor, Tooltip, prelude::*,
+-    Facepile, KeyBinding, PopoverMenu, SplitButton, SplitButtonStyle, TintColor, Tooltip,
+-    prelude::*,
 -};
 -use util::rel_path::RelPath;
 -use workspace::{ParticipantLocation, notifications::DetachAndPromptErr};
@@ -63436,9 +63634,9 @@ index 7f652ab754..0000000000
 -        &self,
 -        window: &mut Window,
 -        cx: &mut Context<Self>,
--    ) -> Vec<AnyElement> {
+-    ) -> AnyElement {
 -        let Some(room) = ActiveCall::global(cx).read(cx).room().cloned() else {
--            return Vec::new();
+-            return Empty.into_any_element();
 -        };
 -
 -        let is_connecting_to_project = self
@@ -63472,8 +63670,6 @@ index 7f652ab754..0000000000
 -            .channel_id()
 -            .and_then(|channel_id| channel_store.read(cx).channel_for_id(channel_id).cloned());
 -
--        let mut children = Vec::new();
--
 -        let effective_quality = stats.effective_quality.unwrap_or(ConnectionQuality::Lost);
 -        let (signal_icon, signal_color, quality_label) = match effective_quality {
 -            ConnectionQuality::Excellent => {
@@ -63486,246 +63682,305 @@ index 7f652ab754..0000000000
 -
 -        let quality_label: SharedString = quality_label.into();
 -
--        children.push(
--            h_flex()
--                .gap_1()
--                .child(
--                    IconButton::new("leave-call", IconName::Exit)
--                        .style(ButtonStyle::Subtle)
--                        .tooltip(Tooltip::text("Leave Call"))
--                        .icon_size(IconSize::Small)
--                        .on_click(move |_, _window, cx| {
--                            ActiveCall::global(cx)
--                                .update(cx, |call, cx| call.hang_up(cx))
--                                .detach_and_log_err(cx);
--                        }),
--                )
--                .child(Divider::vertical().color(DividerColor::Border))
--                .into_any_element(),
--        );
--
--        children.push(
--            IconButton::new("call-quality", signal_icon)
--                .icon_size(IconSize::Small)
--                .when_some(signal_color, |button, color| button.icon_color(color))
--                .tooltip(move |_window, cx| {
--                    let quality_label = quality_label.clone();
--                    let latency = format_stat(stats.latency_ms, |v| format!("{:.0}ms", v));
--                    let jitter = format_stat(stats.jitter_ms, |v| format!("{:.0}ms", v));
--                    let packet_loss = format_stat(stats.packet_loss_pct, |v| format!("{:.1}%", v));
--                    let input_lag =
--                        format_stat(stats.input_lag.map(|d| d.as_secs_f64() * 1000.0), |v| {
--                            format!("{:.1}ms", v)
--                        });
--
--                    Tooltip::with_meta(
--                        format!("Connection: {quality_label}"),
--                        Some(&ShowCallStats),
--                        format!(
--                            "Latency: {latency} · Jitter: {jitter} · Loss: {packet_loss} · Input lag: {input_lag}",
--                        ),
--                        cx,
+-        h_flex()
+-            .gap_1()
+-            .pr_1p5()
+-            .child(
+-                h_flex()
+-                    .gap_1()
+-                    .child(
+-                        IconButton::new("leave-call", IconName::Exit)
+-                            .tooltip(Tooltip::text("Leave Call"))
+-                            .icon_size(IconSize::Small)
+-                            .on_click(move |_, _window, cx| {
+-                                ActiveCall::global(cx)
+-                                    .update(cx, |call, cx| call.hang_up(cx))
+-                                    .detach_and_log_err(cx);
+-                            }),
 -                    )
--                })
--                .on_click(move |_, window, cx| {
--                    window.dispatch_action(Box::new(ShowCallStats), cx);
--                })
--                .into_any_element(),
--        );
+-                    .child(Divider::vertical().color(DividerColor::Border)),
+-            )
+-            .child(
+-                IconButton::new("call-quality", signal_icon)
+-                    .icon_size(IconSize::Small)
+-                    .when_some(signal_color, |button, color| button.icon_color(color))
+-                    .tooltip(Tooltip::element(move |window, cx| {
+-                        let quality_label = quality_label.clone();
+-                        let latency = format_stat(stats.latency_ms, |v| format!("{:.0}ms", v));
+-                        let jitter = format_stat(stats.jitter_ms, |v| format!("{:.0}ms", v));
+-                        let packet_loss =
+-                            format_stat(stats.packet_loss_pct, |v| format!("{:.1}%", v));
+-                        let input_lag =
+-                            format_stat(stats.input_lag.map(|d| d.as_secs_f64() * 1000.0), |v| {
+-                                format!("{:.1}ms", v)
+-                            });
 -
--        if is_local && can_share_projects && !is_connecting_to_project {
--            let is_sharing_disabled = channel.is_some_and(|channel| match channel.visibility {
--                proto::ChannelVisibility::Public => project.visible_worktrees(cx).any(|worktree| {
--                    let worktree_id = worktree.read(cx).id();
+-                        let key_binding = KeyBinding::for_action(&ShowCallStats, cx);
+-                        let has_key_binding = key_binding.has_binding(window);
 -
--                    let settings_location = Some(SettingsLocation {
--                        worktree_id,
--                        path: RelPath::empty(),
--                    });
+-                        let stat_row = |label: &'static str, value: String| {
+-                            h_flex()
+-                                .justify_between()
+-                                .gap_4()
+-                                .child(Label::new(label).size(LabelSize::Small).color(Color::Muted))
+-                                .child(Label::new(value).size(LabelSize::Small))
+-                        };
 -
--                    WorktreeSettings::get(settings_location, cx).prevent_sharing_in_public_channels
--                }),
--                proto::ChannelVisibility::Members => false,
--            });
--
--            children.push(
--                Button::new(
--                    "toggle_sharing",
--                    if is_shared { "Unshare" } else { "Share" },
+-                        v_flex()
+-                            .child(
+-                                h_flex()
+-                                    .gap_4()
+-                                    .justify_between()
+-                                    .child(Label::new(format!("Connection: {quality_label}")))
+-                                    .when(has_key_binding, |this| this.child(key_binding)),
+-                            )
+-                            .child(
+-                                v_flex()
+-                                    .gap_0p5()
+-                                    .child(stat_row("Latency", latency))
+-                                    .child(stat_row("Jitter", jitter))
+-                                    .child(stat_row("Packet loss", packet_loss))
+-                                    .child(stat_row("Input lag", input_lag)),
+-                            )
+-                            .into_any_element()
+-                    }))
+-                    .on_click(move |_, window, cx| {
+-                        window.dispatch_action(Box::new(ShowCallStats), cx);
+-                    }),
+-            )
+-            .when(can_use_microphone, |this| {
+-                this.child(
+-                    IconButton::new(
+-                        "mute-microphone",
+-                        if is_muted {
+-                            IconName::MicMute
+-                        } else {
+-                            IconName::Mic
+-                        },
+-                    )
+-                    .tooltip(move |_window, cx| {
+-                        if is_muted {
+-                            if is_deafened {
+-                                Tooltip::with_meta(
+-                                    "Unmute Microphone",
+-                                    None,
+-                                    "Audio will be unmuted",
+-                                    cx,
+-                                )
+-                            } else {
+-                                Tooltip::simple("Unmute Microphone", cx)
+-                            }
+-                        } else {
+-                            Tooltip::simple("Mute Microphone", cx)
+-                        }
+-                    })
+-                    .icon_size(IconSize::Small)
+-                    .toggle_state(is_muted)
+-                    .selected_style(ButtonStyle::Tinted(TintColor::Error))
+-                    .on_click(move |_, _window, cx| toggle_mute(cx)),
 -                )
--                .tooltip(Tooltip::text(if is_shared {
--                    "Stop sharing project with call participants"
--                } else {
--                    "Share project with call participants"
--                }))
--                .style(ButtonStyle::Subtle)
--                .selected_style(ButtonStyle::Tinted(TintColor::Accent))
--                .toggle_state(is_shared)
--                .label_size(LabelSize::Small)
--                .when(is_sharing_disabled, |parent| {
--                    parent.disabled(true).tooltip(Tooltip::text(
--                        "This project may not be shared in a public channel.",
--                    ))
--                })
--                .on_click(cx.listener(move |this, _, window, cx| {
--                    if is_shared {
--                        this.unshare_project(window, cx);
--                    } else {
--                        this.share_project(cx);
--                    }
--                }))
--                .into_any_element(),
--            );
--        }
--
--        if can_use_microphone {
--            children.push(
+-            })
+-            .child(
 -                IconButton::new(
--                    "mute-microphone",
--                    if is_muted {
--                        IconName::MicMute
+-                    "mute-sound",
+-                    if is_deafened {
+-                        IconName::AudioOff
 -                    } else {
--                        IconName::Mic
+-                        IconName::AudioOn
 -                    },
 -                )
+-                .selected_style(ButtonStyle::Tinted(TintColor::Error))
+-                .icon_size(IconSize::Small)
+-                .toggle_state(is_deafened)
 -                .tooltip(move |_window, cx| {
--                    if is_muted {
--                        if is_deafened {
--                            Tooltip::with_meta(
--                                "Unmute Microphone",
--                                None,
--                                "Audio will be unmuted",
--                                cx,
--                            )
+-                    if is_deafened {
+-                        let label = "Unmute Audio";
+-
+-                        if !muted_by_user {
+-                            Tooltip::with_meta(label, None, "Microphone will be unmuted", cx)
 -                        } else {
--                            Tooltip::simple("Unmute Microphone", cx)
+-                            Tooltip::simple(label, cx)
 -                        }
 -                    } else {
--                        Tooltip::simple("Mute Microphone", cx)
+-                        let label = "Mute Audio";
+-
+-                        if !muted_by_user {
+-                            Tooltip::with_meta(label, None, "Microphone will be muted", cx)
+-                        } else {
+-                            Tooltip::simple(label, cx)
+-                        }
 -                    }
 -                })
--                .style(ButtonStyle::Subtle)
--                .icon_size(IconSize::Small)
--                .toggle_state(is_muted)
--                .selected_style(ButtonStyle::Tinted(TintColor::Error))
--                .on_click(move |_, _window, cx| toggle_mute(cx))
--                .into_any_element(),
--            );
--        }
+-                .on_click(move |_, _, cx| toggle_deafen(cx)),
+-            )
+-            .when(
+-                is_local && can_share_projects && !is_connecting_to_project,
+-                |this| {
+-                    let is_sharing_disabled =
+-                        channel.is_some_and(|channel| match channel.visibility {
+-                            proto::ChannelVisibility::Public => {
+-                                project.visible_worktrees(cx).any(|worktree| {
+-                                    let worktree_id = worktree.read(cx).id();
 -
--        children.push(
--            IconButton::new(
--                "mute-sound",
--                if is_deafened {
--                    IconName::AudioOff
--                } else {
--                    IconName::AudioOn
+-                                    let settings_location = Some(SettingsLocation {
+-                                        worktree_id,
+-                                        path: RelPath::empty(),
+-                                    });
+-
+-                                    WorktreeSettings::get(settings_location, cx)
+-                                        .prevent_sharing_in_public_channels
+-                                })
+-                            }
+-                            proto::ChannelVisibility::Members => false,
+-                        });
+-
+-                    let icon = if is_shared {
+-                        IconName::FolderShared
+-                    } else {
+-                        IconName::FolderShare
+-                    };
+-
+-                    let folder_names = project
+-                        .visible_worktrees(cx)
+-                        .filter_map(|worktree| {
+-                            worktree
+-                                .read(cx)
+-                                .root_name()
+-                                .file_name()
+-                                .map(|name| name.to_string())
+-                        })
+-                        .collect::<Vec<_>>();
+-                    let folder_list = folder_names.join(", ");
+-
+-                    let unshare_meta: SharedString = if folder_list.is_empty() {
+-                        "Stop sharing project with call participants".into()
+-                    } else {
+-                        format!("Stop sharing {folder_list} with call participants").into()
+-                    };
+-                    let share_meta: SharedString = if folder_list.is_empty() {
+-                        "Share active project with call participants".into()
+-                    } else {
+-                        format!("Share {folder_list} with call participants").into()
+-                    };
+-
+-                    this.child(
+-                        IconButton::new("toggle_sharing", icon)
+-                            .icon_size(IconSize::Small)
+-                            .selected_style(ButtonStyle::Tinted(TintColor::Accent))
+-                            .toggle_state(is_shared)
+-                            .map(|this| {
+-                                if is_shared {
+-                                    this.tooltip(move |_, cx| {
+-                                        Tooltip::with_meta(
+-                                            "Unshare Project",
+-                                            None,
+-                                            unshare_meta.clone(),
+-                                            cx,
+-                                        )
+-                                    })
+-                                    .on_click(cx.listener(
+-                                        move |this, _, window, cx| {
+-                                            this.unshare_project(window, cx);
+-                                        },
+-                                    ))
+-                                } else if is_sharing_disabled {
+-                                    this.disabled(true).tooltip(Tooltip::text(
+-                                        "This project may not be shared in a public channel.",
+-                                    ))
+-                                } else {
+-                                    this.tooltip(move |_, cx| {
+-                                        Tooltip::with_meta(
+-                                            "Share Project",
+-                                            None,
+-                                            share_meta.clone(),
+-                                            cx,
+-                                        )
+-                                    })
+-                                    .on_click(cx.listener(
+-                                        move |this, _, _, cx| {
+-                                            this.share_project(cx);
+-                                        },
+-                                    ))
+-                                }
+-                            }),
+-                    )
 -                },
 -            )
--            .style(ButtonStyle::Subtle)
--            .selected_style(ButtonStyle::Tinted(TintColor::Error))
--            .icon_size(IconSize::Small)
--            .toggle_state(is_deafened)
--            .tooltip(move |_window, cx| {
--                if is_deafened {
--                    let label = "Unmute Audio";
+-            .when(can_use_microphone && screen_sharing_supported, |parent| {
+-                #[cfg(target_os = "linux")]
+-                let is_wayland = gpui::guess_compositor() == "Wayland";
+-                #[cfg(not(target_os = "linux"))]
+-                let is_wayland = false;
 -
--                    if !muted_by_user {
--                        Tooltip::with_meta(label, None, "Microphone will be unmuted", cx)
+-                let trigger = IconButton::new("screen-share", IconName::Screen)
+-                    .style(ButtonStyle::Subtle)
+-                    .icon_size(IconSize::Small)
+-                    .toggle_state(is_screen_sharing)
+-                    .selected_style(ButtonStyle::Tinted(TintColor::Accent))
+-                    .tooltip(Tooltip::text(if is_screen_sharing {
+-                        "Stop Sharing Screen"
 -                    } else {
--                        Tooltip::simple(label, cx)
--                    }
+-                        "Share Screen"
+-                    }))
+-                    .on_click(move |_, window, cx| {
+-                        let should_share = ActiveCall::global(cx)
+-                            .read(cx)
+-                            .room()
+-                            .is_some_and(|room| !room.read(cx).is_sharing_screen());
+-
+-                        #[cfg(target_os = "linux")]
+-                        {
+-                            if is_wayland
+-                                && let Some(room) = ActiveCall::global(cx).read(cx).room().cloned()
+-                            {
+-                                let task = room.update(cx, |room, cx| {
+-                                    if should_share {
+-                                        room.share_screen_wayland(cx)
+-                                    } else {
+-                                        room.unshare_screen(true, cx)
+-                                            .map(|()| Task::ready(Ok(())))
+-                                            .unwrap_or_else(|e| Task::ready(Err(e)))
+-                                    }
+-                                });
+-                                task.detach_and_prompt_err(
+-                                    "Sharing Screen Failed",
+-                                    window,
+-                                    cx,
+-                                    |e, _, _| Some(format!("{e:?}")),
+-                                );
+-                            }
+-                        }
+-                        if !is_wayland {
+-                            window
+-                                .spawn(cx, async move |cx| {
+-                                    let screen = if should_share {
+-                                        cx.update(|_, cx| pick_default_screen(cx))?.await
+-                                    } else {
+-                                        Ok(None)
+-                                    };
+-                                    cx.update(|window, cx| {
+-                                        toggle_screen_sharing(screen, window, cx)
+-                                    })?;
+-
+-                                    Result::<_, anyhow::Error>::Ok(())
+-                                })
+-                                .detach();
+-                        }
+-                    });
+-
+-                if is_wayland {
+-                    parent.child(trigger)
 -                } else {
--                    let label = "Mute Audio";
--
--                    if !muted_by_user {
--                        Tooltip::with_meta(label, None, "Microphone will be muted", cx)
--                    } else {
--                        Tooltip::simple(label, cx)
--                    }
+-                    parent.child(
+-                        SplitButton::new(
+-                            trigger.render(window, cx),
+-                            self.render_screen_list().into_any_element(),
+-                        )
+-                        .style(SplitButtonStyle::Transparent),
+-                    )
 -                }
 -            })
--            .on_click(move |_, _, cx| toggle_deafen(cx))
--            .into_any_element(),
--        );
--
--        if can_use_microphone && screen_sharing_supported {
--            #[cfg(target_os = "linux")]
--            let is_wayland = gpui::guess_compositor() == "Wayland";
--            #[cfg(not(target_os = "linux"))]
--            let is_wayland = false;
--
--            let trigger = IconButton::new("screen-share", IconName::Screen)
--                .style(ButtonStyle::Subtle)
--                .icon_size(IconSize::Small)
--                .toggle_state(is_screen_sharing)
--                .selected_style(ButtonStyle::Tinted(TintColor::Accent))
--                .tooltip(Tooltip::text(if is_screen_sharing {
--                    "Stop Sharing Screen"
--                } else {
--                    "Share Screen"
--                }))
--                .on_click(move |_, window, cx| {
--                    let should_share = ActiveCall::global(cx)
--                        .read(cx)
--                        .room()
--                        .is_some_and(|room| !room.read(cx).is_sharing_screen());
--
--                    #[cfg(target_os = "linux")]
--                    {
--                        if is_wayland
--                            && let Some(room) = ActiveCall::global(cx).read(cx).room().cloned()
--                        {
--                            let task = room.update(cx, |room, cx| {
--                                if should_share {
--                                    room.share_screen_wayland(cx)
--                                } else {
--                                    room.unshare_screen(true, cx)
--                                        .map(|()| Task::ready(Ok(())))
--                                        .unwrap_or_else(|e| Task::ready(Err(e)))
--                                }
--                            });
--                            task.detach_and_prompt_err(
--                                "Sharing Screen Failed",
--                                window,
--                                cx,
--                                |e, _, _| Some(format!("{e:?}")),
--                            );
--                        }
--                    }
--                    if !is_wayland {
--                        window
--                            .spawn(cx, async move |cx| {
--                                let screen = if should_share {
--                                    cx.update(|_, cx| pick_default_screen(cx))?.await
--                                } else {
--                                    Ok(None)
--                                };
--                                cx.update(|window, cx| toggle_screen_sharing(screen, window, cx))?;
--
--                                Result::<_, anyhow::Error>::Ok(())
--                            })
--                            .detach();
--                    }
--                });
--
--            if is_wayland {
--                children.push(trigger.into_any_element());
--            } else {
--                children.push(
--                    SplitButton::new(
--                        trigger.render(window, cx),
--                        self.render_screen_list().into_any_element(),
--                    )
--                    .style(SplitButtonStyle::Transparent)
--                    .into_any_element(),
--                );
--            }
--        }
--
--        children.push(div().pr_2().into_any_element());
--
--        children
+-            .into_any_element()
 -    }
 -
 -    fn render_screen_list(&self) -> impl IntoElement {
@@ -63821,7 +64076,7 @@ index 7f652ab754..0000000000
 -    })
 -}
 diff --git a/crates/title_bar/src/title_bar.rs b/crates/title_bar/src/title_bar.rs
-index b2f2b4f436..5bb424efca 100644
+index 169aa944e1..215631eac0 100644
 --- a/crates/title_bar/src/title_bar.rs
 +++ b/crates/title_bar/src/title_bar.rs
 @@ -1,5 +1,4 @@
@@ -63836,9 +64091,9 @@ index b2f2b4f436..5bb424efca 100644
  use auto_update::AutoUpdateStatus;
 -use call::ActiveCall;
  use client::{Client, UserStore, zed_urls};
- use cloud_api_types::Plan;
+ use command_palette_hooks::CommandPaletteFilter;
  
-@@ -160,7 +158,6 @@ pub struct TitleBar {
+@@ -206,7 +204,6 @@ pub struct TitleBar {
      banner: Option<Entity<OnboardingBanner>>,
      update_version: Entity<UpdateVersion>,
      screen_share_popover_handle: PopoverMenuHandle<ContextMenu>,
@@ -63846,7 +64101,7 @@ index b2f2b4f436..5bb424efca 100644
  }
  
  impl Render for TitleBar {
-@@ -278,8 +275,6 @@ impl Render for TitleBar {
+@@ -324,8 +321,6 @@ impl Render for TitleBar {
                  .into_any_element(),
          );
  
@@ -63855,15 +64110,15 @@ index b2f2b4f436..5bb424efca 100644
          if title_bar_settings.show_onboarding_banner {
              if let Some(banner) = &self.banner {
                  children.push(banner.clone().into_any_element())
-@@ -315,7 +310,6 @@ impl Render for TitleBar {
+@@ -361,7 +356,6 @@ impl Render for TitleBar {
                  })
                  .gap_1()
                  .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
--                .children(self.render_call_controls(window, cx))
+-                .child(self.render_call_controls(window, cx))
                  .children(self.render_connection_status(status, cx))
                  .child(self.update_version.clone())
                  .when(
-@@ -394,7 +388,6 @@ impl TitleBar {
+@@ -440,7 +434,6 @@ impl TitleBar {
          let git_store = project.read(cx).git_store().clone();
          let user_store = workspace.app_state().user_store.clone();
          let client = workspace.app_state().client.clone();
@@ -63871,7 +64126,7 @@ index b2f2b4f436..5bb424efca 100644
  
          let platform_style = PlatformStyle::platform();
          let application_menu = match platform_style {
-@@ -417,8 +410,6 @@ impl TitleBar {
+@@ -463,8 +456,6 @@ impl TitleBar {
              }),
          );
  
@@ -63880,7 +64135,7 @@ index b2f2b4f436..5bb424efca 100644
          subscriptions.push(
              cx.subscribe(&git_store, move |_, _, event, cx| match event {
                  GitStoreEvent::ActiveRepositoryChanged(_)
-@@ -469,11 +460,8 @@ impl TitleBar {
+@@ -515,11 +506,8 @@ impl TitleBar {
              banner,
              update_version,
              screen_share_popover_handle: PopoverMenuHandle::default(),
@@ -63892,7 +64147,7 @@ index b2f2b4f436..5bb424efca 100644
          this
      }
  
-@@ -1038,57 +1026,6 @@ impl TitleBar {
+@@ -1069,57 +1057,6 @@ impl TitleBar {
          )
      }
  
@@ -63951,10 +64206,10 @@ index b2f2b4f436..5bb424efca 100644
          &self,
          status: &client::Status,
 diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
-index 5f973aaca9..2cbdf783a5 100644
+index abd8a608ab..993856be56 100644
 --- a/crates/zed/Cargo.toml
 +++ b/crates/zed/Cargo.toml
-@@ -76,14 +76,12 @@ audio.workspace = true
+@@ -77,14 +77,12 @@ audio.workspace = true
  auto_update.workspace = true
  auto_update_ui.workspace = true
  breadcrumbs.workspace = true
@@ -63969,7 +64224,7 @@ index 5f973aaca9..2cbdf783a5 100644
  collections.workspace = true
  command_palette.workspace = true
  component.workspace = true
-@@ -252,7 +250,6 @@ image.workspace = true
+@@ -253,7 +251,6 @@ image.workspace = true
  pkg-config = "0.3.22"
  
  [dev-dependencies]
@@ -63978,7 +64233,7 @@ index 5f973aaca9..2cbdf783a5 100644
  gpui = { workspace = true, features = ["input-latency-histogram", "test-support"] }
  image_viewer = { workspace = true, features = ["test-support"] }
 diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
-index cd102e7804..9334a6ba27 100644
+index d6d6287943..4989d5f46f 100644
 --- a/crates/zed/src/main.rs
 +++ b/crates/zed/src/main.rs
 @@ -21,7 +21,6 @@ use anyhow::{Context as _, Result};
@@ -63989,7 +64244,7 @@ index cd102e7804..9334a6ba27 100644
  use collections::HashMap;
  use crashes::InitCrashHandler;
  use db::kvp::{GlobalKeyValueStore, KeyValueStore};
-@@ -762,9 +761,7 @@ fn main() {
+@@ -759,9 +758,7 @@ fn main() {
          theme_selector::init(cx);
          settings_profile_selector::init(cx);
          language_tools::init(cx);
@@ -63997,9 +64252,9 @@ index cd102e7804..9334a6ba27 100644
          notifications::init(app_state.client.clone(), app_state.user_store.clone(), cx);
 -        collab_ui::init(&app_state, cx);
          git_ui::init(cx);
-         git_graph::init(cx);
          feedback::init(cx);
-@@ -1379,20 +1376,8 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
+         markdown_preview::init(cx);
+@@ -1393,20 +1390,8 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
  
                  let workspace = workspace_window.read_with(cx, |mw, _| mw.workspace().clone())?;
  
@@ -64023,7 +64278,7 @@ index cd102e7804..9334a6ba27 100644
              })
              .await;
 diff --git a/crates/zed/src/visual_test_runner.rs b/crates/zed/src/visual_test_runner.rs
-index 8f85fcd3c8..bc5645c93e 100644
+index 609f5c180e..6a9a8cf455 100644
 --- a/crates/zed/src/visual_test_runner.rs
 +++ b/crates/zed/src/visual_test_runner.rs
 @@ -183,7 +183,6 @@ fn run_visual_tests(project_path: PathBuf, update_baseline: bool) -> Result<()>
@@ -64035,10 +64290,10 @@ index 8f85fcd3c8..bc5645c93e 100644
          project_panel::init(cx);
          outline_panel::init(cx);
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index f083bd6b6f..cf459427db 100644
+index 56e6d24d1a..56f43deb2f 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
-@@ -727,8 +727,6 @@ fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<a
+@@ -739,8 +739,6 @@ fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<a
          let outline_panel = OutlinePanel::load(workspace_handle.clone(), cx.clone());
          let terminal_panel = TerminalPanel::load(workspace_handle.clone(), cx.clone());
          let git_panel = GitPanel::load(workspace_handle.clone(), cx.clone());
@@ -64047,7 +64302,7 @@ index f083bd6b6f..cf459427db 100644
          let debug_panel = DebugPanel::load(workspace_handle.clone(), cx);
  
          async fn add_panel_when_ready(
-@@ -751,7 +749,6 @@ fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<a
+@@ -763,7 +761,6 @@ fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<a
              add_panel_when_ready(outline_panel, workspace_handle.clone(), cx.clone()),
              add_panel_when_ready(terminal_panel, workspace_handle.clone(), cx.clone()),
              add_panel_when_ready(git_panel, workspace_handle.clone(), cx.clone()),
@@ -64055,7 +64310,7 @@ index f083bd6b6f..cf459427db 100644
              add_panel_when_ready(debug_panel, workspace_handle.clone(), cx.clone()),
              initialize_agent_panel(workspace_handle, cx.clone()).map(|r| r.log_err()),
          );
-@@ -1136,14 +1133,6 @@ fn register_actions(
+@@ -1153,14 +1150,6 @@ fn register_actions(
                  workspace.toggle_panel_focus::<OutlinePanel>(window, cx);
              },
          )
@@ -64071,7 +64326,7 @@ index f083bd6b6f..cf459427db 100644
              |workspace: &mut Workspace,
               _: &terminal_panel::ToggleFocus,
 diff --git a/crates/zed/src/zed/app_menus.rs b/crates/zed/src/zed/app_menus.rs
-index f3913a6556..25c24df78a 100644
+index 29a06747f9..5e2ef6af19 100644
 --- a/crates/zed/src/zed/app_menus.rs
 +++ b/crates/zed/src/zed/app_menus.rs
 @@ -1,4 +1,3 @@

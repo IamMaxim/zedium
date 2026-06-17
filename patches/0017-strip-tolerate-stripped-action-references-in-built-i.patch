@@ -25,10 +25,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  7 files changed, 55 insertions(+), 12 deletions(-)
 
 diff --git a/crates/agent_ui/src/agent_panel.rs b/crates/agent_ui/src/agent_panel.rs
-index a94a932ee8..cb0de6070e 100644
+index 418f5551ac..69b2fa983c 100644
 --- a/crates/agent_ui/src/agent_panel.rs
 +++ b/crates/agent_ui/src/agent_panel.rs
-@@ -8348,6 +8348,7 @@ mod tests {
+@@ -9223,6 +9223,7 @@ mod tests {
          cx.update(|cx| {
              let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
                  "keymaps/default-macos.json",
@@ -36,7 +36,7 @@ index a94a932ee8..cb0de6070e 100644
                  cx,
              )
              .unwrap();
-@@ -11380,7 +11381,7 @@ mod tests {
+@@ -12432,7 +12433,7 @@ mod tests {
  
              // Load vim keybindings
              let mut vim_key_bindings =
@@ -46,7 +46,7 @@ index a94a932ee8..cb0de6070e 100644
              for key_binding in &mut vim_key_bindings {
                  key_binding.set_meta(settings::KeybindSource::Vim.meta());
 diff --git a/crates/editor/src/edit_prediction_tests.rs b/crates/editor/src/edit_prediction_tests.rs
-index 80849c4b79..88f2f4b31f 100644
+index 24ac960b91..0b3c4b2f35 100644
 --- a/crates/editor/src/edit_prediction_tests.rs
 +++ b/crates/editor/src/edit_prediction_tests.rs
 @@ -912,6 +912,7 @@ fn load_default_keymap(cx: &mut gpui::TestAppContext) {
@@ -58,10 +58,10 @@ index 80849c4b79..88f2f4b31f 100644
              )
              .expect("failed to load default keymap"),
 diff --git a/crates/editor/src/editor_tests.rs b/crates/editor/src/editor_tests.rs
-index 3eca954d6d..dbf620cc0d 100644
+index b476b9bcda..c23d92d1ab 100644
 --- a/crates/editor/src/editor_tests.rs
 +++ b/crates/editor/src/editor_tests.rs
-@@ -27629,6 +27629,7 @@ async fn test_multi_buffer_navigation_with_folded_buffers(cx: &mut TestAppContex
+@@ -27737,6 +27737,7 @@ async fn test_multi_buffer_navigation_with_folded_buffers(cx: &mut TestAppContex
      cx.update(|cx| {
          let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
              "keymaps/default-linux.json",
@@ -70,10 +70,10 @@ index 3eca954d6d..dbf620cc0d 100644
          )
          .unwrap();
 diff --git a/crates/search/src/buffer_search.rs b/crates/search/src/buffer_search.rs
-index ea03a1a7f9..10798852a4 100644
+index 5e20f2e7ec..734aeed301 100644
 --- a/crates/search/src/buffer_search.rs
 +++ b/crates/search/src/buffer_search.rs
-@@ -2037,6 +2037,7 @@ mod tests {
+@@ -2038,6 +2038,7 @@ mod tests {
          let window = cx.add_window(|window, cx| {
              let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
                  "keymaps/default-macos.json",
@@ -81,7 +81,7 @@ index ea03a1a7f9..10798852a4 100644
                  cx,
              )
              .unwrap();
-@@ -2080,6 +2081,7 @@ mod tests {
+@@ -2081,6 +2082,7 @@ mod tests {
          let window = cx.add_window(|window, cx| {
              let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
                  "keymaps/default-macos.json",
@@ -89,7 +89,7 @@ index ea03a1a7f9..10798852a4 100644
                  cx,
              )
              .unwrap();
-@@ -3325,6 +3327,7 @@ mod tests {
+@@ -3326,6 +3328,7 @@ mod tests {
          let window = cx.add_window(|window, cx| {
              let default_key_bindings = settings::KeymapFile::load_asset_allow_partial_failure(
                  "keymaps/default-macos.json",
@@ -98,7 +98,7 @@ index ea03a1a7f9..10798852a4 100644
              )
              .unwrap();
 diff --git a/crates/settings/src/keymap_file.rs b/crates/settings/src/keymap_file.rs
-index 82c6f6528b..ca507b05a3 100644
+index 9f734939d7..5e8d888f41 100644
 --- a/crates/settings/src/keymap_file.rs
 +++ b/crates/settings/src/keymap_file.rs
 @@ -203,8 +203,17 @@ impl KeymapFile {
@@ -163,10 +163,10 @@ index 6f15450aa3..f24f13a076 100644
              for key_binding in &mut vim_key_bindings {
                  key_binding.set_meta(settings::KeybindSource::Vim.meta());
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index d610ad0445..92b2c4d3ef 100644
+index 0cf53bae93..0a9608f73c 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
-@@ -2124,18 +2124,34 @@ pub fn load_default_keymap(cx: &mut App) {
+@@ -2211,18 +2211,34 @@ pub fn load_default_keymap(cx: &mut App) {
          return;
      }
  

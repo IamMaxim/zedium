@@ -83,10 +83,10 @@ index c6bd0473ac..5dbb1d23f5 100644
  
      pub fn uninstall_extension(
 diff --git a/crates/extension_host/src/extension_store_test.rs b/crates/extension_host/src/extension_store_test.rs
-index 21d18d6c58..de0634a9cf 100644
+index 9eed9f750e..a93c5ba498 100644
 --- a/crates/extension_host/src/extension_store_test.rs
 +++ b/crates/extension_host/src/extension_store_test.rs
-@@ -1277,6 +1277,148 @@ async fn test_fetch_extensions_from_local_registry(cx: &mut TestAppContext) {
+@@ -1287,6 +1287,148 @@ async fn test_fetch_extensions_from_local_registry(cx: &mut TestAppContext) {
      assert_eq!(themes_only[0].id.as_ref(), "airgap-theme");
  }
  

@@ -1,0 +1,125 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Wed, 17 Jun 2026 21:40:58 +0300
+Subject: [PATCH] rebase v1.7.2: stub anthropic inline-assist telemetry, fix
+ anyhow import + SettingField org_override
+
+---
+ crates/agent_ui/src/agent_panel.rs            |  2 +-
+ crates/language_models/src/provider.rs        |  1 +
+ .../language_models/src/provider/anthropic.rs |  5 ++
+ .../src/provider/anthropic/telemetry.rs       | 47 +++++++++++++++++++
+ crates/settings_ui/src/page_data.rs           |  2 +
+ 5 files changed, 56 insertions(+), 1 deletion(-)
+ create mode 100644 crates/language_models/src/provider/anthropic.rs
+ create mode 100644 crates/language_models/src/provider/anthropic/telemetry.rs
+
+diff --git a/crates/agent_ui/src/agent_panel.rs b/crates/agent_ui/src/agent_panel.rs
+index c8d1daf806..57932eb932 100644
+--- a/crates/agent_ui/src/agent_panel.rs
++++ b/crates/agent_ui/src/agent_panel.rs
+@@ -48,7 +48,7 @@ use crate::{
+     NewNativeAgentThreadFromSummary,
+ };
+ use agent_settings::AgentSettings;
+-use anyhow::Result;
++use anyhow::{Context as _, Result, anyhow};
+ #[cfg(feature = "audio")]
+ use audio::{Audio, Sound};
+ use chrono::{DateTime, Utc};
+diff --git a/crates/language_models/src/provider.rs b/crates/language_models/src/provider.rs
+index f4e5692425..2d1e63815c 100644
+--- a/crates/language_models/src/provider.rs
++++ b/crates/language_models/src/provider.rs
+@@ -2,6 +2,7 @@ use collections::HashMap;
+ use http_client::CustomHeaders;
+ use http_client::http::{HeaderName, HeaderValue};
+ 
++pub mod anthropic;
+ pub mod lmstudio;
+ pub mod ollama;
+ pub mod open_ai_compatible;
+diff --git a/crates/language_models/src/provider/anthropic.rs b/crates/language_models/src/provider/anthropic.rs
+new file mode 100644
+index 0000000000..5adddf88f2
+--- /dev/null
++++ b/crates/language_models/src/provider/anthropic.rs
+@@ -0,0 +1,5 @@
++// Zedium air-gap: the upstream Anthropic language-model provider is removed
++// (it talks to the Anthropic cloud API). Only the inline-assist telemetry types
++// it used to host are retained here as inert no-ops, so the assistant UI still
++// compiles while emitting no telemetry.
++pub mod telemetry;
+diff --git a/crates/language_models/src/provider/anthropic/telemetry.rs b/crates/language_models/src/provider/anthropic/telemetry.rs
+new file mode 100644
+index 0000000000..7687a22448
+--- /dev/null
++++ b/crates/language_models/src/provider/anthropic/telemetry.rs
+@@ -0,0 +1,47 @@
++// Zedium air-gap: upstream reported inline-assist completion events to the
++// Anthropic cloud endpoint (`{ANTHROPIC_API_URL}/v1/log/zed`). That egress is
++// stripped; these types remain so the assistant UI compiles, but reporting is a
++// no-op.
++use language_model::LanguageModel;
++use std::sync::Arc;
++
++#[derive(Clone, Debug)]
++pub struct AnthropicEventData {
++    pub completion_type: AnthropicCompletionType,
++    pub event: AnthropicEventType,
++    pub language_name: Option<String>,
++    pub message_id: Option<String>,
++}
++
++#[derive(Clone, Debug)]
++pub enum AnthropicCompletionType {
++    Editor,
++    Terminal,
++    Panel,
++}
++
++#[derive(Clone, Debug)]
++pub enum AnthropicEventType {
++    Invoked,
++    Response,
++    Accept,
++    Reject,
++}
++
++pub fn report_anthropic_event(
++    _model: &Arc<dyn LanguageModel>,
++    _event: AnthropicEventData,
++    _cx: &gpui::App,
++) {
++}
++
++#[derive(Clone)]
++pub struct AnthropicEventReporter;
++
++impl AnthropicEventReporter {
++    pub fn new(_model: &Arc<dyn LanguageModel>, _cx: &gpui::App) -> Self {
++        Self
++    }
++
++    pub fn report(&self, _event: AnthropicEventData) {}
++}
+diff --git a/crates/settings_ui/src/page_data.rs b/crates/settings_ui/src/page_data.rs
+index 8b4ab4540a..470e22a052 100644
+--- a/crates/settings_ui/src/page_data.rs
++++ b/crates/settings_ui/src/page_data.rs
+@@ -1062,6 +1062,7 @@ fn appearance_page() -> SettingsPage {
+                     title: "Line Height",
+                     description: "Line height for UI elements like the file tree, git panel, and outline panel.",
+                     field: Box::new(SettingField {
++                        organization_override: None,
+                         json_path: Some("ui_line_height$"),
+                         pick: |settings_content| {
+                             Some(
+@@ -1119,6 +1120,7 @@ fn appearance_page() -> SettingsPage {
+                             title: "Custom Line Height",
+                             description: "Custom UI line height value (must be at least 1.0).",
+                             field: Box::new(SettingField {
++                                organization_override: None,
+                                 json_path: Some("ui_line_height"),
+                                 pick: |settings_content| match settings_content
+                                     .theme

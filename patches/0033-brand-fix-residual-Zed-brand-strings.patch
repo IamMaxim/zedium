@@ -20,10 +20,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  4 files changed, 104 insertions(+), 104 deletions(-)
 
 diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
-index 2628ff4d62..355a1ecbf6 100644
+index 253a55f8e0..e7e56d3178 100644
 --- a/crates/agent_ui/src/conversation_view/thread_view.rs
 +++ b/crates/agent_ui/src/conversation_view/thread_view.rs
-@@ -1597,7 +1597,7 @@ impl ThreadView {
+@@ -1756,7 +1756,7 @@ impl ThreadView {
                  ThreadError::PaymentRequired => (
                      "payment_required",
                      None,
@@ -33,10 +33,10 @@ index 2628ff4d62..355a1ecbf6 100644
                  ),
                  ThreadError::Refusal => {
 diff --git a/crates/cli/src/main.rs b/crates/cli/src/main.rs
-index 3a1cadcd6f..f13332a7ce 100644
+index 9147814e09..d897735949 100644
 --- a/crates/cli/src/main.rs
 +++ b/crates/cli/src/main.rs
-@@ -1063,7 +1063,7 @@ mod flatpak {
+@@ -1071,7 +1071,7 @@ mod flatpak {
          }
  
          if let Ok(flatpak_id) = env::var("FLATPAK_ID") {
@@ -46,7 +46,7 @@ index 3a1cadcd6f..f13332a7ce 100644
              }
  
 diff --git a/crates/install_cli/src/install_cli_binary.rs b/crates/install_cli/src/install_cli_binary.rs
-index 4c6d8cde40..622ff67d1c 100644
+index ee8b8b2b66..622ff67d1c 100644
 --- a/crates/install_cli/src/install_cli_binary.rs
 +++ b/crates/install_cli/src/install_cli_binary.rs
 @@ -1,101 +1,101 @@
@@ -122,7 +122,7 @@ index 4c6d8cde40..622ff67d1c 100644
 -                PromptLevel::Warning,
 -                "CLI should already be installed",
 -                Some(LINUX_PROMPT_DETAIL),
--                &["Ok"],
+-                &["OK"],
 -            );
 -            cx.background_spawn(prompt).detach();
 -            return Ok(());
@@ -253,10 +253,10 @@ index 4c6d8cde40..622ff67d1c 100644
 +    .detach_and_prompt_err("Error installing zed cli", window, cx, |_, _, _| None);
 +}
 diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
-index 3b8afb931a..bb7096b801 100644
+index 137384017e..02ea33280d 100644
 --- a/crates/zed/src/main.rs
 +++ b/crates/zed/src/main.rs
-@@ -163,7 +163,7 @@ fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
+@@ -172,7 +172,7 @@ fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
                  process::exit(1);
              };
  

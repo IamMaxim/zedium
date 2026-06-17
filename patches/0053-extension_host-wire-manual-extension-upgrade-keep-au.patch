@@ -140,10 +140,10 @@ index bf813a9d62..323627a576 100644
  
      fn install_or_upgrade_extension(
 diff --git a/crates/extension_host/src/extension_store_test.rs b/crates/extension_host/src/extension_store_test.rs
-index f9c1aac112..85601e1a29 100644
+index 27d310240f..c3ca9e36f7 100644
 --- a/crates/extension_host/src/extension_store_test.rs
 +++ b/crates/extension_host/src/extension_store_test.rs
-@@ -1490,6 +1490,176 @@ async fn test_installed_extensions_metadata(cx: &mut TestAppContext) {
+@@ -1500,6 +1500,176 @@ async fn test_installed_extensions_metadata(cx: &mut TestAppContext) {
      });
  }
  

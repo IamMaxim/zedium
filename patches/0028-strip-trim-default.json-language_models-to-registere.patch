@@ -17,10 +17,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  1 file changed, 3 insertions(+), 29 deletions(-)
 
 diff --git a/assets/settings/default.json b/assets/settings/default.json
-index e5055cdffd..969d89ff90 100644
+index 7c568873be..e75525ab59 100644
 --- a/assets/settings/default.json
 +++ b/assets/settings/default.json
-@@ -2347,43 +2347,17 @@
+@@ -2373,43 +2373,17 @@
      },
    },
    // Different settings for specific language models.

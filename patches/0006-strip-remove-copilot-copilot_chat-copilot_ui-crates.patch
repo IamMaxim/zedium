@@ -69,7 +69,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  crates/edit_prediction/src/edit_prediction.rs |   67 +-
  .../edit_prediction/src/onboarding_modal.rs   |   18 +-
  crates/edit_prediction_ui/Cargo.toml          |    4 -
- .../src/edit_prediction_button.rs             |  311 ---
+ .../src/edit_prediction_button.rs             |  309 ---
  crates/editor/src/editor.rs                   |   10 +-
  crates/language/src/language_settings.rs      |   23 -
  crates/language_models/Cargo.toml             |    3 -
@@ -87,7 +87,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  crates/zed/src/main.rs                        |   15 -
  crates/zed/src/zed.rs                         |    8 -
  .../zed/src/zed/edit_prediction_registry.rs   |   35 +-
- 39 files changed, 16 insertions(+), 9177 deletions(-)
+ 39 files changed, 16 insertions(+), 9175 deletions(-)
  delete mode 100644 crates/copilot/Cargo.toml
  delete mode 120000 crates/copilot/LICENSE-GPL
  delete mode 100644 crates/copilot/src/copilot.rs
@@ -104,10 +104,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  delete mode 100644 crates/language_models/src/provider/copilot_chat.rs
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 7e94848cfe..5c1bc7dc7c 100644
+index c0ba5411d6..97d81b898f 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -33,8 +33,6 @@ members = [
+@@ -34,8 +34,6 @@ members = [
      "crates/component",
      "crates/component_preview",
      "crates/context_server",
@@ -116,7 +116,7 @@ index 7e94848cfe..5c1bc7dc7c 100644
      "crates/crashes",
      "crates/credentials_provider",
      "crates/csv_preview",
-@@ -291,9 +289,6 @@ component = { path = "crates/component" }
+@@ -288,9 +286,6 @@ component = { path = "crates/component" }
  component_preview = { path = "crates/component_preview" }
  console = "0.16"
  context_server = { path = "crates/context_server" }
@@ -127,10 +127,10 @@ index 7e94848cfe..5c1bc7dc7c 100644
  credentials_provider = { path = "crates/credentials_provider" }
  crossbeam = "0.8.4"
 diff --git a/crates/agent/src/agent.rs b/crates/agent/src/agent.rs
-index 1d14e45991..99240f3501 100644
+index 2a8eaaf2b7..eadb52b35d 100644
 --- a/crates/agent/src/agent.rs
 +++ b/crates/agent/src/agent.rs
-@@ -272,9 +272,6 @@ impl LanguageModels {
+@@ -354,9 +354,6 @@ impl LanguageModels {
                                      //
                                      // These fail noisily, so we don't log them.
                                  }
@@ -141,10 +141,10 @@ index 1d14e45991..99240f3501 100644
                                      log::error!(
                                          "Failed to authenticate provider: {}: {err:#}",
 diff --git a/crates/agent_ui/src/agent_ui.rs b/crates/agent_ui/src/agent_ui.rs
-index fc67e12904..d140c720c3 100644
+index 71b52a4243..a664aa62c3 100644
 --- a/crates/agent_ui/src/agent_ui.rs
 +++ b/crates/agent_ui/src/agent_ui.rs
-@@ -724,21 +724,14 @@ fn update_command_palette_filter(cx: &mut App) {
+@@ -812,21 +812,14 @@ fn update_command_palette_filter(cx: &mut App) {
              match edit_prediction_provider {
                  EditPredictionProvider::None => {
                      filter.hide_namespace("edit_prediction");
@@ -166,7 +166,7 @@ index fc67e12904..d140c720c3 100644
                      filter.show_action_types(edit_prediction_actions.iter());
                  }
              }
-@@ -951,7 +944,7 @@ mod tests {
+@@ -1044,7 +1037,7 @@ mod tests {
          });
  
          // Test EditPredictionProvider
@@ -175,7 +175,7 @@ index fc67e12904..d140c720c3 100644
          cx.update(|cx| {
              cx.update_global::<SettingsStore, _>(|store, cx| {
                  store.update_user_settings(cx, |s| {
-@@ -959,7 +952,7 @@ mod tests {
+@@ -1052,7 +1045,7 @@ mod tests {
                          .all_languages
                          .edit_predictions
                          .get_or_insert(Default::default())
@@ -184,7 +184,7 @@ index fc67e12904..d140c720c3 100644
                  });
              });
              update_command_palette_filter(cx);
-@@ -969,7 +962,7 @@ mod tests {
+@@ -1062,7 +1055,7 @@ mod tests {
              let filter = CommandPaletteFilter::try_global(cx).unwrap();
              assert!(
                  !filter.is_hidden(&AcceptEditPrediction),
@@ -6246,7 +6246,7 @@ index 506bf1fcf0..0000000000
 -}
 diff --git a/crates/copilot_ui/src/sign_in.rs b/crates/copilot_ui/src/sign_in.rs
 deleted file mode 100644
-index fe9ac57bda..0000000000
+index 6d1f67607f..0000000000
 --- a/crates/copilot_ui/src/sign_in.rs
 +++ /dev/null
 @@ -1,708 +0,0 @@
@@ -6289,7 +6289,7 @@ index fe9ac57bda..0000000000
 -            Err(err) => cx.update(|window, cx| {
 -                if let Some(workspace) = Workspace::for_window(window, cx) {
 -                    workspace.update(cx, |workspace, cx| {
--                        workspace.show_error(&err, cx);
+-                        workspace.show_error(format!("Error: {err}"), cx);
 -                    })
 -                } else {
 -                    log::error!("{:?}", err);
@@ -6959,7 +6959,7 @@ index fe9ac57bda..0000000000
 -    }
 -}
 diff --git a/crates/edit_prediction/Cargo.toml b/crates/edit_prediction/Cargo.toml
-index eea6fd94c0..eb4cce9f65 100644
+index 0e77f3812c..c92392bce6 100644
 --- a/crates/edit_prediction/Cargo.toml
 +++ b/crates/edit_prediction/Cargo.toml
 @@ -25,8 +25,6 @@ cloud_api_client.workspace = true
@@ -6972,7 +6972,7 @@ index eea6fd94c0..eb4cce9f65 100644
  db.workspace = true
  edit_prediction_types.workspace = true
 diff --git a/crates/edit_prediction/src/edit_prediction.rs b/crates/edit_prediction/src/edit_prediction.rs
-index 4d0c522e5d..651c391d49 100644
+index ac95aac0df..3fab384a7d 100644
 --- a/crates/edit_prediction/src/edit_prediction.rs
 +++ b/crates/edit_prediction/src/edit_prediction.rs
 @@ -18,7 +18,6 @@ use cloud_llm_client::{
@@ -6983,7 +6983,7 @@ index 4d0c522e5d..651c391d49 100644
  use credentials_provider::CredentialsProvider;
  use db::kvp::{Dismissable, KeyValueStore};
  use edit_prediction_context::{RelatedExcerptStore, RelatedExcerptStoreEvent, RelatedFile};
-@@ -339,7 +338,6 @@ struct ProjectState {
+@@ -375,7 +374,6 @@ struct ProjectState {
      context: Entity<RelatedExcerptStore>,
      license_detection_watchers: HashMap<WorktreeId, Rc<LicenseDetectionWatcher>>,
      _subscriptions: [gpui::Subscription; 2],
@@ -6991,7 +6991,7 @@ index 4d0c522e5d..651c391d49 100644
  }
  
  impl ProjectState {
-@@ -1167,41 +1165,6 @@ impl EditPredictionStore {
+@@ -1178,41 +1176,6 @@ impl EditPredictionStore {
              .unwrap_or_default()
      }
  
@@ -7033,7 +7033,7 @@ index 4d0c522e5d..651c391d49 100644
      pub fn context_for_project_with_buffers<'a>(
          &'a self,
          project: &Entity<Project>,
-@@ -1276,7 +1239,6 @@ impl EditPredictionStore {
+@@ -1359,7 +1322,6 @@ impl EditPredictionStore {
                          cx.notify();
                      }),
                  ],
@@ -7041,7 +7041,7 @@ index 4d0c522e5d..651c391d49 100644
              })
      }
  
-@@ -2360,9 +2322,7 @@ fn is_ep_store_provider(provider: EditPredictionProvider) -> bool {
+@@ -2464,9 +2426,7 @@ fn is_ep_store_provider(provider: EditPredictionProvider) -> bool {
          | EditPredictionProvider::Mercury
          | EditPredictionProvider::Ollama
          | EditPredictionProvider::OpenAiCompatibleApi => true,
@@ -7052,7 +7052,7 @@ index 4d0c522e5d..651c391d49 100644
      }
  }
  
-@@ -2398,9 +2358,7 @@ impl EditPredictionStore {
+@@ -2502,9 +2462,7 @@ impl EditPredictionStore {
                  EditPredictionProvider::Zed | EditPredictionProvider::Mercury => (true, 2),
                  EditPredictionProvider::Ollama => (false, 1),
                  EditPredictionProvider::OpenAiCompatibleApi => (false, 2),
@@ -7063,7 +7063,7 @@ index 4d0c522e5d..651c391d49 100644
                      log::error!("queue_prediction_refresh called with non-store provider");
                      return;
                  }
-@@ -3422,27 +3380,6 @@ pub fn init(cx: &mut App) {
+@@ -3573,27 +3531,6 @@ pub fn init(cx: &mut App) {
                      .provider = Some(EditPredictionProvider::None)
              });
          });
@@ -7157,7 +7157,7 @@ index 5242da140d..3dc5a39dec 100644
  futures.workspace = true
  indoc.workspace = true
 diff --git a/crates/edit_prediction_ui/src/edit_prediction_button.rs b/crates/edit_prediction_ui/src/edit_prediction_button.rs
-index 8e5a46cd88..4e9484774b 100644
+index b850abe047..267a7ace67 100644
 --- a/crates/edit_prediction_ui/src/edit_prediction_button.rs
 +++ b/crates/edit_prediction_ui/src/edit_prediction_button.rs
 @@ -2,7 +2,6 @@ use anyhow::Result;
@@ -7298,7 +7298,7 @@ index 8e5a46cd88..4e9484774b 100644
          cx.observe_global::<SettingsStore>(move |_, cx| cx.notify())
              .detach();
  
-@@ -630,38 +522,6 @@ impl EditPredictionButton {
+@@ -631,38 +523,6 @@ impl EditPredictionButton {
          )
      }
  
@@ -7337,7 +7337,7 @@ index 8e5a46cd88..4e9484774b 100644
      pub fn build_language_settings_menu(
          &self,
          mut menu: ContextMenu,
-@@ -933,64 +793,6 @@ impl EditPredictionButton {
+@@ -936,64 +796,6 @@ impl EditPredictionButton {
          menu
      }
  
@@ -7402,7 +7402,7 @@ index 8e5a46cd88..4e9484774b 100644
      fn build_codestral_context_menu(
          &self,
          window: &mut Window,
-@@ -1372,13 +1174,6 @@ pub fn get_available_providers(cx: &mut App) -> Vec<EditPredictionProvider> {
+@@ -1375,13 +1177,6 @@ pub fn get_available_providers(cx: &mut App) -> Vec<EditPredictionProvider> {
  
      providers.push(EditPredictionProvider::Zed);
  
@@ -7416,7 +7416,7 @@ index 8e5a46cd88..4e9484774b 100644
      if codestral::codestral_api_key(cx).is_some() {
          providers.push(EditPredictionProvider::Codestral);
      }
-@@ -1424,17 +1219,6 @@ fn toggle_show_edit_predictions_for_language(
+@@ -1427,17 +1222,6 @@ fn toggle_show_edit_predictions_for_language(
      });
  }
  
@@ -7434,16 +7434,14 @@ index 8e5a46cd88..4e9484774b 100644
  fn toggle_edit_prediction_mode(fs: Arc<dyn Fs>, mode: EditPredictionsMode, cx: &mut App) {
      let settings = AllLanguageSettings::get_global(cx);
      let current_mode = settings.edit_predictions_mode();
-@@ -1546,98 +1330,3 @@ fn emit_edit_prediction_menu_opened(
+@@ -1549,96 +1333,3 @@ fn emit_edit_prediction_menu_opened(
          .unwrap_or(false);
  }
  
--fn copilot_settings_url(enterprise_uri: Option<&str>) -> String {
+-fn copilot_settings_url(enterprise_uri: Option<&str>) -> Arc<str> {
 -    match enterprise_uri {
--        Some(uri) => {
--            format!("{}{}", uri.trim_end_matches('/'), COPILOT_SETTINGS_PATH)
--        }
--        None => COPILOT_SETTINGS_URL.to_string(),
+-        Some(uri) => format!("{}{}", uri.trim_end_matches('/'), COPILOT_SETTINGS_PATH).into(),
+-        None => COPILOT_SETTINGS_URL.into(),
 -    }
 -}
 -
@@ -7479,7 +7477,7 @@ index 8e5a46cd88..4e9484774b 100644
 -            )
 -        });
 -
--        assert_eq!(url, "https://my-company.ghe.com/settings/copilot");
+-        assert_eq!(url.as_ref(), "https://my-company.ghe.com/settings/copilot");
 -    }
 -
 -    #[gpui::test]
@@ -7509,7 +7507,7 @@ index 8e5a46cd88..4e9484774b 100644
 -            )
 -        });
 -
--        assert_eq!(url, "https://my-company.ghe.com/settings/copilot");
+-        assert_eq!(url.as_ref(), "https://my-company.ghe.com/settings/copilot");
 -    }
 -
 -    #[gpui::test]
@@ -7530,14 +7528,14 @@ index 8e5a46cd88..4e9484774b 100644
 -            )
 -        });
 -
--        assert_eq!(url, "https://github.com/settings/copilot");
+-        assert_eq!(url.as_ref(), "https://github.com/settings/copilot");
 -    }
 -}
 diff --git a/crates/editor/src/editor.rs b/crates/editor/src/editor.rs
-index 0057cf0cdb..75824795a4 100644
+index dc359323a9..136b2ece7d 100644
 --- a/crates/editor/src/editor.rs
 +++ b/crates/editor/src/editor.rs
-@@ -9959,14 +9959,8 @@ impl Editor {
+@@ -10022,14 +10022,8 @@ impl Editor {
              .map(|vim_mode| vim_mode.0)
              .unwrap_or(false);
  
@@ -7610,7 +7608,7 @@ index de67375ccc..4cd765374f 100644
                  ollama: ollama_settings,
                  open_ai_compatible_api: openai_compatible_settings,
 diff --git a/crates/language_models/Cargo.toml b/crates/language_models/Cargo.toml
-index 7e2d2618ea..259e612da4 100644
+index b96a377f02..b7a5cf470c 100644
 --- a/crates/language_models/Cargo.toml
 +++ b/crates/language_models/Cargo.toml
 @@ -27,9 +27,6 @@ cloud_api_types.workspace = true
@@ -7656,10 +7654,10 @@ index 97ac0b2c0a..499a80b22e 100644
          Arc::new(OpenAiSubscribedProvider::new(
              client.http_client(),
 diff --git a/crates/language_models/src/provider.rs b/crates/language_models/src/provider.rs
-index 8c0b4fbfd6..e1251eb658 100644
+index 51b323e6c7..75a4a6b8c5 100644
 --- a/crates/language_models/src/provider.rs
 +++ b/crates/language_models/src/provider.rs
-@@ -1,7 +1,6 @@
+@@ -5,7 +5,6 @@ use http_client::http::{HeaderName, HeaderValue};
  pub mod anthropic;
  pub mod bedrock;
  pub mod cloud;
@@ -9583,10 +9581,10 @@ index f42fad657c..0000000000
 -    }
 -}
 diff --git a/crates/language_tools/src/lsp_button.rs b/crates/language_tools/src/lsp_button.rs
-index 07023b1781..68a80651c0 100644
+index a1dc4fe632..0988217484 100644
 --- a/crates/language_tools/src/lsp_button.rs
 +++ b/crates/language_tools/src/lsp_button.rs
-@@ -1374,10 +1374,6 @@ impl Render for LspButton {
+@@ -1375,10 +1375,6 @@ impl Render for LspButton {
  
          div().child(
              PopoverMenu::new("lsp-tool")
@@ -9598,7 +9596,7 @@ index 07023b1781..68a80651c0 100644
                      lsp_button
                          .read_with(cx, |lsp_button, _| lsp_button.lsp_menu.clone())
 diff --git a/crates/language_tools/src/lsp_log_view.rs b/crates/language_tools/src/lsp_log_view.rs
-index 159f06952c..23d9616696 100644
+index 70ddf2aa08..9f5d59bf8a 100644
 --- a/crates/language_tools/src/lsp_log_view.rs
 +++ b/crates/language_tools/src/lsp_log_view.rs
 @@ -1,5 +1,4 @@
@@ -9757,11 +9755,11 @@ index 2e5ef23875..75a6288756 100644
  #[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
  pub struct CodestralSettingsContent {
 diff --git a/crates/settings_ui/Cargo.toml b/crates/settings_ui/Cargo.toml
-index 0b33854c95..47d03903f4 100644
+index 70662b3211..e901b14c12 100644
 --- a/crates/settings_ui/Cargo.toml
 +++ b/crates/settings_ui/Cargo.toml
-@@ -23,8 +23,6 @@ anyhow.workspace = true
- audio.workspace = true
+@@ -24,8 +24,6 @@ audio.workspace = true
+ cloud_api_types.workspace = true
  component.workspace = true
  codestral.workspace = true
 -copilot.workspace = true
@@ -9770,7 +9768,7 @@ index 0b33854c95..47d03903f4 100644
  edit_prediction.workspace = true
  edit_prediction_ui.workspace = true
 diff --git a/crates/settings_ui/src/pages/edit_prediction_provider_setup.rs b/crates/settings_ui/src/pages/edit_prediction_provider_setup.rs
-index d101effe5b..c0d50fce4f 100644
+index 2e93f6c65c..c4f36adb89 100644
 --- a/crates/settings_ui/src/pages/edit_prediction_provider_setup.rs
 +++ b/crates/settings_ui/src/pages/edit_prediction_provider_setup.rs
 @@ -28,7 +28,6 @@ pub(crate) fn render_edit_prediction_setup_page(
@@ -9781,7 +9779,7 @@ index d101effe5b..c0d50fce4f 100644
          Some(
              render_api_key_provider(
                  IconName::Inception,
-@@ -719,30 +718,3 @@ fn codestral_settings() -> Box<[SettingsPageItem]> {
+@@ -730,30 +729,3 @@ fn codestral_settings() -> Box<[SettingsPageItem]> {
      ])
  }
  
@@ -9813,10 +9811,10 @@ index d101effe5b..c0d50fce4f 100644
 -    )
 -}
 diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
-index 15fa64696b..7d9dc48f4c 100644
+index 0cd9a470ab..e4739ba01a 100644
 --- a/crates/zed/Cargo.toml
 +++ b/crates/zed/Cargo.toml
-@@ -84,9 +84,6 @@ collections.workspace = true
+@@ -85,9 +85,6 @@ collections.workspace = true
  command_palette.workspace = true
  component.workspace = true
  component_preview.workspace = true
@@ -9827,10 +9825,10 @@ index 15fa64696b..7d9dc48f4c 100644
  csv_preview.workspace = true
  dap_adapters.workspace = true
 diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
-index 8d8c83d138..aa71340bb4 100644
+index 860c2dc0a5..e17e698ea0 100644
 --- a/crates/zed/src/main.rs
 +++ b/crates/zed/src/main.rs
-@@ -649,21 +649,6 @@ fn main() {
+@@ -646,21 +646,6 @@ fn main() {
              cx.background_executor().clone(),
          );
          command_palette::init(cx);
@@ -9853,10 +9851,10 @@ index 8d8c83d138..aa71340bb4 100644
          RefreshLlmTokenListener::register(
              app_state.client.clone(),
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index 94d3f0829b..01718e001d 100644
+index 79178484c7..51c4b0612f 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
-@@ -5192,7 +5192,6 @@ mod tests {
+@@ -5279,7 +5279,6 @@ mod tests {
                  "command_palette",
                  "console",
                  "context_server",
@@ -9864,7 +9862,7 @@ index 94d3f0829b..01718e001d 100644
                  "csv",
                  "debug_panel",
                  "debugger",
-@@ -5440,17 +5439,10 @@ mod tests {
+@@ -5526,17 +5525,10 @@ mod tests {
              release_channel::init(Version::new(0, 0, 0), cx);
              command_palette::init(cx);
              editor::init(cx);

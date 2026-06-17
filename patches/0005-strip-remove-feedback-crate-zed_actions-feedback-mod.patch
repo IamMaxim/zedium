@@ -23,16 +23,16 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  crates/feedback/src/feedback.rs   | 145 ------------------------------
  crates/workspace/src/workspace.rs |   7 +-
  crates/zed/Cargo.toml             |   1 -
- crates/zed/src/main.rs            |   1 -
+ crates/zed/src/main.rs            |   2 +-
  crates/zed/src/zed/app_menus.rs   |   5 --
  crates/zed_actions/src/lib.rs     |  16 ----
- 9 files changed, 1 insertion(+), 202 deletions(-)
+ 9 files changed, 2 insertions(+), 202 deletions(-)
  delete mode 100644 crates/feedback/Cargo.toml
  delete mode 120000 crates/feedback/LICENSE-GPL
  delete mode 100644 crates/feedback/src/feedback.rs
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 6ebb0649dd..7e94848cfe 100644
+index 3208c8d6d5..c0ba5411d6 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -70,7 +70,6 @@ members = [
@@ -43,7 +43,7 @@ index 6ebb0649dd..7e94848cfe 100644
      "crates/file_finder",
      "crates/file_icons",
      "crates/fs",
-@@ -320,7 +319,6 @@ extension_host = { path = "crates/extension_host" }
+@@ -317,7 +316,6 @@ extension_host = { path = "crates/extension_host" }
  extensions_ui = { path = "crates/extensions_ui" }
  feature_flags = { path = "crates/feature_flags" }
  feature_flags_macros = { path = "crates/feature_flags_macros" }
@@ -242,10 +242,10 @@ index 16c91ce769..0000000000
 -    )
 -}
 diff --git a/crates/workspace/src/workspace.rs b/crates/workspace/src/workspace.rs
-index 2fe6a7ad2c..0e4621d4e6 100644
+index 5f9960db18..b6800f9390 100644
 --- a/crates/workspace/src/workspace.rs
 +++ b/crates/workspace/src/workspace.rs
-@@ -156,7 +156,7 @@ pub use workspace_settings::{
+@@ -158,7 +158,7 @@ pub use workspace_settings::{
      AutosaveSetting, BottomDockLayout, EncodingDisplayOptions, FocusFollowsMouse,
      RestoreOnStartupBehavior, StatusBarSettings, TabBarSettings, WorkspaceSettings,
  };
@@ -254,7 +254,7 @@ index 2fe6a7ad2c..0e4621d4e6 100644
  
  use crate::{dock::PanelSizeState, item::ItemBufferKind, notifications::NotificationId};
  use crate::{
-@@ -8316,11 +8316,6 @@ fn notify_if_database_failed(window: WindowHandle<MultiWorkspace>, cx: &mut Asyn
+@@ -8499,11 +8499,6 @@ fn notify_if_database_failed(window: WindowHandle<MultiWorkspace>, cx: &mut Asyn
                          |cx| {
                              cx.new(|cx| {
                                  MessageNotification::new("Failed to load the database file.", cx)
@@ -267,10 +267,10 @@ index 2fe6a7ad2c..0e4621d4e6 100644
                          },
                      );
 diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
-index e42777fddf..15fa64696b 100644
+index fcbe65b998..0cd9a470ab 100644
 --- a/crates/zed/Cargo.toml
 +++ b/crates/zed/Cargo.toml
-@@ -103,7 +103,6 @@ extension.workspace = true
+@@ -104,7 +104,6 @@ extension.workspace = true
  extension_host.workspace = true
  extensions_ui.workspace = true
  feature_flags.workspace = true
@@ -279,22 +279,23 @@ index e42777fddf..15fa64696b 100644
  fs.workspace = true
  futures.workspace = true
 diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
-index 9498f73773..8d8c83d138 100644
+index 16f7acba06..860c2dc0a5 100644
 --- a/crates/zed/src/main.rs
 +++ b/crates/zed/src/main.rs
-@@ -743,7 +743,6 @@ fn main() {
+@@ -739,7 +739,7 @@ fn main() {
+         language_tools::init(cx);
          notifications::init(app_state.client.clone(), app_state.user_store.clone(), cx);
          git_ui::init(cx);
-         git_graph::init(cx);
 -        feedback::init(cx);
++        git_graph::init(cx);
          markdown_preview::init(cx);
          csv_preview::init(cx);
          svg_preview::init(cx);
 diff --git a/crates/zed/src/zed/app_menus.rs b/crates/zed/src/zed/app_menus.rs
-index 8b6c9a9535..01e9ef317c 100644
+index d343b105d0..9d2695c95a 100644
 --- a/crates/zed/src/zed/app_menus.rs
 +++ b/crates/zed/src/zed/app_menus.rs
-@@ -297,17 +297,12 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
+@@ -286,17 +286,12 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                  MenuItem::action("View Dependency Licenses", zed_actions::OpenLicenses),
                  MenuItem::action("Show Welcome", onboarding::ShowWelcome),
                  MenuItem::separator(),
@@ -313,10 +314,10 @@ index 8b6c9a9535..01e9ef317c 100644
                      "Zed Twitter",
                      super::OpenBrowser {
 diff --git a/crates/zed_actions/src/lib.rs b/crates/zed_actions/src/lib.rs
-index b84c4c7b97..da94647d49 100644
+index b0ff0a7ae0..c76e7c6d40 100644
 --- a/crates/zed_actions/src/lib.rs
 +++ b/crates/zed_actions/src/lib.rs
-@@ -367,22 +367,6 @@ pub mod project_panel {
+@@ -381,22 +381,6 @@ pub mod project_panel {
          ]
      );
  }

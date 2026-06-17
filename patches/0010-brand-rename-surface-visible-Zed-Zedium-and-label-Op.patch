@@ -34,7 +34,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  5 files changed, 9 insertions(+), 9 deletions(-)
 
 diff --git a/crates/onboarding/src/onboarding.rs b/crates/onboarding/src/onboarding.rs
-index 47d82ca7d3..9da3da0945 100644
+index ad3e6eb6b0..ed608451eb 100644
 --- a/crates/onboarding/src/onboarding.rs
 +++ b/crates/onboarding/src/onboarding.rs
 @@ -343,7 +343,7 @@ impl Render for Onboarding {
@@ -79,10 +79,10 @@ index 75a6288756..fb20375a0d 100644
      }
  }
 diff --git a/crates/workspace/src/welcome.rs b/crates/workspace/src/welcome.rs
-index 122cc468a4..3a157aaea5 100644
+index 1bf0e81f1b..bc937190f9 100644
 --- a/crates/workspace/src/welcome.rs
 +++ b/crates/workspace/src/welcome.rs
-@@ -446,7 +446,7 @@ impl Render for WelcomePage {
+@@ -450,7 +450,7 @@ impl Render for WelcomePage {
          let welcome_label = if self.fallback_to_recent_projects {
              "Welcome back to Zed"
          } else {
@@ -92,7 +92,7 @@ index 122cc468a4..3a157aaea5 100644
  
          h_flex()
 diff --git a/crates/zed/src/zed/app_menus.rs b/crates/zed/src/zed/app_menus.rs
-index 01e9ef317c..91878af680 100644
+index 9d2695c95a..ba81a0a243 100644
 --- a/crates/zed/src/zed/app_menus.rs
 +++ b/crates/zed/src/zed/app_menus.rs
 @@ -58,10 +58,10 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {

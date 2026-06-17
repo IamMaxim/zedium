@@ -14,7 +14,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  1 file changed, 92 insertions(+), 7 deletions(-)
 
 diff --git a/crates/extensions_ui/src/extensions_ui.rs b/crates/extensions_ui/src/extensions_ui.rs
-index 8a482f59ed..f8c30f7227 100644
+index 251ad9973f..36e1769b7b 100644
 --- a/crates/extensions_ui/src/extensions_ui.rs
 +++ b/crates/extensions_ui/src/extensions_ui.rs
 @@ -44,7 +44,11 @@ actions!(
@@ -30,7 +30,7 @@ index 8a482f59ed..f8c30f7227 100644
      ]
  );
  
-@@ -163,6 +167,67 @@ pub fn init(cx: &mut App) {
+@@ -168,6 +172,67 @@ pub fn init(cx: &mut App) {
                          Some(())
                      })
                      .detach();
@@ -98,7 +98,7 @@ index 8a482f59ed..f8c30f7227 100644
              });
  
          cx.subscribe_in(workspace.project(), window, |_, _, event, window, cx| {
-@@ -1641,12 +1706,32 @@ impl Render for ExtensionsPage {
+@@ -1646,12 +1711,32 @@ impl Render for ExtensionsPage {
                              .justify_between()
                              .child(Headline::new("Extensions").size(HeadlineSize::Large))
                              .child(

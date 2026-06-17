@@ -22,10 +22,10 @@ Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
  1 file changed, 1 insertion(+)
 
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index 839c074047..6c2555b3ba 100644
+index e93df89bd5..58156f1ff6 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
-@@ -160,6 +160,7 @@ pub fn init(cx: &mut App) {
+@@ -172,6 +172,7 @@ pub fn init(cx: &mut App) {
      cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
      cx.on_action(quit);
  

@@ -14,29 +14,29 @@ codestral (BYO edit prediction), ollama, lmstudio.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
- Cargo.toml                            |   12 -
+ Cargo.toml                            |   17 +-
  crates/anthropic/Cargo.toml           |   30 -
  crates/anthropic/LICENSE-GPL          |    1 -
- crates/anthropic/src/anthropic.rs     | 1114 -------------------------
+ crates/anthropic/src/anthropic.rs     | 1161 -------------------------
  crates/anthropic/src/batches.rs       |  197 -----
- crates/anthropic/src/completion.rs    |  871 -------------------
- crates/bedrock/Cargo.toml             |   27 -
+ crates/anthropic/src/completion.rs    |  910 -------------------
+ crates/bedrock/Cargo.toml             |   28 -
  crates/bedrock/LICENSE-GPL            |    1 -
- crates/bedrock/src/bedrock.rs         |  241 ------
- crates/bedrock/src/models.rs          | 1038 -----------------------
+ crates/bedrock/src/bedrock.rs         |  257 ------
+ crates/bedrock/src/models.rs          | 1082 -----------------------
  crates/deepseek/Cargo.toml            |   24 -
  crates/deepseek/LICENSE-GPL           |    1 -
- crates/deepseek/src/deepseek.rs       |  338 --------
+ crates/deepseek/src/deepseek.rs       |  341 --------
  crates/mistral/Cargo.toml             |   25 -
  crates/mistral/LICENSE-GPL            |    1 -
- crates/mistral/src/mistral.rs         |  472 -----------
+ crates/mistral/src/mistral.rs         |  477 ----------
  crates/open_router/Cargo.toml         |   28 -
  crates/open_router/LICENSE-GPL        |    1 -
- crates/open_router/src/open_router.rs |  814 ------------------
+ crates/open_router/src/open_router.rs |  809 -----------------
  crates/x_ai/Cargo.toml                |   22 -
  crates/x_ai/LICENSE-GPL               |    1 -
- crates/x_ai/src/x_ai.rs               |  125 ---
- 22 files changed, 5384 deletions(-)
+ crates/x_ai/src/x_ai.rs               |  132 ---
+ 22 files changed, 7 insertions(+), 5539 deletions(-)
  delete mode 100644 crates/anthropic/Cargo.toml
  delete mode 120000 crates/anthropic/LICENSE-GPL
  delete mode 100644 crates/anthropic/src/anthropic.rs
@@ -60,10 +60,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  delete mode 100644 crates/x_ai/src/x_ai.rs
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 9fa304d659..7bf146d662 100644
+index 7b4558c56d..c116ff84f1 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -10,12 +10,10 @@ members = [
+@@ -10,13 +10,15 @@ members = [
      "crates/agent_settings",
      "crates/agent_skills",
      "crates/agent_ui",
@@ -72,27 +72,35 @@ index 9fa304d659..7bf146d662 100644
      "crates/assets",
      "crates/audio",
      "crates/aws_http_client",
--    "crates/bedrock",
++<<<<<<< HEAD
+     "crates/bedrock",
+     "crates/benchmarks",
++=======
++>>>>>>> c67c3adb44 (strip: delete orphan vendor LLM provider crates)
      "crates/breadcrumbs",
      "crates/buffer_diff",
      "crates/cli",
-@@ -40,7 +38,6 @@ members = [
+@@ -41,7 +43,11 @@ members = [
      "crates/debug_adapter_extension",
      "crates/debugger_tools",
      "crates/debugger_ui",
--    "crates/deepseek",
-     "crates/denoise",
++<<<<<<< HEAD
+     "crates/deepseek",
++=======
++    "crates/denoise",
++>>>>>>> c67c3adb44 (strip: delete orphan vendor LLM provider crates)
      "crates/dev_container",
      "crates/diagnostics",
-@@ -120,7 +117,6 @@ members = [
+     "crates/docs_preprocessor",
+@@ -119,7 +125,6 @@ members = [
      "crates/menu",
      "crates/migrator",
      "crates/miniprofiler_ui",
 -    "crates/mistral",
      "crates/multi_buffer",
-     "crates/nc",
      "crates/net",
-@@ -132,7 +128,6 @@ members = [
+     "crates/node_runtime",
+@@ -130,7 +135,6 @@ members = [
      "crates/opencode",
      "crates/open_ai",
      "crates/open_path_prompt",
@@ -100,7 +108,7 @@ index 9fa304d659..7bf146d662 100644
      "crates/outline",
      "crates/outline_panel",
      "crates/panel",
-@@ -210,7 +205,6 @@ members = [
+@@ -207,7 +211,6 @@ members = [
      "crates/workspace",
      "crates/worktree",
      "crates/worktree_benchmarks",
@@ -108,7 +116,7 @@ index 9fa304d659..7bf146d662 100644
      "crates/zed",
      "crates/zed_actions",
      "crates/windows_resources",
-@@ -260,12 +254,10 @@ agent_servers = { path = "crates/agent_servers" }
+@@ -257,12 +260,10 @@ agent_servers = { path = "crates/agent_servers" }
  agent_settings = { path = "crates/agent_settings" }
  agent_skills = { path = "crates/agent_skills" }
  agent_ui = { path = "crates/agent_ui" }
@@ -121,7 +129,7 @@ index 9fa304d659..7bf146d662 100644
  breadcrumbs = { path = "crates/breadcrumbs" }
  buffer_diff = { path = "crates/buffer_diff" }
  cli = { path = "crates/cli" }
-@@ -292,7 +284,6 @@ db = { path = "crates/db" }
+@@ -289,7 +290,6 @@ db = { path = "crates/db" }
  debug_adapter_extension = { path = "crates/debug_adapter_extension" }
  debugger_tools = { path = "crates/debugger_tools" }
  debugger_ui = { path = "crates/debugger_ui" }
@@ -129,15 +137,15 @@ index 9fa304d659..7bf146d662 100644
  derive_refineable = { path = "crates/refineable/derive_refineable" }
  dev_container = { path = "crates/dev_container" }
  diagnostics = { path = "crates/diagnostics" }
-@@ -364,7 +355,6 @@ svg_preview = { path = "crates/svg_preview" }
+@@ -360,7 +360,6 @@ svg_preview = { path = "crates/svg_preview" }
  media = { path = "crates/media" }
  menu = { path = "crates/menu" }
  migrator = { path = "crates/migrator" }
 -mistral = { path = "crates/mistral" }
  multi_buffer = { path = "crates/multi_buffer" }
  miniprofiler_ui = { path = "crates/miniprofiler_ui" }
- nc = { path = "crates/nc" }
-@@ -377,7 +367,6 @@ onboarding = { path = "crates/onboarding" }
+ net = { path = "crates/net" }
+@@ -372,7 +371,6 @@ onboarding = { path = "crates/onboarding" }
  opencode = { path = "crates/opencode" }
  open_ai = { path = "crates/open_ai" }
  open_path_prompt = { path = "crates/open_path_prompt" }
@@ -145,7 +153,7 @@ index 9fa304d659..7bf146d662 100644
  outline = { path = "crates/outline" }
  outline_panel = { path = "crates/outline_panel" }
  panel = { path = "crates/panel" }
-@@ -453,7 +442,6 @@ watch = { path = "crates/watch" }
+@@ -447,7 +445,6 @@ watch = { path = "crates/watch" }
  web_search = { path = "crates/web_search" }
  workspace = { path = "crates/workspace" }
  worktree = { path = "crates/worktree" }
@@ -199,10 +207,10 @@ index 89e542f750..0000000000
 \ No newline at end of file
 diff --git a/crates/anthropic/src/anthropic.rs b/crates/anthropic/src/anthropic.rs
 deleted file mode 100644
-index 6df9d5da24..0000000000
+index 90b1a84180..0000000000
 --- a/crates/anthropic/src/anthropic.rs
 +++ /dev/null
-@@ -1,1114 +0,0 @@
+@@ -1,1161 +0,0 @@
 -use std::io;
 -use std::str::FromStr;
 -use std::time::Duration;
@@ -211,7 +219,10 @@ index 6df9d5da24..0000000000
 -use chrono::{DateTime, Utc};
 -use futures::{AsyncBufReadExt, AsyncReadExt, StreamExt, io::BufReader, stream::BoxStream};
 -use http_client::http::{self, HeaderMap, HeaderValue};
--use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest, StatusCode};
+-use http_client::{
+-    AsyncBody, CustomHeaders, HttpClient, Method, Request as HttpRequest, RequestBuilderExt,
+-    StatusCode,
+-};
 -use serde::{Deserialize, Serialize};
 -use strum::EnumString;
 -use thiserror::Error;
@@ -221,6 +232,9 @@ index 6df9d5da24..0000000000
 -
 -pub const ANTHROPIC_API_URL: &str = "https://api.anthropic.com";
 -const FAST_MODE_BETA_HEADER: &str = "fast-mode-2026-02-01";
+-
+-pub const FABLE_MODEL_ID_PREFIX: &str = "claude-fable-5";
+-pub const FABLE_FALLBACK_MODEL_ID: &str = "claude-opus-4-8";
 -
 -#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 -#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
@@ -327,9 +341,6 @@ index 6df9d5da24..0000000000
 -
 -        let mut supported_effort_levels = Vec::new();
 -        if let Some(effort) = entry.capabilities.as_ref().and_then(|e| e.effort.as_ref()) {
--            // The `xhigh` effort level reported by the API has no
--            // corresponding `Effort` variant in the request enum, so it is
--            // intentionally dropped here.
 -            for (level, supported) in [
 -                (Effort::Low, effort.low.as_ref()),
 -                (Effort::Medium, effort.medium.as_ref()),
@@ -353,7 +364,10 @@ index 6df9d5da24..0000000000
 -            AnthropicModelMode::Default
 -        };
 -
--        let supports_speed = matches!(entry.id.as_str(), "claude-opus-4-6" | "claude-opus-4-7");
+-        let supports_speed = matches!(
+-            entry.id.as_str(),
+-            "claude-opus-4-6" | "claude-opus-4-7" | "claude-opus-4-8"
+-        );
 -
 -        let mut extra_beta_headers = Vec::new();
 -        if supports_speed {
@@ -407,10 +421,18 @@ index 6df9d5da24..0000000000
 -    api_key: &str,
 -    request: Request,
 -    beta_headers: Option<String>,
+-    extra_headers: &CustomHeaders,
 -) -> Result<BoxStream<'static, Result<Event, AnthropicError>>, AnthropicError> {
--    stream_completion_with_rate_limit_info(client, api_url, api_key, request, beta_headers)
--        .await
--        .map(|output| output.0)
+-    stream_completion_with_rate_limit_info(
+-        client,
+-        api_url,
+-        api_key,
+-        request,
+-        beta_headers,
+-        extra_headers,
+-    )
+-    .await
+-    .map(|output| output.0)
 -}
 -
 -/// A raw model entry returned by the Anthropic models listing endpoint.
@@ -438,6 +460,7 @@ index 6df9d5da24..0000000000
 -    client: &dyn HttpClient,
 -    api_url: &str,
 -    api_key: &str,
+-    extra_headers: &CustomHeaders,
 -) -> Result<Vec<Model>> {
 -    let uri = format!("{api_url}/v1/models?limit=1000");
 -
@@ -447,6 +470,7 @@ index 6df9d5da24..0000000000
 -        .header("Anthropic-Version", "2023-06-01")
 -        .header("X-Api-Key", api_key.trim())
 -        .header("Accept", "application/json")
+-        .extra_headers(extra_headers)
 -        .body(AsyncBody::default())
 -        .context("failed to build Anthropic models list request")?;
 -
@@ -487,9 +511,17 @@ index 6df9d5da24..0000000000
 -    api_key: &str,
 -    request: Request,
 -    beta_headers: Option<String>,
+-    extra_headers: &CustomHeaders,
 -) -> Result<Response, AnthropicError> {
--    let (mut response, rate_limits) =
--        send_request(client, api_url, api_key, &request, beta_headers).await?;
+-    let (mut response, rate_limits) = send_request(
+-        client,
+-        api_url,
+-        api_key,
+-        &request,
+-        beta_headers,
+-        extra_headers,
+-    )
+-    .await?;
 -
 -    if response.status().is_success() {
 -        let mut body = String::new();
@@ -511,6 +543,7 @@ index 6df9d5da24..0000000000
 -    api_key: &str,
 -    request: impl Serialize,
 -    beta_headers: Option<String>,
+-    extra_headers: &CustomHeaders,
 -) -> Result<(http::Response<AsyncBody>, RateLimitInfo), AnthropicError> {
 -    let uri = format!("{api_url}/v1/messages");
 -
@@ -528,6 +561,7 @@ index 6df9d5da24..0000000000
 -    let serialized_request =
 -        serde_json::to_string(&request).map_err(AnthropicError::SerializeRequest)?;
 -    let request = request_builder
+-        .extra_headers(extra_headers)
 -        .body(AsyncBody::from(serialized_request))
 -        .map_err(AnthropicError::BuildRequestBody)?;
 -
@@ -667,6 +701,7 @@ index 6df9d5da24..0000000000
 -    api_key: &str,
 -    request: Request,
 -    beta_headers: Option<String>,
+-    extra_headers: &CustomHeaders,
 -) -> Result<
 -    (
 -        BoxStream<'static, Result<Event, AnthropicError>>,
@@ -679,8 +714,15 @@ index 6df9d5da24..0000000000
 -        stream: true,
 -    };
 -
--    let (response, rate_limits) =
--        send_request(client, api_url, api_key, &request, beta_headers).await?;
+-    let (response, rate_limits) = send_request(
+-        client,
+-        api_url,
+-        api_key,
+-        &request,
+-        beta_headers,
+-        extra_headers,
+-    )
+-    .await?;
 -
 -    if response.status().is_success() {
 -        let reader = BufReader::new(response.into_body());
@@ -881,6 +923,8 @@ index 6df9d5da24..0000000000
 -    Low,
 -    Medium,
 -    High,
+-    #[serde(rename = "xhigh")]
+-    #[strum(serialize = "xhigh")]
 -    XHigh,
 -    Max,
 -}
@@ -1262,6 +1306,17 @@ index 6df9d5da24..0000000000
 -    }
 -
 -    #[test]
+-    fn from_listed_enables_fast_mode_for_opus_4_8() {
+-        let model = Model::from_listed(listed_entry(
+-            "claude-opus-4-8",
+-            ModelCapabilities::default(),
+-        ));
+-
+-        assert!(model.supports_speed);
+-        assert_eq!(model.beta_headers().as_deref(), Some(FAST_MODE_BETA_HEADER));
+-    }
+-
+-    #[test]
 -    fn from_listed_collects_supported_effort_levels() {
 -        let entry = listed_entry(
 -            "claude-test-effort",
@@ -1522,10 +1577,10 @@ index 32b45c6ffe..0000000000
 -}
 diff --git a/crates/anthropic/src/completion.rs b/crates/anthropic/src/completion.rs
 deleted file mode 100644
-index 5cb864a088..0000000000
+index 2b42bcae88..0000000000
 --- a/crates/anthropic/src/completion.rs
 +++ /dev/null
-@@ -1,871 +0,0 @@
+@@ -1,910 +0,0 @@
 -use anyhow::Result;
 -use collections::HashMap;
 -use futures::{Stream, StreamExt};
@@ -1828,6 +1883,7 @@ index 5cb864a088..0000000000
 -                    "low" => Some(crate::Effort::Low),
 -                    "medium" => Some(crate::Effort::Medium),
 -                    "high" => Some(crate::Effort::High),
+-                    "xhigh" => Some(crate::Effort::XHigh),
 -                    "max" => Some(crate::Effort::Max),
 -                    _ => None,
 -                };
@@ -2234,6 +2290,44 @@ index 5cb864a088..0000000000
 -    }
 -
 -    #[test]
+-    fn test_xhigh_effort_is_serialized_for_adaptive_thinking() {
+-        let request = LanguageModelRequest {
+-            messages: vec![LanguageModelRequestMessage {
+-                role: Role::User,
+-                content: vec![MessageContent::Text("Hi".to_string())],
+-                cache: false,
+-                reasoning_details: None,
+-            }],
+-            thread_id: None,
+-            prompt_id: None,
+-            intent: None,
+-            stop: vec![],
+-            temperature: None,
+-            tools: vec![],
+-            tool_choice: None,
+-            thinking_allowed: true,
+-            thinking_effort: Some("xhigh".into()),
+-            speed: None,
+-        };
+-
+-        let anthropic_request = into_anthropic(
+-            request,
+-            "claude-opus-4-8".to_string(),
+-            1.0,
+-            128_000,
+-            AnthropicModelMode::AdaptiveThinking,
+-            AnthropicPromptCacheMode::Automatic,
+-        );
+-
+-        assert_eq!(
+-            anthropic_request
+-                .output_config
+-                .and_then(|config| config.effort),
+-            Some(crate::Effort::XHigh)
+-        );
+-    }
+-
+-    #[test]
 -    fn test_no_cache_control_when_caching_disabled() {
 -        let request = LanguageModelRequest {
 -            messages: vec![
@@ -2399,10 +2493,10 @@ index 5cb864a088..0000000000
 -}
 diff --git a/crates/bedrock/Cargo.toml b/crates/bedrock/Cargo.toml
 deleted file mode 100644
-index f8f6fa4601..0000000000
+index 17f69cde6b..0000000000
 --- a/crates/bedrock/Cargo.toml
 +++ /dev/null
-@@ -1,27 +0,0 @@
+@@ -1,28 +0,0 @@
 -[package]
 -name = "bedrock"
 -version = "0.1.0"
@@ -2425,6 +2519,7 @@ index f8f6fa4601..0000000000
 -aws-sdk-bedrockruntime = { workspace = true, features = ["behavior-version-latest"] }
 -aws-smithy-types = {workspace = true}
 -futures.workspace = true
+-http_client.workspace = true
 -schemars = { workspace = true, optional = true }
 -serde.workspace = true
 -serde_json.workspace = true
@@ -2440,10 +2535,10 @@ index 89e542f750..0000000000
 \ No newline at end of file
 diff --git a/crates/bedrock/src/bedrock.rs b/crates/bedrock/src/bedrock.rs
 deleted file mode 100644
-index f3102b2d39..0000000000
+index e8ce37e8c8..0000000000
 --- a/crates/bedrock/src/bedrock.rs
 +++ /dev/null
-@@ -1,241 +0,0 @@
+@@ -1,257 +0,0 @@
 -mod models;
 -
 -use anyhow::{Result, anyhow};
@@ -2481,6 +2576,7 @@ index f3102b2d39..0000000000
 -pub async fn stream_completion(
 -    client: bedrock::Client,
 -    request: Request,
+-    extra_headers: http_client::CustomHeaders,
 -) -> Result<BoxStream<'static, Result<BedrockStreamingResponse, anyhow::Error>>, BedrockError> {
 -    let mut response = bedrock::Client::converse_stream(&client)
 -        .model_id(request.model.clone())
@@ -2545,30 +2641,45 @@ index f3102b2d39..0000000000
 -        );
 -    }
 -
--    let output = response.send().await.map_err(|err| match err {
--        bedrock::error::SdkError::ServiceError(ctx) => {
--            use bedrock::operation::converse_stream::ConverseStreamError;
--            let err = ctx.into_err();
--            match &err {
--                ConverseStreamError::ValidationException(e) => {
--                    BedrockError::Validation(e.message().unwrap_or("validation error").to_string())
--                }
--                ConverseStreamError::ThrottlingException(_) => BedrockError::RateLimited,
--                ConverseStreamError::ServiceUnavailableException(_)
--                | ConverseStreamError::ModelNotReadyException(_) => {
--                    BedrockError::ServiceUnavailable
--                }
--                ConverseStreamError::AccessDeniedException(e) => {
--                    BedrockError::AccessDenied(e.message().unwrap_or("access denied").to_string())
--                }
--                ConverseStreamError::InternalServerException(e) => BedrockError::InternalServer(
--                    e.message().unwrap_or("internal server error").to_string(),
--                ),
--                _ => BedrockError::Other(err.into()),
+-    let output = response
+-        .customize()
+-        .mutate_request(move |http_request| {
+-            let headers = http_request.headers_mut();
+-            for (name, value) in extra_headers.iter() {
+-                headers.insert(
+-                    name.as_str().to_owned(),
+-                    value.to_str().unwrap_or("").to_owned(),
+-                );
 -            }
--        }
--        other => BedrockError::Other(other.into()),
--    });
+-        })
+-        .send()
+-        .await
+-        .map_err(|err| match err {
+-            bedrock::error::SdkError::ServiceError(ctx) => {
+-                use bedrock::operation::converse_stream::ConverseStreamError;
+-                let err = ctx.into_err();
+-                match &err {
+-                    ConverseStreamError::ValidationException(e) => BedrockError::Validation(
+-                        e.message().unwrap_or("validation error").to_string(),
+-                    ),
+-                    ConverseStreamError::ThrottlingException(_) => BedrockError::RateLimited,
+-                    ConverseStreamError::ServiceUnavailableException(_)
+-                    | ConverseStreamError::ModelNotReadyException(_) => {
+-                        BedrockError::ServiceUnavailable
+-                    }
+-                    ConverseStreamError::AccessDeniedException(e) => BedrockError::AccessDenied(
+-                        e.message().unwrap_or("access denied").to_string(),
+-                    ),
+-                    ConverseStreamError::InternalServerException(e) => {
+-                        BedrockError::InternalServer(
+-                            e.message().unwrap_or("internal server error").to_string(),
+-                        )
+-                    }
+-                    _ => BedrockError::Other(err.into()),
+-                }
+-            }
+-            other => BedrockError::Other(other.into()),
+-        });
 -
 -    let stream = Box::pin(stream::unfold(
 -        output?.stream,
@@ -2687,10 +2798,10 @@ index f3102b2d39..0000000000
 -}
 diff --git a/crates/bedrock/src/models.rs b/crates/bedrock/src/models.rs
 deleted file mode 100644
-index ee5d57ee80..0000000000
+index a2f299a3c9..0000000000
 --- a/crates/bedrock/src/models.rs
 +++ /dev/null
-@@ -1,1038 +0,0 @@
+@@ -1,1082 +0,0 @@
 -use serde::{Deserialize, Serialize};
 -use strum::EnumIter;
 -
@@ -2701,6 +2812,7 @@ index ee5d57ee80..0000000000
 -    Medium,
 -    #[default]
 -    High,
+-    XHigh,
 -    Max,
 -}
 -
@@ -2710,6 +2822,7 @@ index ee5d57ee80..0000000000
 -            Self::Low => "low",
 -            Self::Medium => "medium",
 -            Self::High => "high",
+-            Self::XHigh => "xhigh",
 -            Self::Max => "max",
 -        }
 -    }
@@ -2784,6 +2897,13 @@ index ee5d57ee80..0000000000
 -        alias = "claude-opus-4-7-thinking-latest"
 -    )]
 -    ClaudeOpus4_7,
+-    #[serde(
+-        rename = "claude-opus-4-8",
+-        alias = "claude-opus-4-8-latest",
+-        alias = "claude-opus-4-8-thinking",
+-        alias = "claude-opus-4-8-thinking-latest"
+-    )]
+-    ClaudeOpus4_8,
 -    #[serde(
 -        rename = "claude-sonnet-4-6",
 -        alias = "claude-sonnet-4-6-latest",
@@ -2903,7 +3023,9 @@ index ee5d57ee80..0000000000
 -    }
 -
 -    pub fn from_id(id: &str) -> anyhow::Result<Self> {
--        if id.starts_with("claude-opus-4-7") {
+-        if id.starts_with("claude-opus-4-8") {
+-            Ok(Self::ClaudeOpus4_8)
+-        } else if id.starts_with("claude-opus-4-7") {
 -            Ok(Self::ClaudeOpus4_7)
 -        } else if id.starts_with("claude-opus-4-6") {
 -            Ok(Self::ClaudeOpus4_6)
@@ -2933,6 +3055,7 @@ index ee5d57ee80..0000000000
 -            Self::ClaudeOpus4_5 => "claude-opus-4-5",
 -            Self::ClaudeOpus4_6 => "claude-opus-4-6",
 -            Self::ClaudeOpus4_7 => "claude-opus-4-7",
+-            Self::ClaudeOpus4_8 => "claude-opus-4-8",
 -            Self::ClaudeSonnet4_6 => "claude-sonnet-4-6",
 -            Self::Llama4Scout17B => "llama-4-scout-17b",
 -            Self::Llama4Maverick17B => "llama-4-maverick-17b",
@@ -2983,6 +3106,7 @@ index ee5d57ee80..0000000000
 -            Self::ClaudeOpus4_5 => "anthropic.claude-opus-4-5-20251101-v1:0",
 -            Self::ClaudeOpus4_6 => "anthropic.claude-opus-4-6-v1",
 -            Self::ClaudeOpus4_7 => "anthropic.claude-opus-4-7",
+-            Self::ClaudeOpus4_8 => "anthropic.claude-opus-4-8",
 -            Self::ClaudeSonnet4_6 => "anthropic.claude-sonnet-4-6",
 -            Self::Llama4Scout17B => "meta.llama4-scout-17b-instruct-v1:0",
 -            Self::Llama4Maverick17B => "meta.llama4-maverick-17b-instruct-v1:0",
@@ -3033,6 +3157,7 @@ index ee5d57ee80..0000000000
 -            Self::ClaudeOpus4_5 => "Claude Opus 4.5",
 -            Self::ClaudeOpus4_6 => "Claude Opus 4.6",
 -            Self::ClaudeOpus4_7 => "Claude Opus 4.7",
+-            Self::ClaudeOpus4_8 => "Claude Opus 4.8",
 -            Self::ClaudeSonnet4_6 => "Claude Sonnet 4.6",
 -            Self::Llama4Scout17B => "Llama 4 Scout 17B",
 -            Self::Llama4Maverick17B => "Llama 4 Maverick 17B",
@@ -3084,6 +3209,7 @@ index ee5d57ee80..0000000000
 -            | Self::ClaudeOpus4_5
 -            | Self::ClaudeOpus4_6
 -            | Self::ClaudeOpus4_7
+-            | Self::ClaudeOpus4_8
 -            | Self::ClaudeSonnet4_6 => 1_000_000,
 -            Self::ClaudeOpus4_1 => 200_000,
 -            Self::Llama4Scout17B | Self::Llama4Maverick17B => 128_000,
@@ -3118,7 +3244,7 @@ index ee5d57ee80..0000000000
 -            | Self::ClaudeOpus4_5
 -            | Self::ClaudeSonnet4_6 => 64_000,
 -            Self::ClaudeOpus4_1 => 32_000,
--            Self::ClaudeOpus4_6 | Self::ClaudeOpus4_7 => 128_000,
+-            Self::ClaudeOpus4_6 | Self::ClaudeOpus4_7 | Self::ClaudeOpus4_8 => 128_000,
 -            Self::Llama4Scout17B
 -            | Self::Llama4Maverick17B
 -            | Self::Gemma3_4B
@@ -3157,6 +3283,7 @@ index ee5d57ee80..0000000000
 -            | Self::ClaudeOpus4_5
 -            | Self::ClaudeOpus4_6
 -            | Self::ClaudeOpus4_7
+-            | Self::ClaudeOpus4_8
 -            | Self::ClaudeSonnet4_6 => 1.0,
 -            Self::Custom {
 -                default_temperature,
@@ -3175,6 +3302,7 @@ index ee5d57ee80..0000000000
 -            | Self::ClaudeOpus4_5
 -            | Self::ClaudeOpus4_6
 -            | Self::ClaudeOpus4_7
+-            | Self::ClaudeOpus4_8
 -            | Self::ClaudeSonnet4_6 => true,
 -            Self::NovaLite | Self::NovaPro | Self::NovaPremier | Self::Nova2Lite => true,
 -            Self::MistralLarge3 | Self::PixtralLarge | Self::MagistralSmall => true,
@@ -3206,6 +3334,7 @@ index ee5d57ee80..0000000000
 -            | Self::ClaudeOpus4_5
 -            | Self::ClaudeOpus4_6
 -            | Self::ClaudeOpus4_7
+-            | Self::ClaudeOpus4_8
 -            | Self::ClaudeSonnet4_6 => true,
 -            Self::NovaLite | Self::NovaPro => true,
 -            Self::PixtralLarge => true,
@@ -3224,6 +3353,7 @@ index ee5d57ee80..0000000000
 -            | Self::ClaudeOpus4_5
 -            | Self::ClaudeOpus4_6
 -            | Self::ClaudeOpus4_7
+-            | Self::ClaudeOpus4_8
 -            | Self::ClaudeSonnet4_6 => true,
 -            Self::Custom {
 -                cache_configuration,
@@ -3243,6 +3373,7 @@ index ee5d57ee80..0000000000
 -                | Self::ClaudeOpus4_5
 -                | Self::ClaudeOpus4_6
 -                | Self::ClaudeOpus4_7
+-                | Self::ClaudeOpus4_8
 -                | Self::ClaudeSonnet4_6
 -        )
 -    }
@@ -3250,8 +3381,12 @@ index ee5d57ee80..0000000000
 -    pub fn supports_adaptive_thinking(&self) -> bool {
 -        matches!(
 -            self,
--            Self::ClaudeOpus4_6 | Self::ClaudeOpus4_7 | Self::ClaudeSonnet4_6
+-            Self::ClaudeOpus4_6 | Self::ClaudeOpus4_7 | Self::ClaudeOpus4_8 | Self::ClaudeSonnet4_6
 -        )
+-    }
+-
+-    pub fn supports_xhigh_adaptive_thinking(&self) -> bool {
+-        matches!(self, Self::ClaudeOpus4_8)
 -    }
 -
 -    pub fn thinking_mode(&self) -> BedrockModelMode {
@@ -3283,6 +3418,7 @@ index ee5d57ee80..0000000000
 -                | Self::ClaudeOpus4_5
 -                | Self::ClaudeOpus4_6
 -                | Self::ClaudeOpus4_7
+-                | Self::ClaudeOpus4_8
 -                | Self::ClaudeSonnet4_6
 -                | Self::Nova2Lite
 -        );
@@ -3343,6 +3479,7 @@ index ee5d57ee80..0000000000
 -                | Self::ClaudeOpus4_5
 -                | Self::ClaudeOpus4_6
 -                | Self::ClaudeOpus4_7
+-                | Self::ClaudeOpus4_8
 -                | Self::ClaudeSonnet4_6
 -                | Self::Nova2Lite,
 -                "global",
@@ -3360,6 +3497,7 @@ index ee5d57ee80..0000000000
 -                | Self::ClaudeOpus4_5
 -                | Self::ClaudeOpus4_6
 -                | Self::ClaudeOpus4_7
+-                | Self::ClaudeOpus4_8
 -                | Self::ClaudeSonnet4_6
 -                | Self::Llama4Scout17B
 -                | Self::Llama4Maverick17B
@@ -3382,6 +3520,7 @@ index ee5d57ee80..0000000000
 -                | Self::ClaudeSonnet4_5
 -                | Self::ClaudeOpus4_6
 -                | Self::ClaudeOpus4_7
+-                | Self::ClaudeOpus4_8
 -                | Self::ClaudeSonnet4_6
 -                | Self::NovaLite
 -                | Self::NovaPro
@@ -3395,6 +3534,7 @@ index ee5d57ee80..0000000000
 -                | Self::ClaudeSonnet4_5
 -                | Self::ClaudeOpus4_6
 -                | Self::ClaudeOpus4_7
+-                | Self::ClaudeOpus4_8
 -                | Self::ClaudeSonnet4_6,
 -                "au",
 -            ) => Ok(format!("{}.{}", region_group, model_id)),
@@ -3472,6 +3612,10 @@ index ee5d57ee80..0000000000
 -            Model::ClaudeOpus4_7.cross_region_inference_id("eu-west-1", false)?,
 -            "eu.anthropic.claude-opus-4-7"
 -        );
+-        assert_eq!(
+-            Model::ClaudeOpus4_8.cross_region_inference_id("eu-west-1", false)?,
+-            "eu.anthropic.claude-opus-4-8"
+-        );
 -        Ok(())
 -    }
 -
@@ -3505,6 +3649,10 @@ index ee5d57ee80..0000000000
 -        assert_eq!(
 -            Model::ClaudeOpus4_7.cross_region_inference_id("ap-southeast-2", false)?,
 -            "au.anthropic.claude-opus-4-7"
+-        );
+-        assert_eq!(
+-            Model::ClaudeOpus4_8.cross_region_inference_id("ap-southeast-2", false)?,
+-            "au.anthropic.claude-opus-4-8"
 -        );
 -        Ok(())
 -    }
@@ -3569,6 +3717,10 @@ index ee5d57ee80..0000000000
 -        assert_eq!(
 -            Model::ClaudeOpus4_7.cross_region_inference_id("us-east-1", true)?,
 -            "global.anthropic.claude-opus-4-7"
+-        );
+-        assert_eq!(
+-            Model::ClaudeOpus4_8.cross_region_inference_id("us-east-1", true)?,
+-            "global.anthropic.claude-opus-4-8"
 -        );
 -        assert_eq!(
 -            Model::Nova2Lite.cross_region_inference_id("us-east-1", true)?,
@@ -3671,6 +3823,9 @@ index ee5d57ee80..0000000000
 -        assert!(!Model::ClaudeSonnet4.supports_adaptive_thinking());
 -        assert!(Model::ClaudeOpus4_6.supports_adaptive_thinking());
 -        assert!(Model::ClaudeSonnet4_6.supports_adaptive_thinking());
+-        assert!(!Model::ClaudeOpus4_7.supports_xhigh_adaptive_thinking());
+-        assert!(Model::ClaudeOpus4_8.supports_xhigh_adaptive_thinking());
+-        assert_eq!(BedrockAdaptiveThinkingEffort::XHigh.as_str(), "xhigh");
 -
 -        assert_eq!(
 -            Model::ClaudeSonnet4.thinking_mode(),
@@ -3769,17 +3924,19 @@ index 89e542f750..0000000000
 \ No newline at end of file
 diff --git a/crates/deepseek/src/deepseek.rs b/crates/deepseek/src/deepseek.rs
 deleted file mode 100644
-index 56609a4749..0000000000
+index 4ec7e91804..0000000000
 --- a/crates/deepseek/src/deepseek.rs
 +++ /dev/null
-@@ -1,338 +0,0 @@
+@@ -1,341 +0,0 @@
 -use anyhow::{Result, anyhow};
 -use futures::{
 -    AsyncBufReadExt, AsyncReadExt,
 -    io::BufReader,
 -    stream::{BoxStream, StreamExt},
 -};
--use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest};
+-use http_client::{
+-    AsyncBody, CustomHeaders, HttpClient, Method, Request as HttpRequest, RequestBuilderExt,
+-};
 -use serde::{Deserialize, Serialize};
 -use serde_json::Value;
 -use std::convert::TryFrom;
@@ -4072,15 +4229,16 @@ index 56609a4749..0000000000
 -    api_url: &str,
 -    api_key: &str,
 -    request: Request,
+-    extra_headers: &CustomHeaders,
 -) -> Result<BoxStream<'static, Result<StreamResponse>>> {
 -    let uri = format!("{api_url}/chat/completions");
--    let request_builder = HttpRequest::builder()
+-    let request = HttpRequest::builder()
 -        .method(Method::POST)
 -        .uri(uri)
 -        .header("Content-Type", "application/json")
--        .header("Authorization", format!("Bearer {}", api_key.trim()));
--
--    let request = request_builder.body(AsyncBody::from(serde_json::to_string(&request)?))?;
+-        .header("Authorization", format!("Bearer {}", api_key.trim()))
+-        .extra_headers(extra_headers)
+-        .body(AsyncBody::from(serde_json::to_string(&request)?))?;
 -    let mut response = client.send(request).await?;
 -
 -    if response.status().is_success() {
@@ -4152,13 +4310,16 @@ index 89e542f750..0000000000
 \ No newline at end of file
 diff --git a/crates/mistral/src/mistral.rs b/crates/mistral/src/mistral.rs
 deleted file mode 100644
-index e7a3ee421e..0000000000
+index c0bcfcf4e4..0000000000
 --- a/crates/mistral/src/mistral.rs
 +++ /dev/null
-@@ -1,472 +0,0 @@
+@@ -1,477 +0,0 @@
 -use anyhow::{Result, anyhow};
 -use futures::{AsyncBufReadExt, AsyncReadExt, StreamExt, io::BufReader, stream::BoxStream};
--use http_client::{AsyncBody, HttpClient, HttpRequestExt, Method, Request as HttpRequest};
+-use http_client::{
+-    AsyncBody, CustomHeaders, HttpClient, HttpRequestExt, Method, Request as HttpRequest,
+-    RequestBuilderExt,
+-};
 -use serde::{Deserialize, Serialize};
 -use serde_json::Value;
 -use std::convert::TryFrom;
@@ -4583,6 +4744,7 @@ index e7a3ee421e..0000000000
 -    api_key: &str,
 -    request: Request,
 -    affinity: Option<String>,
+-    extra_headers: &CustomHeaders,
 -) -> Result<BoxStream<'static, Result<StreamResponse>>> {
 -    let uri = format!("{api_url}/chat/completions");
 -    let request_builder = HttpRequest::builder()
@@ -4592,7 +4754,8 @@ index e7a3ee421e..0000000000
 -        .header("Authorization", format!("Bearer {}", api_key.trim()))
 -        .when_some(affinity, |this, affinity| {
 -            this.header("x-affinity", affinity)
--        });
+-        })
+-        .extra_headers(extra_headers);
 -
 -    let request = request_builder.body(AsyncBody::from(serde_json::to_string(&request)?))?;
 -    let mut response = client.send(request).await?;
@@ -4672,13 +4835,15 @@ index 89e542f750..0000000000
 \ No newline at end of file
 diff --git a/crates/open_router/src/open_router.rs b/crates/open_router/src/open_router.rs
 deleted file mode 100644
-index 306f2c22cb..0000000000
+index 885e42fd9b..0000000000
 --- a/crates/open_router/src/open_router.rs
 +++ /dev/null
-@@ -1,814 +0,0 @@
+@@ -1,809 +0,0 @@
 -use anyhow::{Result, anyhow};
 -use futures::{AsyncBufReadExt, AsyncReadExt, StreamExt, io::BufReader, stream::BoxStream};
--use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest, http};
+-use http_client::{
+-    AsyncBody, CustomHeaders, HttpClient, Method, Request as HttpRequest, RequestBuilderExt, http,
+-};
 -use serde::{Deserialize, Serialize};
 -use serde_json::Value;
 -pub use settings::DataCollection;
@@ -4983,7 +5148,7 @@ index 306f2c22cb..0000000000
 -                    }
 -                })
 -                .collect::<Vec<_>>()
--                .join(""),
+-                .concat(),
 -        }
 -    }
 -}
@@ -5118,17 +5283,17 @@ index 306f2c22cb..0000000000
 -    api_url: &str,
 -    api_key: &str,
 -    request: Request,
+-    extra_headers: &CustomHeaders,
 -) -> Result<BoxStream<'static, Result<ResponseStreamEvent, OpenRouterError>>, OpenRouterError> {
 -    let uri = format!("{api_url}/chat/completions");
--    let request_builder = HttpRequest::builder()
+-    let request = HttpRequest::builder()
 -        .method(Method::POST)
 -        .uri(uri)
 -        .header("Content-Type", "application/json")
 -        .header("Authorization", format!("Bearer {}", api_key))
 -        .header("HTTP-Referer", "https://zed.dev")
--        .header("X-Title", "Zed Editor");
--
--    let request = request_builder
+-        .header("X-Title", "Zed Editor")
+-        .extra_headers(extra_headers)
 -        .body(AsyncBody::from(
 -            serde_json::to_string(&request).map_err(OpenRouterError::SerializeRequest)?,
 -        ))
@@ -5211,17 +5376,17 @@ index 306f2c22cb..0000000000
 -    client: &dyn HttpClient,
 -    api_url: &str,
 -    api_key: &str,
+-    extra_headers: &CustomHeaders,
 -) -> Result<Vec<Model>, OpenRouterError> {
 -    let uri = format!("{api_url}/models/user");
--    let request_builder = HttpRequest::builder()
+-    let request = HttpRequest::builder()
 -        .method(Method::GET)
 -        .uri(uri)
 -        .header("Accept", "application/json")
 -        .header("Authorization", format!("Bearer {}", api_key))
 -        .header("HTTP-Referer", "https://zed.dev")
--        .header("X-Title", "Zed Editor");
--
--    let request = request_builder
+-        .header("X-Title", "Zed Editor")
+-        .extra_headers(extra_headers)
 -        .body(AsyncBody::default())
 -        .map_err(OpenRouterError::BuildRequestBody)?;
 -    let mut response = client
@@ -5285,13 +5450,6 @@ index 306f2c22cb..0000000000
 -        Ok(models)
 -    } else {
 -        let code = ApiErrorCode::from_status(response.status().as_u16());
--
--        let mut body = String::new();
--        response
--            .body_mut()
--            .read_to_string(&mut body)
--            .await
--            .map_err(OpenRouterError::ReadResponse)?;
 -
 -        let error_response = match serde_json::from_str::<OpenRouterErrorResponse>(&body) {
 -            Ok(OpenRouterErrorResponse { error }) => error,
@@ -5528,10 +5686,10 @@ index 89e542f750..0000000000
 \ No newline at end of file
 diff --git a/crates/x_ai/src/x_ai.rs b/crates/x_ai/src/x_ai.rs
 deleted file mode 100644
-index 7ba13d8352..0000000000
+index 6d9c558de8..0000000000
 --- a/crates/x_ai/src/x_ai.rs
 +++ /dev/null
-@@ -1,125 +0,0 @@
+@@ -1,132 +0,0 @@
 -use anyhow::Result;
 -use serde::{Deserialize, Serialize};
 -use strum::EnumIter;
@@ -5654,6 +5812,13 @@ index 7ba13d8352..0000000000
 -                ..
 -            } => *support,
 -            Self::Custom { .. } => false,
+-        }
+-    }
+-
+-    pub fn supports_reasoning_effort(&self) -> bool {
+-        match self {
+-            Self::Grok43 => true,
+-            Self::Grok420Reasoning | Self::Grok420NonReasoning | Self::Custom { .. } => false,
 -        }
 -    }
 -}

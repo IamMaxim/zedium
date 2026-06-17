@@ -28,11 +28,10 @@ and are handled via the verifier allowlist, not rebranded.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
- crates/agent_ui/src/agent_panel.rs            |  2 +-
  crates/agent_ui/src/agent_registry_ui.rs      |  2 +-
  .../src/conversation_view/thread_view.rs      | 17 +----
  crates/cli/src/main.rs                        |  2 +-
- crates/client/src/zed_urls.rs                 | 73 ++-----------------
+ crates/client/src/zed_urls.rs                 | 69 +++----------------
  crates/context_server/src/oauth.rs            |  4 +-
  crates/debugger_ui/src/debugger_panel.rs      |  4 +-
  .../src/edit_prediction_button.rs             |  2 +-
@@ -56,35 +55,22 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  .../telemetry_events/src/telemetry_events.rs  |  2 +-
  .../theme_selector/src/icon_theme_selector.rs |  2 +-
  crates/theme_selector/src/theme_selector.rs   |  2 +-
- .../ui/src/components/button/button_link.rs   |  3 +-
+ .../ui/src/components/button/button_link.rs   |  2 +-
  .../components/collab/collab_notification.rs  |  2 +-
  .../src/components/list/list_bullet_item.rs   |  7 +-
- crates/workspace/src/notifications.rs         |  2 +-
  crates/zed/src/main.rs                        |  6 +-
  crates/zed/src/zed.rs                         | 29 +++-----
- crates/zed/src/zed/app_menus.rs               | 12 +--
+ crates/zed/src/zed/app_menus.rs               | 12 +---
+ crates/zed/src/zed/open_listener.rs           |  4 --
  .../zed/src/zed/quick_action_bar/repl_menu.rs |  2 +-
  crates/zed_actions/src/lib.rs                 |  2 -
- 37 files changed, 99 insertions(+), 181 deletions(-)
+ 36 files changed, 96 insertions(+), 179 deletions(-)
 
-diff --git a/crates/agent_ui/src/agent_panel.rs b/crates/agent_ui/src/agent_panel.rs
-index e2771a19e8..104070e917 100644
---- a/crates/agent_ui/src/agent_panel.rs
-+++ b/crates/agent_ui/src/agent_panel.rs
-@@ -4996,7 +4996,7 @@ impl AgentPanel {
-                                 }
- 
-                                 menu = menu.entry("Rules Library", None, |_window, cx| {
--                                    cx.open_url(&zed_urls::rules_docs(cx));
-+                                    cx.open_url(&zed_urls::rules_docs());
-                                 });
- 
-                                 menu = menu.separator();
 diff --git a/crates/agent_ui/src/agent_registry_ui.rs b/crates/agent_ui/src/agent_registry_ui.rs
-index c6918d869b..7a0a4c7658 100644
+index 897a853662..0112fcb79d 100644
 --- a/crates/agent_ui/src/agent_registry_ui.rs
 +++ b/crates/agent_ui/src/agent_registry_ui.rs
-@@ -587,7 +587,7 @@ impl Render for AgentRegistryPage {
+@@ -585,7 +585,7 @@ impl Render for AgentRegistryPage {
                                              .color(Color::Muted),
                                      )
                                      .on_click(move |_, _, cx| {
@@ -94,10 +80,10 @@ index c6918d869b..7a0a4c7658 100644
                              ),
                      )
 diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
-index a0598fbc23..2628ff4d62 100644
+index 9085b02470..253a55f8e0 100644
 --- a/crates/agent_ui/src/conversation_view/thread_view.rs
 +++ b/crates/agent_ui/src/conversation_view/thread_view.rs
-@@ -9063,17 +9063,16 @@ impl ThreadView {
+@@ -9569,17 +9569,16 @@ impl ThreadView {
  
      fn render_payment_required_error(&self, cx: &mut Context<Self>) -> Callout {
          const ERROR_MESSAGE: &str =
@@ -117,7 +103,7 @@ index a0598fbc23..2628ff4d62 100644
                      .child(self.create_copy_button(ERROR_MESSAGE)),
              )
              .dismiss_action(self.dismiss_error_button(cx))
-@@ -9145,18 +9144,6 @@ impl ThreadView {
+@@ -9651,18 +9650,6 @@ impl ThreadView {
              }))
      }
  
@@ -137,10 +123,10 @@ index a0598fbc23..2628ff4d62 100644
          Button::new("authenticate", "Authenticate")
              .label_size(LabelSize::Small)
 diff --git a/crates/cli/src/main.rs b/crates/cli/src/main.rs
-index 888450c6a3..a033e3c7ed 100644
+index d261c99b02..cf391f735d 100644
 --- a/crates/cli/src/main.rs
 +++ b/crates/cli/src/main.rs
-@@ -656,7 +656,7 @@ fn run() -> Result<()> {
+@@ -664,7 +664,7 @@ fn run() -> Result<()> {
  
      anyhow::ensure!(
          args.dev_server_token.is_none(),
@@ -150,10 +136,10 @@ index 888450c6a3..a033e3c7ed 100644
  
      rayon::ThreadPoolBuilder::new()
 diff --git a/crates/client/src/zed_urls.rs b/crates/client/src/zed_urls.rs
-index 35911d3fb2..be881baee8 100644
+index 94515d9283..be881baee8 100644
 --- a/crates/client/src/zed_urls.rs
 +++ b/crates/client/src/zed_urls.rs
-@@ -1,73 +1,16 @@
+@@ -1,69 +1,16 @@
 -//! Contains helper functions for constructing URLs to various Zed-related pages.
 -//!
 -//! These URLs will adapt to the configured server URL in order to construct
@@ -211,10 +197,6 @@ index 35911d3fb2..be881baee8 100644
 -
 -pub fn skills_docs(cx: &App) -> String {
 -    format!("{server_url}/docs/ai/skills", server_url = server_url(cx))
--}
--
--pub fn rules_docs(cx: &App) -> String {
--    format!("{server_url}/docs/ai/rules", server_url = server_url(cx))
 +/// Returns the URL to Zedium's rules documentation.
 +pub fn rules_docs() -> String {
 +    "https://iammaxim.github.io/zedium/docs/ai/rules".to_string()
@@ -273,7 +255,7 @@ index c034363bcd..07e7b24e40 100644
                          .child(
                              Button::new(
 diff --git a/crates/edit_prediction_ui/src/edit_prediction_button.rs b/crates/edit_prediction_ui/src/edit_prediction_button.rs
-index 33f9ad1b0e..39dc7a34b9 100644
+index 6ac80779eb..99227c1a60 100644
 --- a/crates/edit_prediction_ui/src/edit_prediction_button.rs
 +++ b/crates/edit_prediction_ui/src/edit_prediction_button.rs
 @@ -45,7 +45,7 @@ actions!(
@@ -299,10 +281,10 @@ index 3ac38dd042..9807763fb1 100644
                  )
          })
 diff --git a/crates/extensions_ui/src/extensions_ui.rs b/crates/extensions_ui/src/extensions_ui.rs
-index 235b101044..b38286fa84 100644
+index 27672e6fd5..52dcdd2791 100644
 --- a/crates/extensions_ui/src/extensions_ui.rs
 +++ b/crates/extensions_ui/src/extensions_ui.rs
-@@ -1440,7 +1440,7 @@ impl ExtensionsPage {
+@@ -1445,7 +1445,7 @@ impl ExtensionsPage {
      }
  
      fn render_acp_registry_upsell(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -311,7 +293,7 @@ index 235b101044..b38286fa84 100644
  
          let view_registry = Button::new("view_registry", "View Registry")
              .style(ButtonStyle::Tinted(ui::TintColor::Warning))
-@@ -1552,110 +1552,110 @@ impl ExtensionsPage {
+@@ -1557,110 +1557,110 @@ impl ExtensionsPage {
              let banner = match feature {
                  Feature::AgentClaude => self.render_feature_upsell_banner(
                      "Claude Agent support is built-in to Zed!".into(),
@@ -467,7 +449,7 @@ index d80840a640..eb6f6630c0 100644
                      .child(
                          Button::new("view_default_keymap", "View Default Keymap")
 diff --git a/crates/multi_buffer/src/multi_buffer.rs b/crates/multi_buffer/src/multi_buffer.rs
-index bffc8b632e..090fc63bb7 100644
+index dd0c24fb5f..e07d6f5096 100644
 --- a/crates/multi_buffer/src/multi_buffer.rs
 +++ b/crates/multi_buffer/src/multi_buffer.rs
 @@ -69,7 +69,7 @@ pub fn excerpt_context_lines(cx: &App) -> u32 {
@@ -493,7 +475,7 @@ index 56092863c8..bd1e68b165 100644
                      ),
              )
 diff --git a/crates/onboarding/src/onboarding.rs b/crates/onboarding/src/onboarding.rs
-index 839c272480..3da77def93 100644
+index 17ce48c2d7..940080c9be 100644
 --- a/crates/onboarding/src/onboarding.rs
 +++ b/crates/onboarding/src/onboarding.rs
 @@ -50,6 +50,7 @@ pub struct ImportCursorSettings {
@@ -505,10 +487,10 @@ index 839c272480..3da77def93 100644
  actions!(
      onboarding,
 diff --git a/crates/project/src/project.rs b/crates/project/src/project.rs
-index bbdd9996f0..20f29df49f 100644
+index 0783602e03..454e808526 100644
 --- a/crates/project/src/project.rs
 +++ b/crates/project/src/project.rs
-@@ -3716,7 +3716,7 @@ impl Project {
+@@ -3732,7 +3732,7 @@ impl Project {
                          notification_id: format!("local-tasks-{path:?}").into(),
                          link: Some(ToastLink {
                              label: "Open Tasks Documentation",
@@ -518,7 +500,7 @@ index bbdd9996f0..20f29df49f 100644
                          message,
                      });
 diff --git a/crates/project/tests/integration/project_tests.rs b/crates/project/tests/integration/project_tests.rs
-index 4648fe67b4..44f8701cb8 100644
+index 674a2ace91..6177b9b265 100644
 --- a/crates/project/tests/integration/project_tests.rs
 +++ b/crates/project/tests/integration/project_tests.rs
 @@ -1206,7 +1206,7 @@ async fn test_invalid_local_tasks_shows_toast_with_doc_link(cx: &mut gpui::TestA
@@ -531,10 +513,10 @@ index 4648fe67b4..44f8701cb8 100644
              }
              _ => {}
 diff --git a/crates/recent_projects/src/remote_servers.rs b/crates/recent_projects/src/remote_servers.rs
-index 4124ae7c9c..c5de107266 100644
+index 05e2d76b53..ec8acd93f9 100644
 --- a/crates/recent_projects/src/remote_servers.rs
 +++ b/crates/recent_projects/src/remote_servers.rs
-@@ -2146,7 +2146,7 @@ impl RemoteServerProjects {
+@@ -2348,7 +2348,7 @@ impl RemoteServerProjects {
                                              )
                                              .on_click(|_, _, cx| {
                                                  cx.open_url(
@@ -648,10 +630,10 @@ index 1794a68839..ee8e956892 100644
      };
  
 diff --git a/crates/remote/src/transport/ssh.rs b/crates/remote/src/transport/ssh.rs
-index 1a8337dcd7..94a4d4f229 100644
+index 2beae54f2f..fd4941026e 100644
 --- a/crates/remote/src/transport/ssh.rs
 +++ b/crates/remote/src/transport/ssh.rs
-@@ -1423,7 +1423,7 @@ impl SshSocket {
+@@ -1430,7 +1430,7 @@ impl SshSocket {
                  "AMD64" => RemoteArch::X86_64,
                  "ARM64" => RemoteArch::Aarch64,
                  arch => anyhow::bail!(
@@ -661,7 +643,7 @@ index 1a8337dcd7..94a4d4f229 100644
              },
          })
 diff --git a/crates/repl/src/repl.rs b/crates/repl/src/repl.rs
-index 8c3d15a2ad..c74bc20e23 100644
+index 299641c47d..4edf5d14fd 100644
 --- a/crates/repl/src/repl.rs
 +++ b/crates/repl/src/repl.rs
 @@ -26,7 +26,7 @@ pub use crate::repl_settings::ReplSettings;
@@ -687,7 +669,7 @@ index 3bf242a186..2c9a7fb7ba 100644
                              }),
                      ),
 diff --git a/crates/settings/src/keymap_file.rs b/crates/settings/src/keymap_file.rs
-index ca507b05a3..51c8ab79b3 100644
+index 5e8d888f41..5d0bb7f065 100644
 --- a/crates/settings/src/keymap_file.rs
 +++ b/crates/settings/src/keymap_file.rs
 @@ -66,7 +66,7 @@ pub struct KeymapSection {
@@ -700,10 +682,10 @@ index ca507b05a3..51c8ab79b3 100644
      pub context: String,
      /// This option enables specifying keys based on their position on a QWERTY keyboard, by using
 diff --git a/crates/settings_ui/src/page_data.rs b/crates/settings_ui/src/page_data.rs
-index 9b5f8369c1..983c97ae6b 100644
+index 17a26b799d..e29a18e157 100644
 --- a/crates/settings_ui/src/page_data.rs
 +++ b/crates/settings_ui/src/page_data.rs
-@@ -7827,7 +7827,7 @@ fn network_page() -> SettingsPage {
+@@ -8285,7 +8285,7 @@ fn network_page() -> SettingsPage {
                      },
                  }),
                  metadata: Some(Box::new(SettingsFieldMetadata {
@@ -723,10 +705,10 @@ index e98a2c025f..152dc004a2 100644
  use semver::Version;
  use serde::{Deserialize, Serialize};
 diff --git a/crates/theme_selector/src/icon_theme_selector.rs b/crates/theme_selector/src/icon_theme_selector.rs
-index 3d46c829f9..f060ea740b 100644
+index 1a737be38a..d479743569 100644
 --- a/crates/theme_selector/src/icon_theme_selector.rs
 +++ b/crates/theme_selector/src/icon_theme_selector.rs
-@@ -328,7 +328,7 @@ impl PickerDelegate for IconThemeSelectorDelegate {
+@@ -332,7 +332,7 @@ impl PickerDelegate for IconThemeSelectorDelegate {
                                  .color(Color::Muted),
                          )
                          .on_click(|_event, _window, cx| {
@@ -736,10 +718,10 @@ index 3d46c829f9..f060ea740b 100644
                  )
                  .child(
 diff --git a/crates/theme_selector/src/theme_selector.rs b/crates/theme_selector/src/theme_selector.rs
-index 6d8326bf81..c24af94301 100644
+index bcf3790831..746c31c168 100644
 --- a/crates/theme_selector/src/theme_selector.rs
 +++ b/crates/theme_selector/src/theme_selector.rs
-@@ -520,7 +520,7 @@ impl PickerDelegate for ThemeSelectorDelegate {
+@@ -545,7 +545,7 @@ impl PickerDelegate for ThemeSelectorDelegate {
                                  .color(Color::Muted),
                          )
                          .on_click(cx.listener(|_, _, _, cx| {
@@ -749,24 +731,23 @@ index 6d8326bf81..c24af94301 100644
                  )
                  .child(
 diff --git a/crates/ui/src/components/button/button_link.rs b/crates/ui/src/components/button/button_link.rs
-index caffe2772b..52d1b9f727 100644
+index 841df96f55..ec71dbf4f6 100644
 --- a/crates/ui/src/components/button/button_link.rs
 +++ b/crates/ui/src/components/button/button_link.rs
-@@ -92,7 +92,8 @@ impl Component for ButtonLink {
-                 .child(
-                     example_group(vec![single_example(
-                         "Simple",
--                        ButtonLink::new("zed.dev", "https://zed.dev").into_any_element(),
-+                        ButtonLink::new("zedium", "https://github.com/IamMaxim/zedium")
-+                            .into_any_element(),
-                     )])
-                     .vertical(),
-                 )
+@@ -91,7 +91,7 @@ impl Component for ButtonLink {
+             .child(
+                 example_group(vec![single_example(
+                     "Simple",
+-                    ButtonLink::new("zed.dev", "https://zed.dev").into_any_element(),
++                    ButtonLink::new("zedium", "https://github.com/IamMaxim/zedium").into_any_element(),
+                 )])
+                 .vertical(),
+             )
 diff --git a/crates/ui/src/components/collab/collab_notification.rs b/crates/ui/src/components/collab/collab_notification.rs
-index 28d28b0a29..6dcbf81e53 100644
+index 382749da37..4fbd58364c 100644
 --- a/crates/ui/src/components/collab/collab_notification.rs
 +++ b/crates/ui/src/components/collab/collab_notification.rs
-@@ -121,7 +121,7 @@ impl Component for CollabNotification {
+@@ -126,7 +126,7 @@ impl Component for CollabNotification {
                              "a_very_long_username_that_might_overflow is sharing a project in Zed:",
                          ))
                          .child(
@@ -776,7 +757,7 @@ index 28d28b0a29..6dcbf81e53 100644
                          ),
                      )
 diff --git a/crates/ui/src/components/list/list_bullet_item.rs b/crates/ui/src/components/list/list_bullet_item.rs
-index 934f0853db..dd20444ac0 100644
+index 8fed315875..71973db691 100644
 --- a/crates/ui/src/components/list/list_bullet_item.rs
 +++ b/crates/ui/src/components/list/list_bullet_item.rs
 @@ -99,8 +99,11 @@ impl Component for ListBulletItem {
@@ -793,24 +774,11 @@ index 934f0853db..dd20444ac0 100644
                      .into_any_element(),
              ),
          ];
-diff --git a/crates/workspace/src/notifications.rs b/crates/workspace/src/notifications.rs
-index 689160b435..8244084b42 100644
---- a/crates/workspace/src/notifications.rs
-+++ b/crates/workspace/src/notifications.rs
-@@ -174,7 +174,7 @@ impl Workspace {
-             cx.new(|cx| {
-                 ErrorMessagePrompt::new(err.to_string(), cx).with_link_button(
-                     "See docs",
--                    "https://zed.dev/docs/linux#i-cant-open-any-files",
-+                    "https://iammaxim.github.io/zedium/docs/linux#i-cant-open-any-files",
-                 )
-             })
-         });
 diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
-index 0b2d21e899..3b8afb931a 100644
+index 0695ec9e8f..137384017e 100644
 --- a/crates/zed/src/main.rs
 +++ b/crates/zed/src/main.rs
-@@ -147,7 +147,7 @@ fn fail_to_open_window_async(e: anyhow::Error, cx: &mut AsyncApp) {
+@@ -156,7 +156,7 @@ fn fail_to_open_window_async(e: anyhow::Error, cx: &mut AsyncApp) {
  
  fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
      eprintln!(
@@ -819,7 +787,7 @@ index 0b2d21e899..3b8afb931a 100644
      );
      #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
      {
-@@ -170,7 +170,7 @@ fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
+@@ -179,7 +179,7 @@ fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
                      Notification::new("Zed failed to launch")
                          .body(Some(
                              format!(
@@ -828,7 +796,7 @@ index 0b2d21e899..3b8afb931a 100644
                              )
                              .as_str(),
                          ))
-@@ -1620,7 +1620,7 @@ struct Args {
+@@ -1634,7 +1634,7 @@ struct Args {
      /// Use `path:line:row` syntax to open a file at a specific location.
      /// Non-existing paths and directories will ignore `:line:row` suffix.
      ///
@@ -838,7 +806,7 @@ index 0b2d21e899..3b8afb931a 100644
  
      /// Pairs of file paths to diff. Can be specified multiple times.
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index 3249ba7813..839c074047 100644
+index 3a382c7974..e93df89bd5 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
 @@ -21,7 +21,6 @@ pub use app_menus::*;
@@ -849,7 +817,7 @@ index 3249ba7813..839c074047 100644
  use collections::VecDeque;
  use debugger_ui::debugger_panel::DebugPanel;
  use editor::{Editor, MultiBuffer};
-@@ -97,12 +96,10 @@ use workspace::{
+@@ -100,12 +99,10 @@ use workspace::{
  };
  use workspace::{Pane, notifications::DetachAndPromptErr};
  use zed_actions::{
@@ -864,7 +832,7 @@ index 3249ba7813..839c074047 100644
  
  pub struct CrashHandler(pub Arc<crashes::Client>);
  
-@@ -224,11 +221,6 @@ pub fn init(cx: &mut App) {
+@@ -236,11 +233,6 @@ pub fn init(cx: &mut App) {
              );
          });
      })
@@ -876,7 +844,7 @@ index 3249ba7813..839c074047 100644
      .on_action(|_: &OpenTasks, cx| {
          with_active_or_new_workspace(cx, |_, window, cx| {
              open_settings_file(
-@@ -615,7 +607,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
+@@ -627,7 +619,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
              db::indoc! {r#"
              inotify_init returned {}
  
@@ -885,7 +853,7 @@ index 3249ba7813..839c074047 100644
              "#},
              e
          );
-@@ -629,7 +621,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
+@@ -641,7 +633,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
          cx.spawn(async move |_, cx| {
              if prompt.await == Ok(0) {
                  cx.update(|cx| {
@@ -894,7 +862,7 @@ index 3249ba7813..839c074047 100644
                      cx.quit();
                  });
              }
-@@ -646,7 +638,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
+@@ -658,7 +650,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
              db::indoc! {r#"
              ReadDirectoryChangesW initialization failed: {}
  
@@ -903,7 +871,7 @@ index 3249ba7813..839c074047 100644
              "#},
              e
          );
-@@ -660,7 +652,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
+@@ -672,7 +664,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
          cx.spawn(async move |_, cx| {
              if prompt.await == Ok(0) {
                  cx.update(|cx| {
@@ -912,7 +880,7 @@ index 3249ba7813..839c074047 100644
                      cx.quit()
                  });
              }
-@@ -678,14 +670,14 @@ fn show_software_emulation_warning_if_needed(
+@@ -690,14 +682,14 @@ fn show_software_emulation_warning_if_needed(
          let (graphics_api, docs_url, open_url) = if cfg!(target_os = "windows") {
              (
                  "DirectX",
@@ -931,7 +899,7 @@ index 3249ba7813..839c074047 100644
              )
          };
          let message = format!(
-@@ -857,7 +849,6 @@ fn register_actions(
+@@ -869,7 +861,6 @@ fn register_actions(
  ) {
      workspace
          .register_action(|_, _: &OpenDocs, _, cx| cx.open_url(DOCS_URL))
@@ -940,10 +908,10 @@ index 3249ba7813..839c074047 100644
              |workspace: &mut Workspace,
               _: &input_latency_ui::DumpInputLatencyHistogram,
 diff --git a/crates/zed/src/zed/app_menus.rs b/crates/zed/src/zed/app_menus.rs
-index 4e264d3861..f0da4cb248 100644
+index c08e4d1acb..e5970bf6c1 100644
 --- a/crates/zed/src/zed/app_menus.rs
 +++ b/crates/zed/src/zed/app_menus.rs
-@@ -299,19 +299,13 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
+@@ -288,19 +288,13 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                  MenuItem::action(
                      "Documentation",
                      super::OpenBrowser {
@@ -966,8 +934,26 @@ index 4e264d3861..f0da4cb248 100644
                      },
                  ),
              ],
+diff --git a/crates/zed/src/zed/open_listener.rs b/crates/zed/src/zed/open_listener.rs
+index 2b858cf838..b06211ac8a 100644
+--- a/crates/zed/src/zed/open_listener.rs
++++ b/crates/zed/src/zed/open_listener.rs
+@@ -186,13 +186,9 @@ impl OpenRequest {
+                 } else {
+                     log::error!("Invalid session ID in URL: {}", session_id_str);
+                 }
+-<<<<<<< HEAD
+             } else if url.starts_with(agent_skills::SKILL_SHARE_LINK_PREFIX) {
+                 this.parse_skill_install_url(&url)?
+-            } else if let Some(agent_path) = url.strip_prefix("zed://agent") {
+-=======
+             } else if let Some(agent_path) = url.strip_prefix("zedium://agent") {
+->>>>>>> c05db00b9d (brand: rename zed:// URL scheme to zedium://)
+                 this.parse_agent_url(agent_path)
+             } else if url == "zedium://" || url == "zedium://open" || url == "zedium://open/" {
+                 this.kind = Some(OpenRequestKind::FocusApp);
 diff --git a/crates/zed/src/zed/quick_action_bar/repl_menu.rs b/crates/zed/src/zed/quick_action_bar/repl_menu.rs
-index 7b694281b9..e3ea9543ad 100644
+index 7d8b6ae769..03a6c36a62 100644
 --- a/crates/zed/src/zed/quick_action_bar/repl_menu.rs
 +++ b/crates/zed/src/zed/quick_action_bar/repl_menu.rs
 @@ -16,7 +16,7 @@ use util::ResultExt;
@@ -980,7 +966,7 @@ index 7b694281b9..e3ea9543ad 100644
  struct ReplMenuState {
      tooltip: SharedString,
 diff --git a/crates/zed_actions/src/lib.rs b/crates/zed_actions/src/lib.rs
-index f04782f0f0..96ffdb4c37 100644
+index 0ad33cf924..ba9e1a52e3 100644
 --- a/crates/zed_actions/src/lib.rs
 +++ b/crates/zed_actions/src/lib.rs
 @@ -55,8 +55,6 @@ actions!(

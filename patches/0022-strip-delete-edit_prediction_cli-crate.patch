@@ -19,53 +19,53 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  .../evals/flask--add-test-function.md         |  177 --
  .../flask--rename-accepted-prediction.md      |   98 -
  .../hello-world--rename-accepted-group-by.md  |   81 -
- .../evals/terraform--add-comment.md           |  140 --
- .../evals/tree-sitter--if-let-to-match.md     |  136 --
+ .../evals/terraform--add-comment.md           |  140 -
+ .../evals/tree-sitter--if-let-to-match.md     |  136 -
  ...tree-sitter--tuple-to-struct-definition.md |  125 -
- ...e-sitter--tuple-to-struct-destructuring.md |  153 --
+ ...e-sitter--tuple-to-struct-destructuring.md |  153 -
  ...ee-sitter--tuple-to-struct-field-access.md |   62 -
  .../tree-sitter--tuple-to-struct-for-loop.md  |  106 -
- .../tree-sitter--tuple-to-struct-literal.md   |  144 --
+ .../tree-sitter--tuple-to-struct-literal.md   |  144 -
  .../evals/vscode--add-async-and-await.md      |   88 -
  .../evals/vscode--add-class-decorator.md      |   74 -
  .../evals/vscode--add-interface-method.md     |  113 -
  .../evals/vscode--log-object-property.md      |   56 -
  .../evals/zed--add-eprintln.md                |   54 -
  .../evals/zed--change-match-arm.md            |   68 -
- .../src/anthropic_client.rs                   |  866 -------
+ .../src/anthropic_client.rs                   |  868 ------
  crates/edit_prediction_cli/src/distill.rs     |   36 -
- crates/edit_prediction_cli/src/example.rs     |  317 ---
- .../src/filter_languages.rs                   |  551 -----
- .../edit_prediction_cli/src/format_prompt.rs  |  976 --------
+ crates/edit_prediction_cli/src/example.rs     |  317 --
+ .../src/filter_languages.rs                   |  551 ----
+ .../edit_prediction_cli/src/format_prompt.rs  |  976 ------
  crates/edit_prediction_cli/src/git.rs         |  129 -
  crates/edit_prediction_cli/src/headless.rs    |  126 -
  crates/edit_prediction_cli/src/lib.rs         |    2 -
  .../edit_prediction_cli/src/load_project.rs   |  393 ---
- crates/edit_prediction_cli/src/main.rs        | 1623 -------------
+ crates/edit_prediction_cli/src/main.rs        | 1704 -----------
  crates/edit_prediction_cli/src/metrics.rs     |   16 -
- .../edit_prediction_cli/src/openai_client.rs  |  703 ------
+ .../edit_prediction_cli/src/openai_client.rs  |  703 -----
  .../edit_prediction_cli/src/parse_output.rs   |   92 -
  crates/edit_prediction_cli/src/paths.rs       |   31 -
- crates/edit_prediction_cli/src/predict.rs     |  805 -------
- crates/edit_prediction_cli/src/progress.rs    |  651 -----
+ crates/edit_prediction_cli/src/predict.rs     |  805 -----
+ crates/edit_prediction_cli/src/progress.rs    |  651 ----
  .../edit_prediction_cli/src/prompt_assets.rs  |   46 -
  crates/edit_prediction_cli/src/prompts/qa.md  |   43 -
  .../edit_prediction_cli/src/prompts/repair.md |   44 -
  .../src/prompts/teacher.md                    |  358 ---
  .../src/prompts/teacher_multi_region.md       |  366 ---
- .../edit_prediction_cli/src/pull_examples.rs  | 1867 ---------------
- crates/edit_prediction_cli/src/qa.rs          |  301 ---
- .../edit_prediction_cli/src/reorder_patch.rs  | 1548 ------------
- crates/edit_prediction_cli/src/repair.rs      |  608 -----
- .../src/retrieve_context.rs                   |  345 ---
- crates/edit_prediction_cli/src/score.rs       |  869 -------
- .../edit_prediction_cli/src/split_commit.rs   | 2107 -----------------
- .../edit_prediction_cli/src/split_dataset.rs  |  679 ------
- crates/edit_prediction_cli/src/synthesize.rs  |  970 --------
+ .../edit_prediction_cli/src/pull_examples.rs  | 2100 -------------
+ crates/edit_prediction_cli/src/qa.rs          |  301 --
+ .../edit_prediction_cli/src/reorder_patch.rs  | 1548 ----------
+ crates/edit_prediction_cli/src/repair.rs      |  608 ----
+ .../src/retrieve_context.rs                   |  371 ---
+ crates/edit_prediction_cli/src/score.rs       | 1043 -------
+ .../edit_prediction_cli/src/split_commit.rs   | 2610 -----------------
+ .../edit_prediction_cli/src/split_dataset.rs  |  679 -----
+ crates/edit_prediction_cli/src/synthesize.rs  |  969 ------
  .../src/truncate_expected_patch.rs            |   75 -
- crates/edit_prediction_cli/src/word_diff.rs   |  270 ---
+ crates/edit_prediction_cli/src/word_diff.rs   |  270 --
  typos.toml                                    |    3 -
- 57 files changed, 19847 deletions(-)
+ 57 files changed, 20865 deletions(-)
  delete mode 100644 crates/edit_prediction_cli/Cargo.toml
  delete mode 120000 crates/edit_prediction_cli/LICENSE-GPL
  delete mode 100644 crates/edit_prediction_cli/build.rs
@@ -123,7 +123,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  delete mode 100644 crates/edit_prediction_cli/src/word_diff.rs
 
 diff --git a/Cargo.toml b/Cargo.toml
-index ca9d62310c..9fa304d659 100644
+index cc684981df..7b4558c56d 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
 @@ -46,7 +46,6 @@ members = [
@@ -2305,10 +2305,10 @@ index 042e2730cc..0000000000
 -```
 diff --git a/crates/edit_prediction_cli/src/anthropic_client.rs b/crates/edit_prediction_cli/src/anthropic_client.rs
 deleted file mode 100644
-index c1706d6161..0000000000
+index 56c8f00a6a..0000000000
 --- a/crates/edit_prediction_cli/src/anthropic_client.rs
 +++ /dev/null
-@@ -1,866 +0,0 @@
+@@ -1,868 +0,0 @@
 -use anthropic::{
 -    ANTHROPIC_API_URL, Event, Message, Request as AnthropicRequest, RequestContent,
 -    Response as AnthropicResponse, ResponseContent, Role, non_streaming_completion,
@@ -2374,6 +2374,7 @@ index c1706d6161..0000000000
 -            &self.api_key,
 -            request,
 -            None,
+-            &http_client::CustomHeaders::default(),
 -        )
 -        .await
 -        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
@@ -2415,6 +2416,7 @@ index c1706d6161..0000000000
 -            &self.api_key,
 -            request,
 -            None,
+-            &http_client::CustomHeaders::default(),
 -        )
 -        .await
 -        .map_err(|e| anyhow::anyhow!("{:?}", e))?;
@@ -4099,7 +4101,7 @@ index cdf503fa23..0000000000
 -}
 diff --git a/crates/edit_prediction_cli/src/format_prompt.rs b/crates/edit_prediction_cli/src/format_prompt.rs
 deleted file mode 100644
-index 933560b476..0000000000
+index 8007499315..0000000000
 --- a/crates/edit_prediction_cli/src/format_prompt.rs
 +++ /dev/null
 @@ -1,976 +0,0 @@
@@ -4139,7 +4141,7 @@ index 933560b476..0000000000
 -        example,
 -        app_state.clone(),
 -        example_progress,
--        ContextRetrievalType::Lsp,
+-        vec![ContextRetrievalType::Lsp],
 -        false,
 -        cx.clone(),
 -    )
@@ -5755,10 +5757,10 @@ index f370f013ff..0000000000
 -}
 diff --git a/crates/edit_prediction_cli/src/main.rs b/crates/edit_prediction_cli/src/main.rs
 deleted file mode 100644
-index 69167ce22b..0000000000
+index 78f8324432..0000000000
 --- a/crates/edit_prediction_cli/src/main.rs
 +++ /dev/null
-@@ -1,1623 +0,0 @@
+@@ -1,1704 +0,0 @@
 -mod anthropic_client;
 -mod distill;
 -mod example;
@@ -5797,7 +5799,7 @@ index 69167ce22b..0000000000
 -    MinHashIndex, MinHasher, MinHasher32, calculate_minhash_params, compute_minhash_similarity,
 -};
 -use gpui::{AppContext as _, BackgroundExecutor, Task};
--use zeta_prompt::ZetaFormat;
+-use zeta_prompt::{ContextSource, ZetaFormat};
 -
 -use reqwest_client::ReqwestClient;
 -use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -5820,7 +5822,9 @@ index 69167ce22b..0000000000
 -use crate::predict::run_prediction;
 -use crate::progress::Progress;
 -use crate::pull_examples::{fetch_settled_examples_after, parse_settled_after_input};
--use crate::retrieve_context::{ContextRetrievalType, run_context_retrieval};
+-use crate::retrieve_context::{
+-    ContextRetrievalType, context_sources_for_types, run_context_retrieval,
+-};
 -use crate::score::run_scoring;
 -use crate::split_commit::SplitCommitArgs;
 -use crate::split_dataset::SplitArgs;
@@ -5888,12 +5892,23 @@ index 69167ce22b..0000000000
 -
 -#[derive(Args, Debug, Clone)]
 -struct ContextArgs {
--    /// Which context collector to run.
--    #[arg(long = "type", value_enum, default_value_t = ContextRetrievalType::Lsp)]
--    context_type: ContextRetrievalType,
+-    /// Which context collectors to run.
+-    /// May be repeated or comma-delimited, e.g. `--type=all,oracle-file`.
+-    #[arg(long = "type", value_enum, value_delimiter = ',')]
+-    context_types: Vec<ContextRetrievalType>,
 -    /// Recompute context even if the example already has related files.
 -    #[arg(long, short = 'f', default_value_t = false)]
 -    force: bool,
+-}
+-
+-impl ContextArgs {
+-    fn context_types(&self) -> Vec<ContextRetrievalType> {
+-        if self.context_types.is_empty() {
+-            vec![ContextRetrievalType::Lsp]
+-        } else {
+-            self.context_types.clone()
+-        }
+-    }
 -}
 -
 -const INPUTS_HELP: &str = r#"
@@ -6011,7 +6026,13 @@ index 69167ce22b..0000000000
 -            Command::Read(_) => write!(f, "read"),
 -            Command::LoadProject => write!(f, "load-project"),
 -            Command::Context(args) => {
--                write!(f, "context --type={}", args.context_type)?;
+-                write!(f, "context --type=")?;
+-                for (index, context_type) in args.context_types().iter().enumerate() {
+-                    if index > 0 {
+-                        write!(f, ",")?;
+-                    }
+-                    write!(f, "{}", context_type)?;
+-                }
 -                if args.force {
 -                    write!(f, " --force")?;
 -                }
@@ -6034,6 +6055,18 @@ index 69167ce22b..0000000000
 -                write!(f, "eval")?;
 -                if args.context_only {
 -                    write!(f, " --context-only")?;
+-                }
+-                if !args.context_types.is_empty() {
+-                    write!(f, " --type=")?;
+-                    for (index, context_type) in args.context_types.iter().enumerate() {
+-                        if index > 0 {
+-                            write!(f, ",")?;
+-                        }
+-                        write!(f, "{}", context_type)?;
+-                    }
+-                }
+-                if args.related_context_limit != score::EVAL_RELATED_CONTEXT_TOKENS_LIMIT {
+-                    write!(f, " --related-context-limit={}", args.related_context_limit)?;
 -                }
 -                if let Some(provider) = &args.predict.provider {
 -                    write!(f, " --provider={}", provider)?;
@@ -6095,12 +6128,29 @@ index 69167ce22b..0000000000
 -    /// Only compute editable context coverage from expected patches and retrieved context.
 -    #[clap(long)]
 -    context_only: bool,
+-    /// Only score persisted related context excerpts from these context types.
+-    /// May be repeated or comma-delimited, e.g. `--type=current-file,edit-history`.
+-    #[arg(long = "type", value_enum, value_delimiter = ',')]
+-    context_types: Vec<ContextRetrievalType>,
+-    /// Maximum number of retrieved context tokens to include when scoring.
+-    #[clap(long, default_value_t = score::EVAL_RELATED_CONTEXT_TOKENS_LIMIT)]
+-    related_context_limit: usize,
 -    /// Path to write summary scores as JSON
 -    #[clap(long)]
 -    summary_json: Option<PathBuf>,
 -    /// Print all individual example lines (default: up to 20)
 -    #[clap(long)]
 -    verbose: bool,
+-}
+-
+-impl EvalArgs {
+-    fn context_source_filter(&self) -> Option<Vec<ContextSource>> {
+-        if self.context_types.is_empty() {
+-            None
+-        } else {
+-            Some(context_sources_for_types(&self.context_types))
+-        }
+-    }
 -}
 -
 -#[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Hash)]
@@ -6374,6 +6424,7 @@ index 69167ce22b..0000000000
 -/// This version introduced the current request schema with predicted edits in the edit
 -/// history, and open source repos distinguished.
 -const MIN_CAPTURE_VERSION: pull_examples::MinCaptureVersion = pull_examples::MinCaptureVersion {
+-    major: 0,
 -    minor: 224,
 -    patch: 1,
 -};
@@ -6520,16 +6571,21 @@ index 69167ce22b..0000000000
 -    let mut settled_after_timestamps = Vec::new();
 -    let mut rated_after_inputs: Vec<(String, Option<telemetry_events::EditPredictionRating>)> =
 -        Vec::new();
+-    let mut accepted_after_timestamps = Vec::new();
 -    let mut file_inputs = Vec::new();
 -
 -    for input in &args.inputs {
 -        let input_string = input.to_string_lossy();
 -        if let Some(timestamp) = pull_examples::parse_captured_after_input(input_string.as_ref()) {
 -            captured_after_timestamps.push(timestamp.to_string());
--        } else if let Some(timestamp) =
+-        } else if let Some((explicit, timestamp)) =
 -            pull_examples::parse_rejected_after_input(input_string.as_ref())
 -        {
--            rejected_after_timestamps.push(timestamp.to_string());
+-            rejected_after_timestamps.push((explicit, timestamp.to_string()));
+-        } else if let Some(timestamp) =
+-            pull_examples::parse_accepted_after_input(input_string.as_ref())
+-        {
+-            accepted_after_timestamps.push(timestamp.to_string());
 -        } else if let Some(timestamp) =
 -            pull_examples::parse_requested_after_input(input_string.as_ref())
 -        {
@@ -6586,6 +6642,21 @@ index 69167ce22b..0000000000
 -            )
 -            .await?;
 -            examples.append(&mut rejected_examples);
+-        }
+-
+-        if !accepted_after_timestamps.is_empty() {
+-            accepted_after_timestamps.sort();
+-
+-            let mut accepted_examples = pull_examples::fetch_accepted_examples_after(
+-                http_client.clone(),
+-                &accepted_after_timestamps,
+-                max_rows_per_timestamp,
+-                remaining_offset,
+-                background_executor.clone(),
+-                Some(MIN_CAPTURE_VERSION),
+-            )
+-            .await?;
+-            examples.append(&mut accepted_examples);
 -        }
 -
 -        if !requested_after_timestamps.is_empty() {
@@ -7015,7 +7086,7 @@ index 69167ce22b..0000000000
 -                                                example,
 -                                                app_state.clone(),
 -                                                &example_progress,
--                                                args.context_type,
+-                                                args.context_types(),
 -                                                args.force,
 -                                                cx.clone(),
 -                                            )
@@ -7056,15 +7127,19 @@ index 69167ce22b..0000000000
 -                                                cx.clone(),
 -                                                false,
 -                                                None,
+-                                                None,
 -                                            )
 -                                            .await?;
 -                                        }
 -                                        Command::Eval(args) => {
+-                                            let context_source_filter =
+-                                                args.context_source_filter();
 -                                            if args.context_only {
 -                                                score::run_context_coverage_scoring(
 -                                                    example,
 -                                                    &example_progress,
--                                                    Some(score::EVAL_RETRIEVED_CONTEXT_BYTE_LIMIT),
+-                                                    Some(args.related_context_limit * 3),
+-                                                    context_source_filter.as_deref(),
 -                                                )?;
 -                                            } else {
 -                                                run_scoring(
@@ -7074,7 +7149,8 @@ index 69167ce22b..0000000000
 -                                                    &example_progress,
 -                                                    cx.clone(),
 -                                                    true,
--                                                    Some(score::EVAL_RETRIEVED_CONTEXT_BYTE_LIMIT),
+-                                                    Some(args.related_context_limit * 3),
+-                                                    context_source_filter,
 -                                                )
 -                                                .await?;
 -                                            }
@@ -7229,14 +7305,21 @@ index 69167ce22b..0000000000
 -                match &command {
 -                    Command::Eval(args) => {
 -                        let examples = finished_examples.lock().unwrap();
+-                        let context_source_filter = args.context_source_filter();
 -                        score::print_report(
 -                            &examples,
 -                            args.verbose,
 -                            args.context_only,
--                            Some(score::EVAL_RETRIEVED_CONTEXT_BYTE_LIMIT),
+-                            Some(args.related_context_limit * 3),
+-                            context_source_filter.as_deref(),
 -                        );
 -                        if let Some(summary_path) = &args.summary_json {
--                            score::write_summary_json(&examples, summary_path)?;
+-                            score::write_summary_json(
+-                                &examples,
+-                                summary_path,
+-                                Some(args.related_context_limit * 3),
+-                                context_source_filter.as_deref(),
+-                            )?;
 -                        }
 -                    }
 -                    Command::Repair(args) => {
@@ -8250,7 +8333,7 @@ index 4ca9d78718..0000000000
 -}
 diff --git a/crates/edit_prediction_cli/src/predict.rs b/crates/edit_prediction_cli/src/predict.rs
 deleted file mode 100644
-index e73e8c751d..0000000000
+index 5ba7efb5bf..0000000000
 --- a/crates/edit_prediction_cli/src/predict.rs
 +++ /dev/null
 @@ -1,805 +0,0 @@
@@ -8328,7 +8411,7 @@ index e73e8c751d..0000000000
 -            example,
 -            app_state.clone(),
 -            example_progress,
--            ContextRetrievalType::Lsp,
+-            vec![ContextRetrievalType::Lsp],
 -            false,
 -            cx.clone(),
 -        )
@@ -8379,7 +8462,7 @@ index e73e8c751d..0000000000
 -        example,
 -        app_state.clone(),
 -        example_progress,
--        ContextRetrievalType::Lsp,
+-        vec![ContextRetrievalType::Lsp],
 -        false,
 -        cx.clone(),
 -    )
@@ -8801,7 +8884,7 @@ index e73e8c751d..0000000000
 -                            _ => None,
 -                        })
 -                        .collect::<Vec<_>>()
--                        .join(""),
+-                        .concat(),
 -                }),
 -                _ => None,
 -            })
@@ -10606,10 +10689,10 @@ index 61c5c8f383..0000000000
 -Based on the edit history and context above, predict the user's next edit within the marker-bounded spans.
 diff --git a/crates/edit_prediction_cli/src/pull_examples.rs b/crates/edit_prediction_cli/src/pull_examples.rs
 deleted file mode 100644
-index 88de3053d8..0000000000
+index 73778ef548..0000000000
 --- a/crates/edit_prediction_cli/src/pull_examples.rs
 +++ /dev/null
-@@ -1,1867 +0,0 @@
+@@ -1,2100 +0,0 @@
 -use anyhow::{Context as _, Result};
 -use flate2::read::GzDecoder;
 -use gpui::BackgroundExecutor;
@@ -10627,7 +10710,7 @@ index 88de3053d8..0000000000
 -use zeta_prompt::{ZetaFormat, ZetaPromptInput, excerpt_range_for_format};
 -
 -use crate::PredictionProvider;
--use crate::example::{Example, ExamplePrompt};
+-use crate::example::{Example, ExamplePrediction, ExamplePrompt};
 -use crate::progress::{InfoStyle, Progress, Step};
 -use edit_prediction::example_spec::{ExampleSpec, TelemetrySource};
 -
@@ -10636,10 +10719,13 @@ index 88de3053d8..0000000000
 -const SNOWFLAKE_TIMEOUT_CODE: &str = "000630";
 -
 -/// Minimum Zed version for filtering captured examples.
--/// For example, `MinCaptureVersion { minor: 224, patch: 1 }` means only pull examples
--/// where `zed_version >= 0.224.1`.
+-/// For example, `MinCaptureVersion { major: 0, minor: 224, patch: 1 }` means only pull
+-/// examples where `zed_version >= 0.224.1`. The `major` component is required because Zed
+-/// moved from the `0.<minor>.<patch>` scheme to `1.<minor>.<patch>`; comparing on `minor`
+-/// alone would exclude all `1.*` versions (whose `minor` resets to small values).
 -#[derive(Clone, Copy, Debug)]
 -pub struct MinCaptureVersion {
+-    pub major: u32,
 -    pub minor: u32,
 -    pub patch: u32,
 -}
@@ -10657,9 +10743,20 @@ index 88de3053d8..0000000000
 -    input.strip_prefix("captured-after:")
 -}
 -
+-/// Parse an input token of the form `accepted-after:{timestamp}`.
+-pub fn parse_accepted_after_input(input: &str) -> Option<&str> {
+-    input.strip_prefix("accepted-after:")
+-}
+-
 -/// Parse an input token of the form `rejected-after:{timestamp}`.
--pub fn parse_rejected_after_input(input: &str) -> Option<&str> {
--    input.strip_prefix("rejected-after:")
+-pub fn parse_rejected_after_input(input: &str) -> Option<(bool, &str)> {
+-    if let Some(timestamp) = input.strip_prefix("rejected-after:") {
+-        Some((false, timestamp))
+-    } else if let Some(timestamp) = input.strip_prefix("explicitly-rejected-after:") {
+-        Some((true, timestamp))
+-    } else {
+-        None
+-    }
 -}
 -
 -/// Parse an input token of the form `requested-after:{timestamp}`.
@@ -11155,7 +11252,7 @@ index 88de3053d8..0000000000
 -
 -pub async fn fetch_rejected_examples_after(
 -    http_client: Arc<dyn HttpClient>,
--    after_timestamps: &[String],
+-    after_timestamps: &[(bool, String)],
 -    max_rows_per_timestamp: Option<usize>,
 -    offset: usize,
 -    background_executor: BackgroundExecutor,
@@ -11169,15 +11266,16 @@ index 88de3053d8..0000000000
 -
 -    let mut all_examples = Vec::new();
 -
--    for after_date in after_timestamps.iter() {
+-    for (explicit, after_date) in after_timestamps.iter() {
 -        let step_progress_name = format!("rejected>{after_date}");
 -        let step_progress = progress.start(Step::PullExamples, &step_progress_name);
 -        step_progress.set_substatus("querying");
 -
--        let min_minor_str = min_capture_version.map(|version| version.minor.to_string());
--        let min_patch_str = min_capture_version.map(|version| version.patch.to_string());
--        let min_minor_str_ref = min_minor_str.as_deref();
--        let min_patch_str_ref = min_patch_str.as_deref();
+-        let min_version_str = min_capture_version.map(|version| {
+-            (version.major as u64 * 1_000_000 + version.minor as u64 * 1_000 + version.patch as u64)
+-                .to_string()
+-        });
+-        let min_version_ref = min_version_str.as_deref();
 -
 -        let statement = indoc! {r#"
 -            SELECT
@@ -11193,16 +11291,107 @@ index 88de3053d8..0000000000
 -                ep_rejected_reason AS reason,
 -                zed_version AS zed_version
 -            FROM ZED_DBT.DBT_PROD.fct_edit_prediction_examples
--            WHERE ep_outcome LIKE 'Rejected%'
+-            WHERE ep_outcome LIKE ?
 -                AND is_ep_shown_before_rejected = true
 -                AND requested_at > TRY_TO_TIMESTAMP_NTZ(?)
 -                AND (? IS NULL OR (
--                    TRY_CAST(SPLIT_PART(zed_version, '.', 2) AS INTEGER) > ?
--                    OR (
--                        TRY_CAST(SPLIT_PART(zed_version, '.', 2) AS INTEGER) = ?
--                        AND TRY_CAST(SPLIT_PART(SPLIT_PART(zed_version, '.', 3), '+', 1) AS INTEGER) >= ?
--                    )
--                ))
+-                    COALESCE(TRY_CAST(SPLIT_PART(zed_version, '.', 1) AS INTEGER), 0) * 1000000
+-                    + COALESCE(TRY_CAST(SPLIT_PART(zed_version, '.', 2) AS INTEGER), 0) * 1000
+-                    + COALESCE(TRY_CAST(SPLIT_PART(SPLIT_PART(zed_version, '.', 3), '+', 1) AS INTEGER), 0)
+-                ) >= ?)
+-            ORDER BY requested_at ASC
+-            LIMIT ?
+-            OFFSET ?
+-        "#};
+-
+-        let examples = fetch_examples_with_query(
+-            http_client.clone(),
+-            &step_progress,
+-            background_executor.clone(),
+-            statement,
+-            QueryRetryState {
+-                resume_after: after_date.clone(),
+-                remaining_limit: max_rows_per_timestamp,
+-                offset,
+-            },
+-            |retry_state| {
+-                json!({
+-                    "1": { "type": "TEXT", "value": if *explicit { "Rejected (Explicit)" } else { "Rejected%" } },
+-                    "2": { "type": "TEXT", "value": retry_state.resume_after },
+-                    "3": { "type": "FIXED", "value": min_version_ref },
+-                    "4": { "type": "FIXED", "value": min_version_ref },
+-                    "5": { "type": "FIXED", "value": format_limit(retry_state.remaining_limit) },
+-                    "6": { "type": "FIXED", "value": retry_state.offset.to_string() }
+-                })
+-            },
+-            &[
+-                "request_id",
+-                "device_id",
+-                "time",
+-                "input",
+-                "prompt",
+-                "output",
+-                "settled_editable_region",
+-                "was_shown",
+-                "reason",
+-                "zed_version",
+-            ],
+-            rejected_examples_from_response,
+-        )
+-        .await?;
+-
+-        all_examples.extend(examples);
+-    }
+-
+-    Ok(all_examples)
+-}
+-
+-pub async fn fetch_accepted_examples_after(
+-    http_client: Arc<dyn HttpClient>,
+-    after_timestamps: &[String],
+-    max_rows_per_timestamp: Option<usize>,
+-    offset: usize,
+-    background_executor: BackgroundExecutor,
+-    min_capture_version: Option<MinCaptureVersion>,
+-) -> Result<Vec<Example>> {
+-    if after_timestamps.is_empty() {
+-        return Ok(Vec::new());
+-    }
+-
+-    let progress = Progress::global();
+-
+-    let mut all_examples = Vec::new();
+-
+-    for after_date in after_timestamps.iter() {
+-        let step_progress_name = format!("accepted>{after_date}");
+-        let step_progress = progress.start(Step::PullExamples, &step_progress_name);
+-        step_progress.set_substatus("querying");
+-
+-        let min_version_str = min_capture_version.map(|version| {
+-            (version.major as u64 * 1_000_000 + version.minor as u64 * 1_000 + version.patch as u64)
+-                .to_string()
+-        });
+-        let min_version_ref = min_version_str.as_deref();
+-
+-        let statement = indoc! {r#"
+-            SELECT
+-                ep_request_id AS request_id,
+-                device_id AS device_id,
+-                requested_at::string AS continuation_time,
+-                requested_at::string AS time,
+-                input_payload AS input,
+-                prompt AS prompt,
+-                requested_output AS output,
+-                settled_editable_region AS settled_editable_region,
+-                zed_version AS zed_version
+-            FROM ZED_DBT.DBT_PROD.fct_edit_prediction_examples
+-            WHERE ep_outcome = 'Accepted'
+-                AND requested_at > TRY_TO_TIMESTAMP_NTZ(?)
+-                AND (? IS NULL OR (
+-                    COALESCE(TRY_CAST(SPLIT_PART(zed_version, '.', 1) AS INTEGER), 0) * 1000000
+-                    + COALESCE(TRY_CAST(SPLIT_PART(zed_version, '.', 2) AS INTEGER), 0) * 1000
+-                    + COALESCE(TRY_CAST(SPLIT_PART(SPLIT_PART(zed_version, '.', 3), '+', 1) AS INTEGER), 0)
+-                ) >= ?)
 -            ORDER BY requested_at ASC
 -            LIMIT ?
 -            OFFSET ?
@@ -11221,12 +11410,10 @@ index 88de3053d8..0000000000
 -            |retry_state| {
 -                json!({
 -                    "1": { "type": "TEXT", "value": retry_state.resume_after },
--                    "2": { "type": "FIXED", "value": min_minor_str_ref },
--                    "3": { "type": "FIXED", "value": min_minor_str_ref },
--                    "4": { "type": "FIXED", "value": min_minor_str_ref },
--                    "5": { "type": "FIXED", "value": min_patch_str_ref },
--                    "6": { "type": "FIXED", "value": format_limit(retry_state.remaining_limit) },
--                    "7": { "type": "FIXED", "value": retry_state.offset.to_string() }
+-                    "2": { "type": "FIXED", "value": min_version_ref },
+-                    "3": { "type": "FIXED", "value": min_version_ref },
+-                    "4": { "type": "FIXED", "value": format_limit(retry_state.remaining_limit) },
+-                    "5": { "type": "FIXED", "value": retry_state.offset.to_string() }
 -                })
 -            },
 -            &[
@@ -11237,11 +11424,9 @@ index 88de3053d8..0000000000
 -                "prompt",
 -                "output",
 -                "settled_editable_region",
--                "was_shown",
--                "reason",
 -                "zed_version",
 -            ],
--            rejected_examples_from_response,
+-            accepted_examples_from_response,
 -        )
 -        .await?;
 -
@@ -11276,10 +11461,11 @@ index 88de3053d8..0000000000
 -        let step_progress = progress.start(Step::PullExamples, &step_progress_name);
 -        step_progress.set_substatus("querying");
 -
--        let min_minor_str = min_capture_version.map(|version| version.minor.to_string());
--        let min_patch_str = min_capture_version.map(|version| version.patch.to_string());
--        let min_minor_str_ref = min_minor_str.as_deref();
--        let min_patch_str_ref = min_patch_str.as_deref();
+-        let min_version_str = min_capture_version.map(|version| {
+-            (version.major as u64 * 1_000_000 + version.minor as u64 * 1_000 + version.patch as u64)
+-                .to_string()
+-        });
+-        let min_version_ref = min_version_str.as_deref();
 -
 -        let statement = indoc! {r#"
 -            SELECT
@@ -11292,12 +11478,10 @@ index 88de3053d8..0000000000
 -            FROM ZED_DBT.DBT_PROD.fct_edit_prediction_examples
 -            WHERE requested_at > TRY_TO_TIMESTAMP_NTZ(?)
 -                AND (? IS NULL OR (
--                    TRY_CAST(SPLIT_PART(zed_version, '.', 2) AS INTEGER) > ?
--                    OR (
--                        TRY_CAST(SPLIT_PART(zed_version, '.', 2) AS INTEGER) = ?
--                        AND TRY_CAST(SPLIT_PART(SPLIT_PART(zed_version, '.', 3), '+', 1) AS INTEGER) >= ?
--                    )
--                ))
+-                    COALESCE(TRY_CAST(SPLIT_PART(zed_version, '.', 1) AS INTEGER), 0) * 1000000
+-                    + COALESCE(TRY_CAST(SPLIT_PART(zed_version, '.', 2) AS INTEGER), 0) * 1000
+-                    + COALESCE(TRY_CAST(SPLIT_PART(SPLIT_PART(zed_version, '.', 3), '+', 1) AS INTEGER), 0)
+-                ) >= ?)
 -            ORDER BY requested_at ASC
 -            LIMIT ?
 -            OFFSET ?
@@ -11316,12 +11500,10 @@ index 88de3053d8..0000000000
 -            |retry_state| {
 -                json!({
 -                    "1": { "type": "TEXT", "value": retry_state.resume_after },
--                    "2": { "type": "FIXED", "value": min_minor_str_ref },
--                    "3": { "type": "FIXED", "value": min_minor_str_ref },
--                    "4": { "type": "FIXED", "value": min_minor_str_ref },
--                    "5": { "type": "FIXED", "value": min_patch_str_ref },
--                    "6": { "type": "FIXED", "value": format_limit(retry_state.remaining_limit) },
--                    "7": { "type": "FIXED", "value": retry_state.offset.to_string() }
+-                    "2": { "type": "FIXED", "value": min_version_ref },
+-                    "3": { "type": "FIXED", "value": min_version_ref },
+-                    "4": { "type": "FIXED", "value": format_limit(retry_state.remaining_limit) },
+-                    "5": { "type": "FIXED", "value": retry_state.offset.to_string() }
 -                })
 -            },
 -            &["request_id", "device_id", "time", "input", "zed_version"],
@@ -11356,10 +11538,11 @@ index 88de3053d8..0000000000
 -        let step_progress = progress.start(Step::PullExamples, &step_progress_name);
 -        step_progress.set_substatus("querying");
 -
--        let min_minor_str = min_capture_version.map(|version| version.minor.to_string());
--        let min_patch_str = min_capture_version.map(|version| version.patch.to_string());
--        let min_minor_str_ref = min_minor_str.as_deref();
--        let min_patch_str_ref = min_patch_str.as_deref();
+-        let min_version_str = min_capture_version.map(|version| {
+-            (version.major as u64 * 1_000_000 + version.minor as u64 * 1_000 + version.patch as u64)
+-                .to_string()
+-        });
+-        let min_version_ref = min_version_str.as_deref();
 -
 -        let statement = indoc! {r#"
 -            SELECT
@@ -11376,12 +11559,10 @@ index 88de3053d8..0000000000
 -                AND example_payload IS NOT NULL
 -                AND requested_at > TRY_TO_TIMESTAMP_NTZ(?)
 -                AND (? IS NULL OR (
--                    TRY_CAST(SPLIT_PART(zed_version, '.', 2) AS INTEGER) > ?
--                    OR (
--                        TRY_CAST(SPLIT_PART(zed_version, '.', 2) AS INTEGER) = ?
--                        AND TRY_CAST(SPLIT_PART(SPLIT_PART(zed_version, '.', 3), '+', 1) AS INTEGER) >= ?
--                    )
--                ))
+-                    COALESCE(TRY_CAST(SPLIT_PART(zed_version, '.', 1) AS INTEGER), 0) * 1000000
+-                    + COALESCE(TRY_CAST(SPLIT_PART(zed_version, '.', 2) AS INTEGER), 0) * 1000
+-                    + COALESCE(TRY_CAST(SPLIT_PART(SPLIT_PART(zed_version, '.', 3), '+', 1) AS INTEGER), 0)
+-                ) >= ?)
 -            ORDER BY requested_at ASC
 -            LIMIT ?
 -            OFFSET ?
@@ -11400,12 +11581,10 @@ index 88de3053d8..0000000000
 -            |retry_state| {
 -                json!({
 -                    "1": { "type": "TEXT", "value": retry_state.resume_after },
--                    "2": { "type": "FIXED", "value": min_minor_str_ref },
--                    "3": { "type": "FIXED", "value": min_minor_str_ref },
--                    "4": { "type": "FIXED", "value": min_minor_str_ref },
--                    "5": { "type": "FIXED", "value": min_patch_str_ref },
--                    "6": { "type": "FIXED", "value": format_limit(retry_state.remaining_limit) },
--                    "7": { "type": "FIXED", "value": retry_state.offset.to_string() }
+-                    "2": { "type": "FIXED", "value": min_version_ref },
+-                    "3": { "type": "FIXED", "value": min_version_ref },
+-                    "4": { "type": "FIXED", "value": format_limit(retry_state.remaining_limit) },
+-                    "5": { "type": "FIXED", "value": retry_state.offset.to_string() }
 -                })
 -            },
 -            &[
@@ -12336,6 +12515,143 @@ index 88de3053d8..0000000000
 -    was_shown: bool,
 -}
 -
+-fn accepted_examples_from_response<'a>(
+-    response: &'a SnowflakeStatementResponse,
+-    column_indices: &'a std::collections::HashMap<String, usize>,
+-) -> Result<Box<dyn Iterator<Item = Example> + 'a>> {
+-    if let Some(code) = &response.code {
+-        if code != SNOWFLAKE_SUCCESS_CODE {
+-            anyhow::bail!(
+-                "snowflake sql api returned error code={code} message={}",
+-                response.message.as_deref().unwrap_or("<no message>")
+-            );
+-        }
+-    }
+-
+-    let iter = response
+-        .data
+-        .iter()
+-        .enumerate()
+-        .filter_map(move |(row_index, data_row)| {
+-            let get_string = |name: &str| -> Option<String> {
+-                let index = column_indices.get(name).copied()?;
+-                match data_row.get(index)? {
+-                    JsonValue::String(s) => Some(s.clone()),
+-                    JsonValue::Null => None,
+-                    other => Some(other.to_string()),
+-                }
+-            };
+-
+-            let get_json = |name: &str| -> Option<JsonValue> {
+-                let index = column_indices.get(name).copied()?;
+-                let value = data_row.get(index)?;
+-                if value.is_null() {
+-                    return None;
+-                }
+-                match value {
+-                    JsonValue::String(s) => serde_json::from_str(s).ok(),
+-                    other => Some(other.clone()),
+-                }
+-            };
+-
+-            let request_id_str = get_string("request_id");
+-            let device_id = get_string("device_id");
+-            let time = get_string("time");
+-            let input_json = get_json("input");
+-            let input: Option<ZetaPromptInput> =
+-                input_json.clone().and_then(|v| serde_json::from_value(v).ok());
+-            let prompt = get_string("prompt");
+-            let output = get_string("output");
+-            let settled_editable_region = get_string("settled_editable_region");
+-            let zed_version = get_string("zed_version");
+-
+-            match (request_id_str.clone(), device_id.clone(), time.clone(), input, output.clone()) {
+-                (Some(request_id), Some(device_id), Some(time), Some(input), Some(output)) => {
+-                    Some(build_accepted_example(
+-                        request_id,
+-                        device_id,
+-                        time,
+-                        input,
+-                        prompt,
+-                        output,
+-                        settled_editable_region,
+-                        zed_version,
+-                    ))
+-                }
+-                _ => {
+-                    log::warn!(
+-                        "skipping row {row_index}: missing fields - request_id={:?} device_id={:?} time={:?} input={:?} output={:?}",
+-                        request_id_str.is_some(),
+-                        device_id.is_some(),
+-                        time.is_some(),
+-                        input_json.is_some(),
+-                        output.is_some(),
+-                    );
+-                    None
+-                }
+-            }
+-        });
+-
+-    Ok(Box::new(iter))
+-}
+-
+-fn build_accepted_example(
+-    request_id: String,
+-    device_id: String,
+-    time: String,
+-    input: ZetaPromptInput,
+-    prompt: Option<String>,
+-    output: String,
+-    settled_editable_region: Option<String>,
+-    zed_version: Option<String>,
+-) -> Example {
+-    let accepted_patch = build_output_patch(
+-        &input.cursor_path,
+-        input.cursor_excerpt.as_ref(),
+-        &input.excerpt_ranges.editable_350,
+-        &output,
+-    );
+-    let expected_patch = settled_editable_region
+-        .as_ref()
+-        .map(|settled_editable_region| {
+-            build_output_patch(
+-                &input.cursor_path,
+-                input.cursor_excerpt.as_ref(),
+-                &input.excerpt_ranges.editable_350,
+-                settled_editable_region,
+-            )
+-        });
+-    let mut example = build_example_from_snowflake(
+-        request_id,
+-        device_id,
+-        time,
+-        input,
+-        vec!["accepted".to_string()],
+-        None,
+-        zed_version,
+-    );
+-    if let Some(expected_patch) = expected_patch {
+-        example.spec.expected_patches = vec![expected_patch];
+-    }
+-    example.predictions.push(ExamplePrediction {
+-        provider: PredictionProvider::default(),
+-        actual_output: output.clone(),
+-        actual_patch: Some(accepted_patch),
+-        actual_cursor: None, // todo: why no cursor?
+-        error: None,
+-        cumulative_logprob: None,
+-        avg_logprob: None,
+-    });
+-    example.prompt = prompt.map(|prompt| ExamplePrompt {
+-        input: prompt,
+-        expected_output: Some(output),
+-        rejected_output: None,
+-        prefill: None,
+-        provider: PredictionProvider::default(),
+-    });
+-    example
+-}
+-
 -fn build_example_from_snowflake(
 -    request_id: String,
 -    device_id: String,
@@ -12479,7 +12795,7 @@ index 88de3053d8..0000000000
 -}
 diff --git a/crates/edit_prediction_cli/src/qa.rs b/crates/edit_prediction_cli/src/qa.rs
 deleted file mode 100644
-index a2c5ad30b9..0000000000
+index 81a2a77b27..0000000000
 --- a/crates/edit_prediction_cli/src/qa.rs
 +++ /dev/null
 @@ -1,301 +0,0 @@
@@ -12706,7 +13022,7 @@ index a2c5ad30b9..0000000000
 -                    _ => None,
 -                })
 -                .collect::<Vec<_>>()
--                .join("")
+-                .concat()
 -        }
 -        BatchProvider::Openai => {
 -            let client = if args.no_batch {
@@ -12740,13 +13056,13 @@ index a2c5ad30b9..0000000000
 -                                    _ => None,
 -                                })
 -                                .collect::<Vec<_>>()
--                                .join(""),
+-                                .concat(),
 -                        })
 -                    }
 -                    _ => None,
 -                })
 -                .collect::<Vec<_>>()
--                .join("")
+-                .concat()
 -        }
 -    };
 -
@@ -12786,7 +13102,7 @@ index a2c5ad30b9..0000000000
 -}
 diff --git a/crates/edit_prediction_cli/src/reorder_patch.rs b/crates/edit_prediction_cli/src/reorder_patch.rs
 deleted file mode 100644
-index 74018cae40..0000000000
+index aed393a15b..0000000000
 --- a/crates/edit_prediction_cli/src/reorder_patch.rs
 +++ /dev/null
 @@ -1,1548 +0,0 @@
@@ -13130,7 +13446,7 @@ index 74018cae40..0000000000
 -            .iter()
 -            .map(|line| line.to_string() + "\n")
 -            .collect::<Vec<String>>()
--            .join("");
+-            .concat();
 -        format!("{header}\n{lines}")
 -    }
 -}
@@ -14340,7 +14656,7 @@ index 74018cae40..0000000000
 -}
 diff --git a/crates/edit_prediction_cli/src/repair.rs b/crates/edit_prediction_cli/src/repair.rs
 deleted file mode 100644
-index 751e55a8b1..0000000000
+index a6f82bc645..0000000000
 --- a/crates/edit_prediction_cli/src/repair.rs
 +++ /dev/null
 @@ -1,608 +0,0 @@
@@ -14713,7 +15029,7 @@ index 751e55a8b1..0000000000
 -                    _ => None,
 -                })
 -                .collect::<Vec<_>>()
--                .join("")
+-                .concat()
 -        }
 -        BatchProvider::Openai => {
 -            let client = if args.no_batch {
@@ -14760,13 +15076,13 @@ index 751e55a8b1..0000000000
 -                                    _ => None,
 -                                })
 -                                .collect::<Vec<_>>()
--                                .join(""),
+-                                .concat(),
 -                        })
 -                    }
 -                    _ => None,
 -                })
 -                .collect::<Vec<_>>()
--                .join("")
+-                .concat()
 -        }
 -    };
 -
@@ -14954,10 +15270,10 @@ index 751e55a8b1..0000000000
 -}
 diff --git a/crates/edit_prediction_cli/src/retrieve_context.rs b/crates/edit_prediction_cli/src/retrieve_context.rs
 deleted file mode 100644
-index 91d9ab0761..0000000000
+index 93ce5ecb2c..0000000000
 --- a/crates/edit_prediction_cli/src/retrieve_context.rs
 +++ /dev/null
-@@ -1,345 +0,0 @@
+@@ -1,371 +0,0 @@
 -use crate::{
 -    example::Example,
 -    headless::EpAppState,
@@ -14987,6 +15303,7 @@ index 91d9ab0761..0000000000
 -    EditHistory,
 -    EditHistoryFile,
 -    GitLog,
+-    Bm25,
 -    OracleFile,
 -    #[default]
 -    All,
@@ -15002,6 +15319,7 @@ index 91d9ab0761..0000000000
 -            ContextRetrievalType::EditHistory => write!(f, "edit-history"),
 -            ContextRetrievalType::EditHistoryFile => write!(f, "edit-history-file"),
 -            ContextRetrievalType::GitLog => write!(f, "git-log"),
+-            ContextRetrievalType::Bm25 => write!(f, "bm25"),
 -            ContextRetrievalType::OracleFile => write!(f, "oracle-file"),
 -            ContextRetrievalType::All => write!(f, "all"),
 -            ContextRetrievalType::None => write!(f, "none"),
@@ -15010,35 +15328,54 @@ index 91d9ab0761..0000000000
 -}
 -
 -impl ContextRetrievalType {
--    fn includes_lsp(self) -> bool {
--        matches!(self, ContextRetrievalType::Lsp | ContextRetrievalType::All)
--    }
--
--    fn editable_context_sources(self) -> Option<Vec<ContextSource>> {
+-    pub fn context_sources(self) -> Vec<ContextSource> {
 -        match self {
--            ContextRetrievalType::Editable | ContextRetrievalType::All => Some(vec![
--                ContextSource::CursorExcerpt,
--                ContextSource::CurrentFile,
--                ContextSource::EditHistory,
--                ContextSource::EditHistoryFile,
--                ContextSource::GitLog,
--                ContextSource::OracleFile,
--            ]),
--            ContextRetrievalType::CurrentFile => Some(vec![ContextSource::CurrentFile]),
--            ContextRetrievalType::EditHistory => Some(vec![ContextSource::EditHistory]),
--            ContextRetrievalType::EditHistoryFile => Some(vec![ContextSource::EditHistoryFile]),
--            ContextRetrievalType::GitLog => Some(vec![ContextSource::GitLog]),
--            ContextRetrievalType::OracleFile => Some(vec![ContextSource::OracleFile]),
--            ContextRetrievalType::Lsp | ContextRetrievalType::None => None,
+-            ContextRetrievalType::Lsp => vec![ContextSource::Lsp],
+-            ContextRetrievalType::Editable => editable_context_sources(),
+-            ContextRetrievalType::CurrentFile => vec![ContextSource::CurrentFile],
+-            ContextRetrievalType::EditHistory => vec![ContextSource::EditHistory],
+-            ContextRetrievalType::EditHistoryFile => vec![ContextSource::EditHistoryFile],
+-            ContextRetrievalType::GitLog => vec![ContextSource::GitLog],
+-            ContextRetrievalType::Bm25 => vec![ContextSource::Bm25],
+-            ContextRetrievalType::OracleFile => vec![ContextSource::OracleFile],
+-            ContextRetrievalType::All => {
+-                let mut sources = vec![ContextSource::Lsp];
+-                sources.extend(editable_context_sources());
+-                sources
+-            }
+-            ContextRetrievalType::None => Vec::new(),
 -        }
 -    }
+-}
+-
+-pub fn context_sources_for_types(context_types: &[ContextRetrievalType]) -> Vec<ContextSource> {
+-    let mut context_sources = Vec::new();
+-    for context_type in context_types {
+-        for context_source in context_type.context_sources() {
+-            if !context_sources.contains(&context_source) {
+-                context_sources.push(context_source);
+-            }
+-        }
+-    }
+-    context_sources
+-}
+-
+-fn editable_context_sources() -> Vec<ContextSource> {
+-    vec![
+-        ContextSource::CursorExcerpt,
+-        ContextSource::CurrentFile,
+-        ContextSource::EditHistory,
+-        ContextSource::EditHistoryFile,
+-        ContextSource::GitLog,
+-        ContextSource::Bm25,
+-    ]
 -}
 -
 -pub async fn run_context_retrieval(
 -    example: &mut Example,
 -    app_state: Arc<EpAppState>,
 -    example_progress: &ExampleProgress,
--    context_type: ContextRetrievalType,
+-    context_types: Vec<ContextRetrievalType>,
 -    force: bool,
 -    mut cx: AsyncApp,
 -) -> anyhow::Result<()> {
@@ -15064,8 +15401,9 @@ index 91d9ab0761..0000000000
 -        .context("EditPredictionStore not initialized")?;
 -
 -    let mut context_files = Vec::new();
+-    let context_sources = context_sources_for_types(&context_types);
 -
--    if context_type.includes_lsp() {
+-    if context_sources.contains(&ContextSource::Lsp) {
 -        let _lsp_handle = project.update(&mut cx, |project, cx| {
 -            project.register_buffer_with_language_servers(&state.buffer, cx)
 -        });
@@ -15091,8 +15429,12 @@ index 91d9ab0761..0000000000
 -            .extend(ep_store.update(&mut cx, |store, cx| store.context_for_project(&project, cx)));
 -    }
 -
--    if let Some(context_sources) = context_type.editable_context_sources() {
--        let oracle_paths = if context_sources.contains(&ContextSource::OracleFile) {
+-    let editable_context_sources = context_sources
+-        .into_iter()
+-        .filter(|context_source| *context_source != ContextSource::Lsp)
+-        .collect::<Vec<_>>();
+-    if !editable_context_sources.is_empty() {
+-        let oracle_paths = if editable_context_sources.contains(&ContextSource::OracleFile) {
 -            let oracle_paths = oracle_paths_from_expected_patches(example);
 -            refresh_paths(&project, &oracle_paths, &mut cx).await?;
 -            oracle_paths
@@ -15107,7 +15449,7 @@ index 91d9ab0761..0000000000
 -                    state.buffer.clone(),
 -                    state.cursor_position,
 -                    oracle_paths,
--                    context_sources,
+-                    editable_context_sources,
 -                    cx,
 -                )
 -            })
@@ -15305,10 +15647,10 @@ index 91d9ab0761..0000000000
 -}
 diff --git a/crates/edit_prediction_cli/src/score.rs b/crates/edit_prediction_cli/src/score.rs
 deleted file mode 100644
-index e8227a0d7c..0000000000
+index 841d15541e..0000000000
 --- a/crates/edit_prediction_cli/src/score.rs
 +++ /dev/null
-@@ -1,869 +0,0 @@
+@@ -1,1043 +0,0 @@
 -use crate::{
 -    PredictArgs, PredictionProvider,
 -    example::Example,
@@ -15328,8 +15670,9 @@ index e8227a0d7c..0000000000
 -use std::io::BufWriter;
 -use std::path::Path;
 -use std::sync::Arc;
+-use zeta_prompt::{ContextSource, RelatedFile};
 -
--pub const EVAL_RETRIEVED_CONTEXT_BYTE_LIMIT: usize = 4000;
+-pub const EVAL_RELATED_CONTEXT_TOKENS_LIMIT: usize = 4000;
 -
 -pub async fn run_scoring(
 -    example: &mut Example,
@@ -15339,6 +15682,7 @@ index e8227a0d7c..0000000000
 -    cx: AsyncApp,
 -    allow_missing_predictions: bool,
 -    retrieved_context_byte_limit: Option<usize>,
+-    context_source_filter: Option<Vec<ContextSource>>,
 -) -> anyhow::Result<()> {
 -    if !(allow_missing_predictions && args.provider.is_none() && example.predictions.is_empty()) {
 -        run_prediction(example, args, app_state, example_progress, cx.clone()).await?;
@@ -15392,6 +15736,7 @@ index e8227a0d7c..0000000000
 -                &example_for_scoring,
 -                prompt_inputs,
 -                retrieved_context_byte_limit,
+-                context_source_filter.as_deref(),
 -            );
 -
 -            let mut scores = vec![];
@@ -15460,6 +15805,7 @@ index e8227a0d7c..0000000000
 -    example: &mut Example,
 -    example_progress: &ExampleProgress,
 -    retrieved_context_byte_limit: Option<usize>,
+-    context_source_filter: Option<&[ContextSource]>,
 -) -> anyhow::Result<()> {
 -    let progress = example_progress.start(Step::Score);
 -
@@ -15468,7 +15814,12 @@ index e8227a0d7c..0000000000
 -        .prompt_inputs
 -        .as_ref()
 -        .context("prompt_inputs is required for context coverage scoring")?;
--    let context = context_excerpts(example, prompt_inputs, retrieved_context_byte_limit);
+-    let context = context_excerpts(
+-        example,
+-        prompt_inputs,
+-        retrieved_context_byte_limit,
+-        context_source_filter,
+-    );
 -
 -    let editable_context_coverage = example
 -        .spec
@@ -15494,6 +15845,7 @@ index e8227a0d7c..0000000000
 -    _example: &Example,
 -    prompt_inputs: &zeta_prompt::ZetaPromptInput,
 -    retrieved_context_byte_limit: Option<usize>,
+-    context_source_filter: Option<&[ContextSource]>,
 -) -> Vec<Excerpt> {
 -    let mut context = Vec::new();
 -
@@ -15508,10 +15860,11 @@ index e8227a0d7c..0000000000
 -    }
 -
 -    if let Some(related_files) = &prompt_inputs.related_files {
+-        let related_files = filtered_related_files(related_files, context_source_filter);
 -        let related_files = if let Some(max_bytes) = retrieved_context_byte_limit {
--            limit_retrieved_context_to_bytes(related_files, max_bytes)
+-            limit_retrieved_context_to_bytes(&related_files, max_bytes)
 -        } else {
--            related_files.clone()
+-            related_files
 -        };
 -        for related_file in &related_files {
 -            for excerpt in &related_file.excerpts {
@@ -15535,15 +15888,48 @@ index e8227a0d7c..0000000000
 -    context
 -}
 -
+-fn filtered_related_files(
+-    related_files: &[RelatedFile],
+-    context_source_filter: Option<&[ContextSource]>,
+-) -> Vec<RelatedFile> {
+-    let Some(context_source_filter) = context_source_filter else {
+-        return related_files.to_vec();
+-    };
+-
+-    related_files
+-        .iter()
+-        .filter_map(|related_file| {
+-            let excerpts = related_file
+-                .excerpts
+-                .iter()
+-                .filter(|excerpt| context_source_filter.contains(&excerpt.context_source))
+-                .cloned()
+-                .collect::<Vec<_>>();
+-            if excerpts.is_empty() {
+-                None
+-            } else {
+-                Some(RelatedFile {
+-                    path: related_file.path.clone(),
+-                    max_row: related_file.max_row,
+-                    excerpts,
+-                    in_open_source_repo: related_file.in_open_source_repo,
+-                })
+-            }
+-        })
+-        .collect()
+-}
+-
 -fn retrieved_context_bytes(
 -    example: &Example,
 -    retrieved_context_byte_limit: Option<usize>,
+-    context_source_filter: Option<&[ContextSource]>,
 -) -> Option<usize> {
 -    let related_files = example.prompt_inputs.as_ref()?.related_files.as_ref()?;
+-    let related_files = filtered_related_files(related_files, context_source_filter);
 -    let related_files = if let Some(max_bytes) = retrieved_context_byte_limit {
--        limit_retrieved_context_to_bytes(related_files, max_bytes)
+-        limit_retrieved_context_to_bytes(&related_files, max_bytes)
 -    } else {
--        related_files.clone()
+-        related_files
 -    };
 -    Some(
 -        related_files
@@ -15559,6 +15945,7 @@ index e8227a0d7c..0000000000
 -    verbose: bool,
 -    context_only: bool,
 -    retrieved_context_byte_limit: Option<usize>,
+-    context_source_filter: Option<&[ContextSource]>,
 -) {
 -    const MAX_EXAMPLES_DEFAULT: usize = 20;
 -    use crate::metrics::ClassificationMetrics;
@@ -15566,7 +15953,12 @@ index e8227a0d7c..0000000000
 -    const LINE_WIDTH: usize = 101;
 -
 -    if context_only {
--        print_context_coverage_report(examples, verbose, retrieved_context_byte_limit);
+-        print_context_coverage_report(
+-            examples,
+-            verbose,
+-            retrieved_context_byte_limit,
+-            context_source_filter,
+-        );
 -        return;
 -    }
 -
@@ -15625,7 +16017,9 @@ index e8227a0d7c..0000000000
 -    let mut skipped_lines: usize = 0;
 -
 -    for example in examples {
--        if let Some(bytes) = retrieved_context_bytes(example, retrieved_context_byte_limit) {
+-        if let Some(bytes) =
+-            retrieved_context_bytes(example, retrieved_context_byte_limit, context_source_filter)
+-        {
 -            retrieved_context_bytes_sum += bytes as f64;
 -            retrieved_context_bytes_count += 1;
 -        }
@@ -15991,6 +16385,7 @@ index e8227a0d7c..0000000000
 -    examples: &[Example],
 -    verbose: bool,
 -    retrieved_context_byte_limit: Option<usize>,
+-    context_source_filter: Option<&[ContextSource]>,
 -) {
 -    const MAX_EXAMPLES_DEFAULT: usize = 20;
 -    const LINE_WIDTH: usize = 120;
@@ -16032,7 +16427,9 @@ index e8227a0d7c..0000000000
 -    let mut skipped_lines = 0;
 -
 -    for example in examples {
--        if let Some(bytes) = retrieved_context_bytes(example, retrieved_context_byte_limit) {
+-        if let Some(bytes) =
+-            retrieved_context_bytes(example, retrieved_context_byte_limit, context_source_filter)
+-        {
 -            retrieved_context_bytes_sum += bytes as f64;
 -            retrieved_context_bytes_count += 1;
 -        }
@@ -16147,8 +16544,14 @@ index e8227a0d7c..0000000000
 -
 -pub type SummaryJson = edit_prediction_metrics::SummaryJson;
 -
--pub fn compute_summary(examples: &[Example]) -> SummaryJson {
+-pub fn compute_summary(
+-    examples: &[Example],
+-    retrieved_context_byte_limit: Option<usize>,
+-    context_source_filter: Option<&[ContextSource]>,
+-) -> SummaryJson {
 -    edit_prediction_metrics::compute_summary(examples.iter().flat_map(|example| {
+-        let retrieved_context_bytes =
+-            retrieved_context_bytes(example, retrieved_context_byte_limit, context_source_filter);
 -        example
 -            .score
 -            .iter()
@@ -16162,14 +16565,30 @@ index e8227a0d7c..0000000000
 -                        reverts_edits: qa.reverts_edits,
 -                        confidence: qa.confidence,
 -                    });
+-                let retrieved_context_bytes = (score_idx == 0)
+-                    .then_some(retrieved_context_bytes)
+-                    .flatten();
 -
--                edit_prediction_metrics::PredictionSummaryInput { score, qa }
+-                edit_prediction_metrics::PredictionSummaryInput {
+-                    score,
+-                    qa,
+-                    retrieved_context_bytes,
+-                }
 -            })
 -    }))
 -}
 -
--pub fn write_summary_json(examples: &[Example], path: &Path) -> anyhow::Result<()> {
--    let summary = compute_summary(examples);
+-pub fn write_summary_json(
+-    examples: &[Example],
+-    path: &Path,
+-    retrieved_context_byte_limit: Option<usize>,
+-    context_source_filter: Option<&[ContextSource]>,
+-) -> anyhow::Result<()> {
+-    let summary = compute_summary(
+-        examples,
+-        retrieved_context_byte_limit,
+-        context_source_filter,
+-    );
 -    let file = File::create(path)
 -        .with_context(|| format!("Failed to create summary JSON file: {}", path.display()))?;
 -    let writer = BufWriter::new(file);
@@ -16178,12 +16597,109 @@ index e8227a0d7c..0000000000
 -    eprintln!("Wrote summary JSON to: {}", path.display());
 -    Ok(())
 -}
+-
+-#[cfg(test)]
+-mod tests {
+-    use super::*;
+-    use edit_prediction::example_spec::ExampleSpec;
+-    use edit_prediction_metrics::PredictionScore;
+-    use std::path::Path;
+-    use zeta_prompt::{ExcerptRanges, RelatedExcerpt, ZetaPromptInput};
+-
+-    #[test]
+-    fn summary_includes_limited_filtered_retrieved_context_bytes_once_per_example() {
+-        let examples = vec![
+-            example_with_related_files(
+-                Some(vec![RelatedFile {
+-                    path: Path::new("project/src/lib.rs").into(),
+-                    max_row: 10,
+-                    excerpts: vec![
+-                        related_excerpt("abcd", 0..1, 0, ContextSource::CurrentFile),
+-                        related_excerpt("ignored by source filter", 1..2, 1, ContextSource::Lsp),
+-                        related_excerpt("efghij", 2..3, 2, ContextSource::CurrentFile),
+-                    ],
+-                    in_open_source_repo: false,
+-                }]),
+-                2,
+-            ),
+-            example_with_related_files(None, 1),
+-        ];
+-
+-        let summary = compute_summary(&examples, Some(10), Some(&[ContextSource::CurrentFile]));
+-
+-        assert_eq!(summary.total_examples, 3);
+-        assert_eq!(summary.avg_retrieved_context_bytes, Some(10.0));
+-        assert_eq!(summary.total_retrieved_context_bytes, Some(10));
+-        assert_eq!(summary.retrieved_context_examples, Some(1));
+-    }
+-
+-    fn example_with_related_files(
+-        related_files: Option<Vec<RelatedFile>>,
+-        score_count: usize,
+-    ) -> Example {
+-        Example {
+-            spec: ExampleSpec {
+-                name: "example".to_string(),
+-                repository_url: "https://github.com/zed-industries/zed.git".to_string(),
+-                revision: "revision".to_string(),
+-                tags: Vec::new(),
+-                reasoning: None,
+-                uncommitted_diff: String::new(),
+-                recently_opened_files: Vec::new(),
+-                recently_viewed_files: Vec::new(),
+-                uncommitted_diff_contains_edit_history: false,
+-                cursor_path: Path::new("project/src/main.rs").into(),
+-                cursor_position: String::new(),
+-                edit_history: String::new(),
+-                expected_patches: Vec::new(),
+-                rejected_patch: None,
+-                telemetry: None,
+-                human_feedback: Vec::new(),
+-                rating: None,
+-            },
+-            prompt_inputs: Some(ZetaPromptInput {
+-                cursor_path: Path::new("project/src/main.rs").into(),
+-                cursor_excerpt: "".into(),
+-                cursor_offset_in_excerpt: 0,
+-                excerpt_start_row: None,
+-                events: Vec::new(),
+-                related_files,
+-                active_buffer_diagnostics: Vec::new(),
+-                excerpt_ranges: ExcerptRanges::default(),
+-                syntax_ranges: None,
+-                in_open_source_repo: false,
+-                can_collect_data: false,
+-                repo_url: None,
+-            }),
+-            prompt: None,
+-            predictions: Vec::new(),
+-            score: vec![PredictionScore::zero(); score_count],
+-            qa: Vec::new(),
+-            zed_version: None,
+-            state: None,
+-        }
+-    }
+-
+-    fn related_excerpt(
+-        text: &str,
+-        row_range: std::ops::Range<u32>,
+-        order: usize,
+-        context_source: ContextSource,
+-    ) -> RelatedExcerpt {
+-        RelatedExcerpt {
+-            row_range,
+-            text: text.into(),
+-            order,
+-            context_source,
+-        }
+-    }
+-}
 diff --git a/crates/edit_prediction_cli/src/split_commit.rs b/crates/edit_prediction_cli/src/split_commit.rs
 deleted file mode 100644
-index 844077593a..0000000000
+index 2868a441cf..0000000000
 --- a/crates/edit_prediction_cli/src/split_commit.rs
 +++ /dev/null
-@@ -1,2107 +0,0 @@
+@@ -1,2610 +0,0 @@
 -//! `ep split-commit` implementation.
 -//!
 -//! This command generates a single evaluation example JSON object from a
@@ -16191,7 +16707,9 @@ index 844077593a..0000000000
 -//!
 -//! TODO: Port Python code to generate chronologically-ordered commits
 -use crate::FailedHandling;
--use crate::reorder_patch::{Patch, PatchLine, edit_locations, extract_edits, locate_edited_line};
+-use crate::reorder_patch::{
+-    EditLocation, Patch, PatchLine, edit_locations, extract_edits, locate_edited_line,
+-};
 -use crate::word_diff::tokenize;
 -
 -/// Find the largest valid UTF-8 char boundary at or before `index` in `s`.
@@ -16213,6 +16731,7 @@ index 844077593a..0000000000
 -use edit_prediction::example_spec::ExampleSpec;
 -use rand::Rng;
 -use rand::SeedableRng;
+-use rand::seq::SliceRandom;
 -use serde::Deserialize;
 -use similar::{DiffTag, TextDiff};
 -use std::collections::BTreeSet;
@@ -16222,11 +16741,28 @@ index 844077593a..0000000000
 -use std::path::PathBuf;
 -
 -const MAX_SPLIT_POINT_SAMPLING_ATTEMPTS: usize = 10;
+-const SAME_FILE_NEAR_LINE_THRESHOLD: usize = 30;
+-
+-/// A commit has no split point matching the requested kind. This is an
+-/// expected outcome when filtering by kind, so such commits are skipped
+-/// rather than treated as failures.
+-#[derive(Debug)]
+-pub struct NoMatchingSplitPointError {
+-    kind: SplitPointKind,
+-}
+-
+-impl std::fmt::Display for NoMatchingSplitPointError {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        write!(f, "no split point found matching {}", self.kind)
+-    }
+-}
+-
+-impl std::error::Error for NoMatchingSplitPointError {}
 -
 -/// `ep split-commit` CLI args.
 -#[derive(Debug, Args, Clone)]
 -pub struct SplitCommitArgs {
--    /// Split point (float 0.0-1.0 for fraction, or integer for index)
+-    /// Split point (float 0.0-1.0 for fraction, integer for index, or one of: fim, same-file-near, same-file-far, cross-file; append :<index-or-fraction> to validate a specific split)
 -    #[arg(long, short = 's')]
 -    pub split_point: Option<String>,
 -
@@ -16284,19 +16820,96 @@ index 844077593a..0000000000
 -}
 -
 -/// Split point specification for evaluation generation.
--#[derive(Debug, Clone)]
+-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+-pub enum SplitPointKind {
+-    Fim,
+-    SameFileNear,
+-    SameFileFar,
+-    CrossFile,
+-}
+-
+-impl std::fmt::Display for SplitPointKind {
+-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+-        match self {
+-            SplitPointKind::Fim => write!(f, "fim"),
+-            SplitPointKind::SameFileNear => write!(f, "same-file-near"),
+-            SplitPointKind::SameFileFar => write!(f, "same-file-far"),
+-            SplitPointKind::CrossFile => write!(f, "cross-file"),
+-        }
+-    }
+-}
+-
+-impl std::str::FromStr for SplitPointKind {
+-    type Err = anyhow::Error;
+-
+-    fn from_str(value: &str) -> Result<Self> {
+-        match value {
+-            "fim" => Ok(Self::Fim),
+-            "same-file-near" => Ok(Self::SameFileNear),
+-            "same-file-far" => Ok(Self::SameFileFar),
+-            "cross-file" => Ok(Self::CrossFile),
+-            _ => anyhow::bail!(
+-                "invalid split point kind '{value}' (expected fim, same-file-near, same-file-far, or cross-file)"
+-            ),
+-        }
+-    }
+-}
+-
+-#[derive(Debug, Clone, PartialEq)]
 -pub enum SplitPoint {
 -    /// Fraction of total edits (0.0 to 1.0)
 -    Fraction(f64),
 -    /// Absolute index
 -    Index(usize),
+-    /// Random split point matching the requested kind.
+-    Kind(SplitPointKind),
+-    /// Explicit split point that must match the requested kind.
+-    KindWithSplit {
+-        kind: SplitPointKind,
+-        split_point: SplitPointValue,
+-    },
 -}
 -
--fn parse_split_point(value: &str) -> Option<SplitPoint> {
+-#[derive(Debug, Clone, PartialEq)]
+-pub enum SplitPointValue {
+-    Fraction(f64),
+-    Index(usize),
+-}
+-
+-fn parse_split_point_value(value: &str) -> Result<SplitPointValue> {
 -    if value.contains('.') {
--        value.parse::<f64>().ok().map(SplitPoint::Fraction)
+-        value
+-            .parse::<f64>()
+-            .map(SplitPointValue::Fraction)
+-            .with_context(|| format!("invalid split point fraction '{value}'"))
 -    } else {
--        value.parse::<usize>().ok().map(SplitPoint::Index)
+-        value
+-            .parse::<usize>()
+-            .map(SplitPointValue::Index)
+-            .with_context(|| format!("invalid split point index '{value}'"))
+-    }
+-}
+-
+-fn parse_split_point(value: &str) -> Result<SplitPoint> {
+-    if let Some((kind, split_point)) = value.split_once(':') {
+-        let kind = kind.parse::<SplitPointKind>()?;
+-        anyhow::ensure!(
+-            !split_point.is_empty(),
+-            "missing split point after kind '{kind}:'"
+-        );
+-        return Ok(SplitPoint::KindWithSplit {
+-            kind,
+-            split_point: parse_split_point_value(split_point)?,
+-        });
+-    }
+-
+-    if let Ok(kind) = value.parse::<SplitPointKind>() {
+-        return Ok(SplitPoint::Kind(kind));
+-    }
+-
+-    match parse_split_point_value(value)? {
+-        SplitPointValue::Fraction(value) => Ok(SplitPoint::Fraction(value)),
+-        SplitPointValue::Index(value) => Ok(SplitPoint::Index(value)),
 -    }
 -}
 -
@@ -16365,6 +16978,26 @@ index 844077593a..0000000000
 -        .is_some_and(|edit_location| is_service_file(&edit_location.filename))
 -}
 -
+-fn has_submodule_gitlink_hunk(commit: &str) -> bool {
+-    commit.lines().any(line_indicates_submodule_gitlink)
+-}
+-
+-fn line_indicates_submodule_gitlink(line: &str) -> bool {
+-    let line = line.trim();
+-
+-    matches!(
+-        line,
+-        "new file mode 160000" | "deleted file mode 160000" | "old mode 160000" | "new mode 160000"
+-    ) || line
+-        .strip_prefix("index ")
+-        .and_then(|line| line.split_whitespace().last())
+-        .is_some_and(|mode| mode == "160000")
+-        || line
+-            .strip_prefix('+')
+-            .or_else(|| line.strip_prefix('-'))
+-            .is_some_and(|line| line.starts_with("Subproject commit "))
+-}
+-
 -fn sample_split_point(patch: &Patch, rng: &mut dyn rand::RngCore) -> usize {
 -    let stats = patch.stats();
 -    let num_edits = stats.added + stats.removed;
@@ -16381,6 +17014,155 @@ index 844077593a..0000000000
 -    }
 -
 -    split
+-}
+-
+-fn resolve_split_point_value(split_point: SplitPointValue, num_edits: usize) -> usize {
+-    match split_point {
+-        SplitPointValue::Fraction(fraction) => {
+-            let split = (fraction * num_edits as f64).floor() as usize;
+-            split.min(num_edits)
+-        }
+-        SplitPointValue::Index(index) => index.min(num_edits),
+-    }
+-}
+-
+-#[derive(Debug, Clone)]
+-struct GeneratedSplitCommit {
+-    split: usize,
+-    split_commit: SplitCommit,
+-    cursor: CursorPosition,
+-    cursor_from_human_edit: bool,
+-}
+-
+-fn generate_split_commit_at_split(
+-    patch: &Patch,
+-    split: usize,
+-    rng: &mut dyn rand::RngCore,
+-) -> Result<GeneratedSplitCommit> {
+-    let (prefix, suffix) = split_ordered_patch(patch, split);
+-
+-    let mut split_commit = SplitCommit {
+-        source_patch: prefix,
+-        target_patch: suffix,
+-    };
+-
+-    let human_edit_seed = rng.random_range(1..=10000u64);
+-    let (src_patch, tgt_patch, cursor_opt) = imitate_human_edits(
+-        &split_commit.source_patch,
+-        &split_commit.target_patch,
+-        human_edit_seed,
+-    );
+-    split_commit.source_patch = src_patch;
+-    split_commit.target_patch = tgt_patch;
+-
+-    let cursor_from_human_edit = cursor_opt.is_some();
+-    let cursor = match cursor_opt {
+-        Some(cursor) => cursor,
+-        None => sample_cursor_position(&split_commit, rng)
+-            .context("failed to sample cursor position")?,
+-    };
+-
+-    Ok(GeneratedSplitCommit {
+-        split,
+-        split_commit,
+-        cursor,
+-        cursor_from_human_edit,
+-    })
+-}
+-
+-fn classify_generated_split_commit(
+-    generated_split_commit: &GeneratedSplitCommit,
+-) -> Option<SplitPointKind> {
+-    let target_patch = Patch::parse_unified_diff(&generated_split_commit.split_commit.target_patch);
+-    let next_edit = locate_edited_line(&target_patch, 0)?;
+-
+-    if next_edit.filename != generated_split_commit.cursor.file {
+-        return Some(SplitPointKind::CrossFile);
+-    }
+-
+-    if generated_split_commit.cursor_from_human_edit
+-        && next_edit.target_line_number == generated_split_commit.cursor.line
+-    {
+-        return Some(SplitPointKind::Fim);
+-    }
+-
+-    let line_distance = next_edit
+-        .target_line_number
+-        .abs_diff(generated_split_commit.cursor.line);
+-    if line_distance <= SAME_FILE_NEAR_LINE_THRESHOLD {
+-        Some(SplitPointKind::SameFileNear)
+-    } else {
+-        Some(SplitPointKind::SameFileFar)
+-    }
+-}
+-
+-/// Cheap necessary condition for a split to be classifiable as `kind`,
+-/// computed from the full patch without generating the split.
+-///
+-/// The cursor ends up either at the first target edit (or, via
+-/// `imitate_human_edits`, on its line), or at the last source edit. So the
+-/// edits adjacent to the split bound what classifications are reachable.
+-/// Line numbers here are in full-patch coordinates, which can drift slightly
+-/// from split-patch coordinates, so this is a heuristic pre-filter; the final
+-/// classification is always verified on the generated split.
+-fn split_can_match_kind(
+-    edit_locations: &[EditLocation],
+-    split: usize,
+-    kind: SplitPointKind,
+-) -> bool {
+-    let (Some(previous_edit), Some(next_edit)) = (
+-        split.checked_sub(1).and_then(|i| edit_locations.get(i)),
+-        edit_locations.get(split),
+-    ) else {
+-        return false;
+-    };
+-
+-    match kind {
+-        SplitPointKind::Fim => matches!(next_edit.patch_line, PatchLine::Addition(_)),
+-        SplitPointKind::SameFileNear => true,
+-        SplitPointKind::SameFileFar => {
+-            previous_edit.filename == next_edit.filename
+-                && previous_edit
+-                    .target_line_number
+-                    .abs_diff(next_edit.target_line_number)
+-                    > SAME_FILE_NEAR_LINE_THRESHOLD
+-        }
+-        SplitPointKind::CrossFile => previous_edit.filename != next_edit.filename,
+-    }
+-}
+-
+-fn sample_split_commit_of_kind(
+-    patch: &Patch,
+-    kind: SplitPointKind,
+-    rng: &mut dyn rand::RngCore,
+-) -> Result<GeneratedSplitCommit> {
+-    let edit_locations = edit_locations(patch);
+-    let num_edits = edit_locations.len();
+-
+-    let mut candidate_splits: Vec<usize> = (1..num_edits)
+-        .filter(|&split| {
+-            !edit_locations
+-                .get(split)
+-                .is_some_and(|next_edit| is_service_file(&next_edit.filename))
+-                && split_can_match_kind(&edit_locations, split, kind)
+-        })
+-        .collect();
+-    candidate_splits.shuffle(rng);
+-
+-    for split in candidate_splits {
+-        for _ in 0..MAX_SPLIT_POINT_SAMPLING_ATTEMPTS {
+-            let Ok(generated_split_commit) = generate_split_commit_at_split(patch, split, rng)
+-            else {
+-                continue;
+-            };
+-
+-            if classify_generated_split_commit(&generated_split_commit) == Some(kind) {
+-                return Ok(generated_split_commit);
+-            }
+-        }
+-    }
+-
+-    Err(NoMatchingSplitPointError { kind }.into())
 -}
 -
 -/// Entry point for the `ep split-commit` subcommand.
@@ -16402,7 +17184,11 @@ index 844077593a..0000000000
 -        inputs
 -    };
 -
--    let split_point = args.split_point.as_deref().and_then(parse_split_point);
+-    let split_point = args
+-        .split_point
+-        .as_deref()
+-        .map(parse_split_point)
+-        .transpose()?;
 -    let mut output_lines = Vec::new();
 -    let mut processed_commits = 0usize;
 -
@@ -16438,7 +17224,7 @@ index 844077593a..0000000000
 -                        &annotated.reordered_commit,
 -                        &annotated.repo_url,
 -                        &annotated.commit_sha,
--                        None, // Use random split point for multi-sample mode
+-                        split_point.clone(),
 -                        Some(sample_seed),
 -                        Some(sample_idx),
 -                    ) {
@@ -16451,6 +17237,10 @@ index 844077593a..0000000000
 -                                sample_idx,
 -                                e
 -                            );
+-                            if e.is::<NoMatchingSplitPointError>() {
+-                                eprintln!("skipping: {}", err_msg);
+-                                continue;
+-                            }
 -                            match failed {
 -                                FailedHandling::Skip | FailedHandling::SkipNoFiles => {
 -                                    eprintln!("{}", err_msg);
@@ -16492,6 +17282,10 @@ index 844077593a..0000000000
 -                            line_num + 1,
 -                            e
 -                        );
+-                        if e.is::<NoMatchingSplitPointError>() {
+-                            eprintln!("skipping: {}", err_msg);
+-                            continue;
+-                        }
 -                        match failed {
 -                            FailedHandling::Skip | FailedHandling::SkipNoFiles => {
 -                                eprintln!("{}", err_msg);
@@ -16561,6 +17355,11 @@ index 844077593a..0000000000
 -    seed: Option<u64>,
 -    sample_num: Option<usize>,
 -) -> Result<ExampleSpec> {
+-    anyhow::ensure!(
+-        !has_submodule_gitlink_hunk(commit),
+-        "commit contains submodule/gitlink hunk"
+-    );
+-
 -    let mut rng: Box<dyn rand::RngCore> = match seed {
 -        Some(seed) => Box::new(rand::rngs::StdRng::seed_from_u64(seed)),
 -        None => Box::new(rand::rngs::ThreadRng::default()),
@@ -16580,7 +17379,6 @@ index 844077593a..0000000000
 -    } else {
 -        header_lines.join("\n") + "\n"
 -    };
--    let commit_normalized = patch.to_string();
 -
 -    // Compute the split point
 -    let stats = patch.stats();
@@ -16588,39 +17386,39 @@ index 844077593a..0000000000
 -
 -    anyhow::ensure!(num_edits != 0, "no edits found in commit");
 -
--    let split = match split_point {
--        None => sample_split_point(&patch, rng.as_mut()),
--        Some(SplitPoint::Fraction(f)) => {
--            let v = (f * num_edits as f64).floor() as usize;
--            v.min(num_edits)
+-    let generated_split_commit = match split_point {
+-        None => {
+-            let split = sample_split_point(&patch, rng.as_mut());
+-            generate_split_commit_at_split(&patch, split, rng.as_mut())?
 -        }
--        Some(SplitPoint::Index(i)) => i.min(num_edits),
+-        Some(SplitPoint::Fraction(fraction)) => {
+-            let split = resolve_split_point_value(SplitPointValue::Fraction(fraction), num_edits);
+-            generate_split_commit_at_split(&patch, split, rng.as_mut())?
+-        }
+-        Some(SplitPoint::Index(index)) => {
+-            let split = resolve_split_point_value(SplitPointValue::Index(index), num_edits);
+-            generate_split_commit_at_split(&patch, split, rng.as_mut())?
+-        }
+-        Some(SplitPoint::Kind(kind)) => sample_split_commit_of_kind(&patch, kind, rng.as_mut())?,
+-        Some(SplitPoint::KindWithSplit { kind, split_point }) => {
+-            let split = resolve_split_point_value(split_point, num_edits);
+-            let generated_split_commit =
+-                generate_split_commit_at_split(&patch, split, rng.as_mut())?;
+-            let actual_kind = classify_generated_split_commit(&generated_split_commit);
+-            anyhow::ensure!(
+-                actual_kind == Some(kind),
+-                "split point {split} classified as {}, expected {kind}",
+-                actual_kind
+-                    .map(|kind| kind.to_string())
+-                    .unwrap_or_else(|| "empty-target".to_string())
+-            );
+-            generated_split_commit
+-        }
 -    };
 -
--    // Split the commit into source and target patches
--    let (prefix, suffix) = split_ordered_commit(&commit_normalized, split);
--
--    let mut split_commit = SplitCommit {
--        source_patch: prefix,
--        target_patch: suffix,
--    };
--
--    // Imitate human edits
--    let human_edit_seed = rng.random_range(1..=10000u64);
--    let (src_patch, tgt_patch, cursor_opt) = imitate_human_edits(
--        &split_commit.source_patch,
--        &split_commit.target_patch,
--        human_edit_seed,
--    );
--    split_commit.source_patch = src_patch;
--    split_commit.target_patch = tgt_patch;
--
--    // Sample cursor position
--    let cursor = match cursor_opt {
--        Some(c) => c,
--        None => sample_cursor_position(&split_commit, rng.as_mut())
--            .context("failed to sample cursor position")?,
--    };
+-    let split = generated_split_commit.split;
+-    let cursor = generated_split_commit.cursor;
+-    let mut split_commit = generated_split_commit.split_commit;
 -
 -    // Get cursor excerpt
 -    let cursor_excerpt = get_cursor_excerpt(
@@ -16677,12 +17475,11 @@ index 844077593a..0000000000
 -///
 -/// # Returns
 -/// A tuple of (source_diff, target_diff)
--pub fn split_ordered_commit(commit: &str, split_pos: usize) -> (String, String) {
--    let patch = Patch::parse_unified_diff(commit);
+-pub fn split_ordered_patch(patch: &Patch, split_pos: usize) -> (String, String) {
 -    let source_edits: BTreeSet<usize> = (0..split_pos).collect();
--    let (source, mut target) = extract_edits(&patch, &source_edits);
+-    let (source, mut target) = extract_edits(patch, &source_edits);
 -    if !target.hunks.is_empty() {
--        if let Some(header) = header_for_edit(&patch, split_pos) {
+-        if let Some(header) = header_for_edit(patch, split_pos) {
 -            target.header = header;
 -        }
 -    }
@@ -17526,7 +18323,7 @@ index 844077593a..0000000000
 -        let stats = patch.stats();
 -        assert_eq!(stats.added, 2);
 -
--        let (source, target) = split_ordered_commit(commit, 1);
+-        let (source, target) = split_ordered_patch(&patch, 1);
 -
 -        // Source should have 1 addition
 -        let src_patch = Patch::parse_unified_diff(&source);
@@ -17554,7 +18351,7 @@ index 844077593a..0000000000
 -        assert_eq!(stats.removed, 1);
 -
 -        // Split at position 1 (after the deletion)
--        let (source, target) = split_ordered_commit(commit, 1);
+-        let (source, target) = split_ordered_patch(&patch, 1);
 -
 -        let src_patch = Patch::parse_unified_diff(&source);
 -        let tgt_patch = Patch::parse_unified_diff(&target);
@@ -17601,7 +18398,7 @@ index 844077593a..0000000000
 -+	return fmt.Errorf("failed: %w", err)
 -"#;
 -
--        let (_source, target) = split_ordered_commit(commit, 3);
+-        let (_source, target) = split_ordered_patch(&Patch::parse_unified_diff(commit), 3);
 -
 -        assert!(
 -            target.starts_with(
@@ -17726,6 +18523,162 @@ index 844077593a..0000000000
 -        assert_eq!(new_src, source);
 -        assert_eq!(new_tgt, target);
 -        assert!(cursor.is_none());
+-    }
+-
+-    #[test]
+-    fn test_parse_typed_split_points() {
+-        assert_eq!(
+-            parse_split_point("fim").unwrap(),
+-            SplitPoint::Kind(SplitPointKind::Fim)
+-        );
+-        assert_eq!(
+-            parse_split_point("same-file-near").unwrap(),
+-            SplitPoint::Kind(SplitPointKind::SameFileNear)
+-        );
+-        assert_eq!(
+-            parse_split_point("same-file-far:2").unwrap(),
+-            SplitPoint::KindWithSplit {
+-                kind: SplitPointKind::SameFileFar,
+-                split_point: SplitPointValue::Index(2),
+-            }
+-        );
+-        assert_eq!(
+-            parse_split_point("cross-file:0.5").unwrap(),
+-            SplitPoint::KindWithSplit {
+-                kind: SplitPointKind::CrossFile,
+-                split_point: SplitPointValue::Fraction(0.5),
+-            }
+-        );
+-        assert!(parse_split_point("local").is_err());
+-    }
+-
+-    fn assert_generated_split_kind(
+-        commit: &str,
+-        kind: SplitPointKind,
+-        seed: u64,
+-    ) -> GeneratedSplitCommit {
+-        let patch = Patch::parse_unified_diff(commit);
+-        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+-        let generated_split_commit = sample_split_commit_of_kind(&patch, kind, &mut rng).unwrap();
+-        assert_eq!(
+-            classify_generated_split_commit(&generated_split_commit),
+-            Some(kind)
+-        );
+-        generated_split_commit
+-    }
+-
+-    #[test]
+-    fn test_classify_generated_split_commit() {
+-        let target_patch = r#"--- a/src/main.rs
+-+++ b/src/main.rs
+-@@ -10,3 +10,3 @@
+- fn main() {
+--old();
+-+new();
+- }
+-"#;
+-        let mut generated_split_commit = GeneratedSplitCommit {
+-            split: 1,
+-            split_commit: SplitCommit {
+-                source_patch: String::new(),
+-                target_patch: target_patch.to_string(),
+-            },
+-            cursor: CursorPosition {
+-                file: "src/main.rs".to_string(),
+-                line: 11,
+-                column: 5,
+-                line_length: 10,
+-            },
+-            cursor_from_human_edit: true,
+-        };
+-        assert_eq!(
+-            classify_generated_split_commit(&generated_split_commit),
+-            Some(SplitPointKind::Fim)
+-        );
+-
+-        generated_split_commit.cursor_from_human_edit = false;
+-        assert_eq!(
+-            classify_generated_split_commit(&generated_split_commit),
+-            Some(SplitPointKind::SameFileNear)
+-        );
+-
+-        generated_split_commit.cursor.line = 100;
+-        assert_eq!(
+-            classify_generated_split_commit(&generated_split_commit),
+-            Some(SplitPointKind::SameFileFar)
+-        );
+-
+-        generated_split_commit.cursor.file = "src/other.rs".to_string();
+-        assert_eq!(
+-            classify_generated_split_commit(&generated_split_commit),
+-            Some(SplitPointKind::CrossFile)
+-        );
+-    }
+-
+-    #[test]
+-    fn test_sample_fim_split_point() {
+-        let commit = r#"--- a/src/main.rs
+-+++ b/src/main.rs
+-@@ -1,3 +1,5 @@
+- fn main() {
+-+    let first = 1;
+-+    let second = 2;
+- }
+-"#;
+-
+-        assert_generated_split_kind(commit, SplitPointKind::Fim, 1);
+-    }
+-
+-    #[test]
+-    fn test_sample_same_file_near_split_point() {
+-        let commit = r#"--- a/src/main.rs
+-+++ b/src/main.rs
+-@@ -1,4 +1,5 @@
+- fn main() {
+-+    let inserted = 0;
+--    old();
+-+    new();
+- }
+-"#;
+-
+-        assert_generated_split_kind(commit, SplitPointKind::SameFileNear, 1);
+-    }
+-
+-    #[test]
+-    fn test_sample_same_file_far_split_point() {
+-        let commit = r#"--- a/src/main.rs
+-+++ b/src/main.rs
+-@@ -1,2 +1,3 @@
+- start
+-+source_edit();
+- context
+-@@ -100,2 +101,2 @@
+--far_old();
+-+far_new();
+- end
+-"#;
+-
+-        assert_generated_split_kind(commit, SplitPointKind::SameFileFar, 1);
+-    }
+-
+-    #[test]
+-    fn test_sample_cross_file_split_point() {
+-        let commit = r#"--- a/src/main.rs
+-+++ b/src/main.rs
+-@@ -1,2 +1,3 @@
+- fn main() {
+-+    source_edit();
+- }
+---- a/src/other.rs
+-+++ b/src/other.rs
+-@@ -1,3 +1,3 @@
+- fn other() {
+--    old();
+-+    new();
+- }
+-"#;
+-
+-        assert_generated_split_kind(commit, SplitPointKind::CrossFile, 1);
 -    }
 -
 -    #[test]
@@ -17949,6 +18902,72 @@ index 844077593a..0000000000
 -
 -        assert!(edit_starts_on_service_file(&patch, 1));
 -        assert!(!edit_starts_on_service_file(&patch, 2));
+-    }
+-
+-    #[test]
+-    fn test_submodule_gitlink_hunk_detection() {
+-        assert!(has_submodule_gitlink_hunk(
+-            r#"diff --git a/controllers/llguidance b/controllers/llguidance
+-index 21e68b9..cadabda 160000
+---- a/controllers/llguidance
+-+++ b/controllers/llguidance
+-@@ -1 +1 @@
+--Subproject commit 21e68b916d4705107e1c45ea7bc927e829136258
+-+Subproject commit cadabdad21f3b81ff58b1918f8c23116b4ff7af3
+-"#
+-        ));
+-        assert!(has_submodule_gitlink_hunk(
+-            r#"--- a/controllers/derivre
+-+++ b/controllers/derivre
+-@@ -1 +1 @@
+--Subproject commit e83d8fb3cd92d2c6dd0437e98bfa9b64d8d8284b
+-+Subproject commit fb0ba7b6307782e0d43a0ca598b237836cb6d304
+-"#
+-        ));
+-        assert!(has_submodule_gitlink_hunk(
+-            r#"diff --git a/vendor/dependency b/vendor/dependency
+-new file mode 160000
+-index 0000000..1234567
+---- /dev/null
+-+++ b/vendor/dependency
+-"#
+-        ));
+-        assert!(!has_submodule_gitlink_hunk(
+-            r#"diff --git a/src/lib.rs b/src/lib.rs
+-index 1234567..89abcde 100644
+---- a/src/lib.rs
+-+++ b/src/lib.rs
+-@@ -1 +1,2 @@
+- fn lib() {}
+-+fn helper() {}
+-"#
+-        ));
+-    }
+-
+-    #[test]
+-    fn test_generate_evaluation_example_rejects_submodule_gitlink_hunk() {
+-        let commit = r#"diff --git a/controllers/llguidance b/controllers/llguidance
+-index 21e68b9..cadabda 160000
+---- a/controllers/llguidance
+-+++ b/controllers/llguidance
+-@@ -1 +1 @@
+--Subproject commit 21e68b916d4705107e1c45ea7bc927e829136258
+-+Subproject commit cadabdad21f3b81ff58b1918f8c23116b4ff7af3
+-"#;
+-
+-        let result = generate_evaluation_example_from_ordered_commit(
+-            commit,
+-            "https://github.com/microsoft/aici",
+-            "cadabdad21f3b81ff58b1918f8c23116b4ff7af3",
+-            None,
+-            Some(0),
+-            None,
+-        );
+-
+-        let Err(error) = result else {
+-            panic!("expected submodule/gitlink commit to be rejected");
+-        };
+-        assert!(error.to_string().contains("submodule/gitlink"));
 -    }
 -
 -    #[test]
@@ -18978,10 +19997,10 @@ index d1cf602f1f..0000000000
 -}
 diff --git a/crates/edit_prediction_cli/src/synthesize.rs b/crates/edit_prediction_cli/src/synthesize.rs
 deleted file mode 100644
-index 76c8e0fee3..0000000000
+index 71d691bf9f..0000000000
 --- a/crates/edit_prediction_cli/src/synthesize.rs
 +++ /dev/null
-@@ -1,970 +0,0 @@
+@@ -1,969 +0,0 @@
 -use crate::{
 -    anthropic_client::PlainLlmClient,
 -    git::{ensure_repo_cloned, run_git},
@@ -18993,6 +20012,7 @@ index 76c8e0fee3..0000000000
 -use chrono::Local;
 -use collections::{HashMap, HashSet};
 -use edit_prediction::{
+-    data_collection::format_cursor_excerpt,
 -    example_spec::ExampleSpec,
 -    udiff::{apply_diff_to_string, edits_for_diff},
 -};
@@ -19767,7 +20787,7 @@ index 76c8e0fee3..0000000000
 -        truncate_message(&commit.message, 60),
 -        response.reasoning
 -    );
--    let mut spec = ExampleSpec {
+-    let spec = ExampleSpec {
 -        name: response.name.clone(),
 -        repository_url: repo_url.to_string(),
 -        revision: commit.parent_sha.clone(),
@@ -19778,16 +20798,14 @@ index 76c8e0fee3..0000000000
 -        recently_viewed_files: Vec::new(),
 -        uncommitted_diff_contains_edit_history: false,
 -        cursor_path: Arc::from(Path::new(&cursor_file)),
--        cursor_position: String::new(),
+-        cursor_position: format_cursor_excerpt(&excerpt, cursor_offset, comment_prefix),
 -        edit_history,
 -        expected_patches: vec![expected_patch_with_header],
 -        rejected_patch: None,
--
 -        telemetry: None,
 -        human_feedback: Vec::new(),
 -        rating: None,
 -    };
--    spec.set_cursor_excerpt(&excerpt, cursor_offset, comment_prefix);
 -
 -    Ok(spec)
 -}

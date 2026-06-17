@@ -200,10 +200,10 @@ index 1f48c4f40c..7a67d9a42b 100644
          let path = self.installed_dir.join(extension_id.as_ref());
          let builder = self.builder.clone();
 diff --git a/crates/extension_host/src/extension_store_test.rs b/crates/extension_host/src/extension_store_test.rs
-index f60434b15f..11fbb4023d 100644
+index 9b1a745c0f..23c8957b17 100644
 --- a/crates/extension_host/src/extension_store_test.rs
 +++ b/crates/extension_host/src/extension_store_test.rs
-@@ -1033,6 +1033,147 @@ async fn test_extension_store_with_test_extension(cx: &mut TestAppContext) {
+@@ -1043,6 +1043,147 @@ async fn test_extension_store_with_test_extension(cx: &mut TestAppContext) {
      );
  }
  

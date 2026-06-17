@@ -28,14 +28,15 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  .../src/channel_store/channel_index.rs        |  120 --
  crates/channel/src/channel_store_tests.rs     |  274 ----
  crates/file_finder/Cargo.toml                 |    1 -
- crates/file_finder/src/file_finder.rs         |  132 +-
+ crates/file_finder/src/file_finder.rs         |  130 +-
+ crates/file_finder/src/file_finder_tests.rs   |    2 -
  .../src/file_finder_settings.rs               |    2 -
  crates/title_bar/Cargo.toml                   |    1 -
  crates/workspace/src/workspace.rs             |    8 -
  crates/zed/Cargo.toml                         |    1 -
  crates/zed/src/main.rs                        |    1 -
  crates/zed/src/zed.rs                         |    1 -
- 16 files changed, 13 insertions(+), 2109 deletions(-)
+ 17 files changed, 13 insertions(+), 2109 deletions(-)
  delete mode 100644 crates/channel/Cargo.toml
  delete mode 120000 crates/channel/LICENSE-GPL
  delete mode 100644 crates/channel/src/channel.rs
@@ -45,18 +46,18 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  delete mode 100644 crates/channel/src/channel_store_tests.rs
 
 diff --git a/Cargo.toml b/Cargo.toml
-index 5c1bc7dc7c..6ca005a6df 100644
+index 97d81b898f..0c2a08f6dd 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -19,7 +19,6 @@ members = [
-     "crates/bedrock",
+@@ -20,7 +20,6 @@ members = [
+     "crates/benchmarks",
      "crates/breadcrumbs",
      "crates/buffer_diff",
 -    "crates/channel",
      "crates/cli",
      "crates/client",
      "crates/clock",
-@@ -274,7 +273,6 @@ aws_http_client = { path = "crates/aws_http_client" }
+@@ -271,7 +270,6 @@ aws_http_client = { path = "crates/aws_http_client" }
  bedrock = { path = "crates/bedrock" }
  breadcrumbs = { path = "crates/breadcrumbs" }
  buffer_diff = { path = "crates/buffer_diff" }
@@ -447,7 +448,7 @@ index 6145b1cf05..0000000000
 -}
 diff --git a/crates/channel/src/channel_store.rs b/crates/channel/src/channel_store.rs
 deleted file mode 100644
-index a1b4fb622e..0000000000
+index e73809e604..0000000000
 --- a/crates/channel/src/channel_store.rs
 +++ /dev/null
 @@ -1,1223 +0,0 @@
@@ -596,7 +597,7 @@ index a1b4fb622e..0000000000
 -
 -impl EventEmitter<ChannelEvent> for ChannelStore {}
 -
--enum OpenEntityHandle<E> {
+-enum OpenEntityHandle<E: 'static> {
 -    Open(WeakEntity<E>),
 -    Loading(Shared<Task<Result<Entity<E>, Arc<anyhow::Error>>>>),
 -}
@@ -2093,7 +2094,7 @@ index b66d77da25..f917c1ec9a 100644
  collections.workspace = true
  editor.workspace = true
 diff --git a/crates/file_finder/src/file_finder.rs b/crates/file_finder/src/file_finder.rs
-index 50f0a99abd..60230ad71f 100644
+index f45f81a6ed..7fd02fd38b 100644
 --- a/crates/file_finder/src/file_finder.rs
 +++ b/crates/file_finder/src/file_finder.rs
 @@ -4,8 +4,6 @@ mod file_finder_tests;
@@ -2115,14 +2116,14 @@ index 50f0a99abd..60230ad71f 100644
  };
  use zed_actions::search::ToggleIncludeIgnored;
 @@ -338,7 +336,6 @@ impl FileFinder {
-                         path: m.0.path.clone(),
-                     },
+                     }
+                     Match::Search(m) => project_path_for_search_match(&delegate.project, &m.0, cx),
                      Match::CreateNew(p) => p.clone(),
 -                    Match::Channel { .. } => return,
                  };
                  let open_task = workspace.update(cx, move |workspace, cx| {
                      workspace.split_path_preview(path, false, Some(split_direction), window, cx)
-@@ -397,7 +394,6 @@ pub struct FileFinderDelegate {
+@@ -409,7 +406,6 @@ pub struct FileFinderDelegate {
      file_finder: WeakEntity<FileFinder>,
      workspace: WeakEntity<Workspace>,
      project: Entity<Project>,
@@ -2130,7 +2131,7 @@ index 50f0a99abd..60230ad71f 100644
      search_count: usize,
      latest_search_id: usize,
      latest_search_did_cancel: bool,
-@@ -463,11 +459,6 @@ enum Match {
+@@ -475,11 +471,6 @@ enum Match {
          panel_match: Option<ProjectPanelOrdMatch>,
      },
      Search(ProjectPanelOrdMatch),
@@ -2142,7 +2143,7 @@ index 50f0a99abd..60230ad71f 100644
      CreateNew(ProjectPath),
  }
  
-@@ -476,7 +467,7 @@ impl Match {
+@@ -488,7 +479,7 @@ impl Match {
          match self {
              Match::History { path, .. } => Some(&path.project.path),
              Match::Search(panel_match) => Some(&panel_match.0.path),
@@ -2151,7 +2152,7 @@ index 50f0a99abd..60230ad71f 100644
          }
      }
  
-@@ -490,7 +481,7 @@ impl Match {
+@@ -502,7 +493,7 @@ impl Match {
                      .read(cx)
                      .absolutize(&path_match.path),
              ),
@@ -2160,7 +2161,7 @@ index 50f0a99abd..60230ad71f 100644
          }
      }
  
-@@ -498,7 +489,7 @@ impl Match {
+@@ -510,7 +501,7 @@ impl Match {
          match self {
              Match::History { panel_match, .. } => panel_match.as_ref(),
              Match::Search(panel_match) => Some(panel_match),
@@ -2169,7 +2170,7 @@ index 50f0a99abd..60230ad71f 100644
          }
      }
  }
-@@ -678,7 +669,6 @@ impl Matches {
+@@ -677,7 +668,6 @@ impl Matches {
          match m {
              Match::History { panel_match, .. } => panel_match.as_ref().map_or(0.0, |pm| pm.0.score),
              Match::Search(pm) => pm.0.score,
@@ -2177,7 +2178,7 @@ index 50f0a99abd..60230ad71f 100644
              Match::CreateNew(_) => 0.0,
          }
      }
-@@ -917,16 +907,10 @@ impl FileFinderDelegate {
+@@ -966,16 +956,10 @@ impl FileFinderDelegate {
          cx: &mut Context<FileFinder>,
      ) -> Self {
          Self::subscribe_to_updates(&project, window, cx);
@@ -2194,7 +2195,7 @@ index 50f0a99abd..60230ad71f 100644
              search_count: 0,
              latest_search_id: 0,
              latest_search_did_cancel: false,
-@@ -1059,68 +1043,6 @@ impl FileFinderDelegate {
+@@ -1108,68 +1092,6 @@ impl FileFinderDelegate {
                  path_style,
              );
  
@@ -2263,7 +2264,7 @@ index 50f0a99abd..60230ad71f 100644
              let query_path = query.raw_query.as_str();
              if let Ok(mut query_path) = RelPath::new(Path::new(query_path), path_style) {
                  let available_worktree = self
-@@ -1236,16 +1158,6 @@ impl FileFinderDelegate {
+@@ -1285,16 +1207,6 @@ impl FileFinderDelegate {
                      }
                  }
                  Match::Search(path_match) => self.labels_for_path_match(&path_match.0, path_style),
@@ -2280,32 +2281,30 @@ index 50f0a99abd..60230ad71f 100644
                  Match::CreateNew(project_path) => (
                      format!("Create file: {}", project_path.path.display(path_style)),
                      vec![],
-@@ -1614,16 +1526,6 @@ impl PickerDelegate for FileFinderDelegate {
-         if let Some(m) = self.matches.get(self.selected_index())
-             && let Some(workspace) = self.workspace.upgrade()
-         {
--            // Channel matches are handled separately since they dispatch an action
--            // rather than directly opening a file path.
--            if let Match::Channel { channel_id, .. } = m {
--                let channel_id = channel_id.0;
--                let finder = self.file_finder.clone();
--                window.dispatch_action(OpenChannelNotesById { channel_id }.boxed_clone(), cx);
--                finder.update(cx, |_, cx| cx.emit(DismissEvent)).log_err();
--                return;
--            }
--
-             let open_task = workspace.update(cx, |workspace, cx| {
-                 let split_or_open =
-                     |workspace: &mut Workspace,
-@@ -1716,7 +1618,6 @@ impl PickerDelegate for FileFinderDelegate {
-                         window,
-                         cx,
-                     ),
--                    Match::Channel { .. } => unreachable!("handled above"),
-                 }
-             });
+@@ -1526,14 +1438,6 @@ impl FileFinderDelegate {
+             return;
+         };
  
-@@ -1782,10 +1683,6 @@ impl PickerDelegate for FileFinderDelegate {
+-        // Channel matches always dismiss the finder.
+-        if let Match::Channel { channel_id, .. } = &m {
+-            let channel_id = channel_id.0;
+-            let finder = self.file_finder.clone();
+-            window.dispatch_action(OpenChannelNotesById { channel_id }.boxed_clone(), cx);
+-            finder.update(cx, |_, cx| cx.emit(DismissEvent)).log_err();
+-            return;
+-        }
+ 
+         // Focus the new item only when dismissing — this avoids stealing focus from the modal.
+         // Always activate (make the tab current) so every opened file is visually reflected.
+@@ -1613,7 +1517,6 @@ impl FileFinderDelegate {
+                         project_path_for_search_match(workspace.project(), &path_match.0, cx);
+                     split_or_open(workspace, project_path, window, cx)
+                 }
+-                Match::Channel { .. } => unreachable!("handled above"),
+             }
+         });
+ 
+@@ -1843,10 +1746,6 @@ impl PickerDelegate for FileFinderDelegate {
                  .flex_none()
                  .size(IconSize::Small.rems())
                  .into_any_element(),
@@ -2316,7 +2315,7 @@ index 50f0a99abd..60230ad71f 100644
              Match::CreateNew(_) => Icon::new(IconName::Plus)
                  .color(Color::Muted)
                  .size(IconSize::Small)
-@@ -1793,18 +1690,15 @@ impl PickerDelegate for FileFinderDelegate {
+@@ -1854,18 +1753,15 @@ impl PickerDelegate for FileFinderDelegate {
          };
          let (file_name_label, full_path_label) = self.labels_for_match(path_match, window, cx);
  
@@ -2344,6 +2343,26 @@ index 50f0a99abd..60230ad71f 100644
  
          Some(
              ListItem::new(ix)
+diff --git a/crates/file_finder/src/file_finder_tests.rs b/crates/file_finder/src/file_finder_tests.rs
+index 726251e9de..d46583963e 100644
+--- a/crates/file_finder/src/file_finder_tests.rs
++++ b/crates/file_finder/src/file_finder_tests.rs
+@@ -4553,7 +4553,6 @@ fn collect_search_matches(picker: &Picker<FileFinderDelegate>) -> SearchEntries
+                 search_entries.search_matches.push(path_match.0.clone());
+             }
+             Match::CreateNew(_) => {}
+-            Match::Channel { .. } => {}
+         }
+     }
+     search_entries
+@@ -4588,7 +4587,6 @@ fn assert_match_at_position(
+         Match::History { path, .. } => path.absolute.file_name().and_then(|s| s.to_str()),
+         Match::Search(path_match) => path_match.0.path.file_name(),
+         Match::CreateNew(project_path) => project_path.path.file_name(),
+-        Match::Channel { channel_name, .. } => Some(channel_name.as_str()),
+     }
+     .unwrap();
+     assert_eq!(match_file_name, expected_file_name);
 diff --git a/crates/open_path_prompt/src/file_finder_settings.rs b/crates/open_path_prompt/src/file_finder_settings.rs
 index 56ea60c208..36f05e89bd 100644
 --- a/crates/open_path_prompt/src/file_finder_settings.rs
@@ -2365,7 +2384,7 @@ index 56ea60c208..36f05e89bd 100644
      }
  }
 diff --git a/crates/title_bar/Cargo.toml b/crates/title_bar/Cargo.toml
-index b9b2a8ddf1..2142cbaf72 100644
+index 446210796e..4fdda31451 100644
 --- a/crates/title_bar/Cargo.toml
 +++ b/crates/title_bar/Cargo.toml
 @@ -32,7 +32,6 @@ agent_settings.workspace = true
@@ -2377,10 +2396,10 @@ index b9b2a8ddf1..2142cbaf72 100644
  client.workspace = true
  cloud_api_types.workspace = true
 diff --git a/crates/workspace/src/workspace.rs b/crates/workspace/src/workspace.rs
-index 0e4621d4e6..f69a0de16e 100644
+index b6800f9390..37658cdc83 100644
 --- a/crates/workspace/src/workspace.rs
 +++ b/crates/workspace/src/workspace.rs
-@@ -9193,14 +9193,6 @@ actions!(
+@@ -9376,14 +9376,6 @@ actions!(
      ]
  );
  
@@ -2396,10 +2415,10 @@ index 0e4621d4e6..f69a0de16e 100644
      zed,
      [
 diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
-index 550920d46d..8c0daf5555 100644
+index 0fcd251818..70ae30c3c1 100644
 --- a/crates/zed/Cargo.toml
 +++ b/crates/zed/Cargo.toml
-@@ -75,7 +75,6 @@ assets.workspace = true
+@@ -76,7 +76,6 @@ assets.workspace = true
  audio.workspace = true
  breadcrumbs.workspace = true
  chrono.workspace = true
@@ -2408,10 +2427,10 @@ index 550920d46d..8c0daf5555 100644
  cli.workspace = true
  client.workspace = true
 diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
-index ef23dd0cf5..71f1bd12e7 100644
+index 89e35d9ec2..1ec5e5b0eb 100644
 --- a/crates/zed/src/main.rs
 +++ b/crates/zed/src/main.rs
-@@ -704,7 +704,6 @@ fn main() {
+@@ -701,7 +701,6 @@ fn main() {
          outline_panel::init(cx);
          tasks_ui::init(cx);
          snippets_ui::init(cx);
@@ -2420,10 +2439,10 @@ index ef23dd0cf5..71f1bd12e7 100644
          cx.set_global(workspace::PaneSearchBarCallbacks {
              setup_search_bar: |languages, toolbar, window, cx| {
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index b6dedcc161..2e21b917c9 100644
+index f18f6a84ce..e6da09dfb5 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
-@@ -5432,7 +5432,6 @@ mod tests {
+@@ -5518,7 +5518,6 @@ mod tests {
              AppState::set_global(app_state.clone(), cx);
              theme_settings::init(theme::LoadThemes::JustBase, cx);
              audio::init(cx);

@@ -27,10 +27,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  5 files changed, 11 insertions(+), 151 deletions(-)
 
 diff --git a/crates/agent_ui/src/agent_ui.rs b/crates/agent_ui/src/agent_ui.rs
-index d140c720c3..a657d863af 100644
+index a664aa62c3..a1392d0602 100644
 --- a/crates/agent_ui/src/agent_ui.rs
 +++ b/crates/agent_ui/src/agent_ui.rs
-@@ -726,8 +726,7 @@ fn update_command_palette_filter(cx: &mut App) {
+@@ -814,8 +814,7 @@ fn update_command_palette_filter(cx: &mut App) {
                      filter.hide_namespace("edit_prediction");
                      filter.hide_action_types(&edit_prediction_actions);
                  }
@@ -40,7 +40,7 @@ index d140c720c3..a657d863af 100644
                  | EditPredictionProvider::Ollama
                  | EditPredictionProvider::OpenAiCompatibleApi
                  | EditPredictionProvider::Mercury => {
-@@ -944,7 +943,7 @@ mod tests {
+@@ -1037,7 +1036,7 @@ mod tests {
          });
  
          // Test EditPredictionProvider
@@ -49,7 +49,7 @@ index d140c720c3..a657d863af 100644
          cx.update(|cx| {
              cx.update_global::<SettingsStore, _>(|store, cx| {
                  store.update_user_settings(cx, |s| {
-@@ -952,7 +951,7 @@ mod tests {
+@@ -1045,7 +1044,7 @@ mod tests {
                          .all_languages
                          .edit_predictions
                          .get_or_insert(Default::default())
@@ -58,7 +58,7 @@ index d140c720c3..a657d863af 100644
                  });
              });
              update_command_palette_filter(cx);
-@@ -962,7 +961,7 @@ mod tests {
+@@ -1055,7 +1054,7 @@ mod tests {
              let filter = CommandPaletteFilter::try_global(cx).unwrap();
              assert!(
                  !filter.is_hidden(&AcceptEditPrediction),
@@ -68,10 +68,10 @@ index d140c720c3..a657d863af 100644
          });
  
 diff --git a/crates/edit_prediction/src/edit_prediction.rs b/crates/edit_prediction/src/edit_prediction.rs
-index ef2f40d276..20bab97e20 100644
+index c8b72688c4..bfb05c31c8 100644
 --- a/crates/edit_prediction/src/edit_prediction.rs
 +++ b/crates/edit_prediction/src/edit_prediction.rs
-@@ -2316,8 +2316,7 @@ fn currently_following(project: &Entity<Project>, cx: &App) -> bool {
+@@ -2420,8 +2420,7 @@ fn currently_following(project: &Entity<Project>, cx: &App) -> bool {
  
  fn is_ep_store_provider(provider: EditPredictionProvider) -> bool {
      match provider {
@@ -81,7 +81,7 @@ index ef2f40d276..20bab97e20 100644
          | EditPredictionProvider::Ollama
          | EditPredictionProvider::OpenAiCompatibleApi => true,
          EditPredictionProvider::None | EditPredictionProvider::Codestral => false,
-@@ -2353,7 +2352,7 @@ impl EditPredictionStore {
+@@ -2457,7 +2456,7 @@ impl EditPredictionStore {
  
          let (needs_acceptance_tracking, max_pending_predictions) =
              match all_language_settings(None, cx).edit_predictions.provider {
@@ -91,7 +91,7 @@ index ef2f40d276..20bab97e20 100644
                  EditPredictionProvider::OpenAiCompatibleApi => (false, 2),
                  EditPredictionProvider::None | EditPredictionProvider::Codestral => {
 diff --git a/crates/edit_prediction_ui/src/edit_prediction_button.rs b/crates/edit_prediction_ui/src/edit_prediction_button.rs
-index 4e9484774b..d9afc033ea 100644
+index 267a7ace67..88dc835a11 100644
 --- a/crates/edit_prediction_ui/src/edit_prediction_button.rs
 +++ b/crates/edit_prediction_ui/src/edit_prediction_button.rs
 @@ -220,15 +220,12 @@ impl Render for EditPredictionButton {
@@ -167,7 +167,7 @@ index 4e9484774b..d9afc033ea 100644
                          .handler(move |_, cx| {
                              set_completion_provider(fs.clone(), cx, provider);
                          }),
-@@ -529,7 +507,6 @@ impl EditPredictionButton {
+@@ -530,7 +508,6 @@ impl EditPredictionButton {
          cx: &mut App,
      ) -> ContextMenu {
          let fs = self.fs.clone();
@@ -175,7 +175,7 @@ index 4e9484774b..d9afc033ea 100644
  
          menu = menu.header("Show Edit Predictions For");
  
-@@ -593,7 +570,6 @@ impl EditPredictionButton {
+@@ -596,7 +573,6 @@ impl EditPredictionButton {
              });
          menu = menu.item(entry);
  
@@ -183,7 +183,7 @@ index 4e9484774b..d9afc033ea 100644
          let current_mode = settings.edit_predictions_mode();
          let subtle_mode = matches!(current_mode, EditPredictionsMode::Subtle);
          let eager_mode = matches!(current_mode, EditPredictionsMode::Eager);
-@@ -630,99 +606,6 @@ impl EditPredictionButton {
+@@ -633,99 +609,6 @@ impl EditPredictionButton {
  
          menu = menu.separator().header("Privacy");
  
@@ -283,7 +283,7 @@ index 4e9484774b..d9afc033ea 100644
          menu = menu.item(
              ContextMenuEntry::new("Configure Excluded Files")
                  .icon(IconName::LockOutlined)
-@@ -818,10 +701,7 @@ impl EditPredictionButton {
+@@ -821,10 +704,7 @@ impl EditPredictionButton {
              let user = self.user_store.read(cx).current_user();
  
              let needs_sign_in = user.is_none()
@@ -295,7 +295,7 @@ index 4e9484774b..d9afc033ea 100644
  
              if needs_sign_in {
                  menu = menu
-@@ -1172,8 +1052,6 @@ pub fn set_completion_provider(fs: Arc<dyn Fs>, cx: &mut App, provider: EditPred
+@@ -1175,8 +1055,6 @@ pub fn set_completion_provider(fs: Arc<dyn Fs>, cx: &mut App, provider: EditPred
  pub fn get_available_providers(cx: &mut App) -> Vec<EditPredictionProvider> {
      let mut providers = Vec::new();
  

@@ -27,10 +27,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  5 files changed, 138 insertions(+), 5 deletions(-)
 
 diff --git a/crates/sidebar/src/sidebar.rs b/crates/sidebar/src/sidebar.rs
-index e122e58b05..a5f9ac8d90 100644
+index 9ceb76aefa..392c3890ad 100644
 --- a/crates/sidebar/src/sidebar.rs
 +++ b/crates/sidebar/src/sidebar.rs
-@@ -59,8 +59,8 @@ use util::ResultExt as _;
+@@ -63,8 +63,8 @@ use util::ResultExt as _;
  use util::path_list::PathList;
  use workspace::{
      CloseWindow, FocusWorkspaceSidebar, MultiWorkspace, MultiWorkspaceEvent, NextProject,
@@ -41,7 +41,7 @@ index e122e58b05..a5f9ac8d90 100644
      notifications::NotificationId, sidebar_side_context_menu,
  };
  
-@@ -643,6 +643,17 @@ fn connect_remote(
+@@ -730,6 +730,17 @@ fn connect_remote(
      remote_connection::connect_with_modal(&modal_workspace, connection_options, window, cx)
  }
  
@@ -60,18 +60,18 @@ index e122e58b05..a5f9ac8d90 100644
  /// change via `update_entries` → `rebuild_contents`. Avoid adding
  /// incremental or inter-event coordination state — if something can
 diff --git a/crates/workspace/src/multi_workspace.rs b/crates/workspace/src/multi_workspace.rs
-index 9a62fe9eb4..e9a6efac61 100644
+index f97c348ff3..9d9a185f38 100644
 --- a/crates/workspace/src/multi_workspace.rs
 +++ b/crates/workspace/src/multi_workspace.rs
-@@ -14,6 +14,7 @@ pub use settings::SidebarSide;
+@@ -15,6 +15,7 @@ use std::cell::Cell;
  use std::future::Future;
- 
  use std::path::PathBuf;
+ use std::rc::Rc;
 +use std::sync::Arc;
  use ui::prelude::*;
  use util::ResultExt;
  use util::path_list::PathList;
-@@ -66,6 +67,26 @@ pub struct SidebarRenderState {
+@@ -67,6 +68,26 @@ pub struct SidebarRenderState {
      pub side: SidebarSide,
  }
  
@@ -98,7 +98,7 @@ index 9a62fe9eb4..e9a6efac61 100644
  pub fn sidebar_side_context_menu(
      id: impl Into<ElementId>,
      cx: &App,
-@@ -298,6 +319,7 @@ pub struct MultiWorkspace {
+@@ -306,6 +327,7 @@ pub struct MultiWorkspace {
      _serialize_task: Option<Task<()>>,
      _subscriptions: Vec<Subscription>,
      previous_focus_handle: Option<FocusHandle>,
@@ -106,7 +106,7 @@ index 9a62fe9eb4..e9a6efac61 100644
  }
  
  impl EventEmitter<MultiWorkspaceEvent> for MultiWorkspace {}
-@@ -358,9 +380,17 @@ impl MultiWorkspace {
+@@ -368,9 +390,17 @@ impl MultiWorkspace {
                  settings_subscription,
              ],
              previous_focus_handle: None,
@@ -124,7 +124,7 @@ index 9a62fe9eb4..e9a6efac61 100644
      pub fn register_sidebar<T: Sidebar>(&mut self, sidebar: Entity<T>, cx: &mut Context<Self>) {
          self._subscriptions
              .push(cx.observe(&sidebar, |_this, _, cx| {
-@@ -817,9 +847,39 @@ impl MultiWorkspace {
+@@ -828,9 +858,39 @@ impl MultiWorkspace {
              self.activate(workspace, None, window, cx);
              return;
          }
@@ -238,7 +238,7 @@ index e02a459639..84477a26bc 100644
  async fn test_close_active_project_tab_activates_neighbor(cx: &mut TestAppContext) {
      init_test(cx);
 diff --git a/crates/workspace/src/workspace.rs b/crates/workspace/src/workspace.rs
-index f69a0de16e..ecbbf597c8 100644
+index 37658cdc83..b156219a04 100644
 --- a/crates/workspace/src/workspace.rs
 +++ b/crates/workspace/src/workspace.rs
 @@ -33,8 +33,8 @@ pub use dock::Panel;
@@ -253,10 +253,10 @@ index f69a0de16e..ecbbf597c8 100644
  };
  pub use path_list::{PathList, SerializedPathList};
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index 6c2555b3ba..135388470a 100644
+index 58156f1ff6..6104f32a22 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
-@@ -481,6 +481,7 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
+@@ -493,6 +493,7 @@ pub fn initialize_workspace(app_state: Arc<AppState>, cx: &mut App) {
                          cx.new(|cx| Sidebar::new(multi_workspace_handle.clone(), window, cx));
                      multi_workspace_handle.update(cx, |multi_workspace, cx| {
                          multi_workspace.register_sidebar(sidebar, cx);

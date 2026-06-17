@@ -191,7 +191,7 @@ index 7a67d9a42b..c6bd0473ac 100644
      let mut result = LanguageQueries::default();
      if let Some(entries) = std::fs::read_dir(root_path).log_err() {
 diff --git a/crates/extension_host/src/extension_store_test.rs b/crates/extension_host/src/extension_store_test.rs
-index 11fbb4023d..21d18d6c58 100644
+index 23c8957b17..9eed9f750e 100644
 --- a/crates/extension_host/src/extension_store_test.rs
 +++ b/crates/extension_host/src/extension_store_test.rs
 @@ -4,11 +4,12 @@ use crate::{
@@ -216,7 +216,7 @@ index 11fbb4023d..21d18d6c58 100644
      ffi::OsString,
      path::{Path, PathBuf},
      sync::Arc,
-@@ -1174,6 +1176,107 @@ async fn test_install_prebuilt_extension(cx: &mut TestAppContext) {
+@@ -1184,6 +1186,107 @@ async fn test_install_prebuilt_extension(cx: &mut TestAppContext) {
      });
  }
  

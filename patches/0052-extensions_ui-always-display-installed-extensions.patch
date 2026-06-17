@@ -12,10 +12,10 @@ Subject: [PATCH] extensions_ui: always display installed extensions
  5 files changed, 133 insertions(+), 2 deletions(-)
 
 diff --git a/Cargo.lock b/Cargo.lock
-index 24cede75c1..13cfb26f75 100644
+index 3515aebac3..c161a4e825 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -4936,6 +4936,7 @@ dependencies = [
+@@ -6273,6 +6273,7 @@ dependencies = [
   "async-compression",
   "async-tar",
   "async-trait",
@@ -91,10 +91,10 @@ index 5dbb1d23f5..bf813a9d62 100644
          self.extension_index
              .extensions
 diff --git a/crates/extension_host/src/extension_store_test.rs b/crates/extension_host/src/extension_store_test.rs
-index de0634a9cf..f9c1aac112 100644
+index a93c5ba498..27d310240f 100644
 --- a/crates/extension_host/src/extension_store_test.rs
 +++ b/crates/extension_host/src/extension_store_test.rs
-@@ -1419,6 +1419,77 @@ async fn test_install_extension_from_local_registry(cx: &mut TestAppContext) {
+@@ -1429,6 +1429,77 @@ async fn test_install_extension_from_local_registry(cx: &mut TestAppContext) {
      );
  }
  
@@ -173,7 +173,7 @@ index de0634a9cf..f9c1aac112 100644
      cx.update(|cx| {
          let store = SettingsStore::test(cx);
 diff --git a/crates/extensions_ui/src/extensions_ui.rs b/crates/extensions_ui/src/extensions_ui.rs
-index f8c30f7227..470b900f72 100644
+index 36e1769b7b..ed41c281d0 100644
 --- a/crates/extensions_ui/src/extensions_ui.rs
 +++ b/crates/extensions_ui/src/extensions_ui.rs
 @@ -8,7 +8,7 @@ use std::{ops::Range, sync::Arc};
@@ -185,7 +185,7 @@ index f8c30f7227..470b900f72 100644
  use editor::{Editor, EditorElement, EditorStyle};
  use extension_host::{ExtensionManifest, ExtensionOperation, ExtensionStore};
  use fuzzy::{StringMatchCandidate, match_strings};
-@@ -601,6 +601,7 @@ impl ExtensionsPage {
+@@ -606,6 +606,7 @@ impl ExtensionsPage {
              };
  
          cx.spawn(async move |this, cx| {
@@ -193,7 +193,7 @@ index f8c30f7227..470b900f72 100644
              let dev_extensions = if let Some(search) = search {
                  let match_candidates = dev_extensions
                      .iter()
-@@ -637,6 +638,29 @@ impl ExtensionsPage {
+@@ -642,6 +643,29 @@ impl ExtensionsPage {
                      Ok(extensions) => {
                          this.fetch_failed = false;
                          this.remote_extension_entries = extensions;

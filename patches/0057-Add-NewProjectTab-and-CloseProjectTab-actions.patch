@@ -10,10 +10,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  2 files changed, 48 insertions(+)
 
 diff --git a/crates/workspace/src/multi_workspace.rs b/crates/workspace/src/multi_workspace.rs
-index 5f267e2059..9a62fe9eb4 100644
+index 5ea8f82927..f97c348ff3 100644
 --- a/crates/workspace/src/multi_workspace.rs
 +++ b/crates/workspace/src/multi_workspace.rs
-@@ -53,6 +53,10 @@ actions!(
+@@ -54,6 +54,10 @@ actions!(
          NewThread,
          /// Moves the active project to a new window.
          MoveProjectToNewWindow,
@@ -24,7 +24,7 @@ index 5f267e2059..9a62fe9eb4 100644
      ]
  );
  
-@@ -2224,6 +2228,19 @@ impl Render for MultiWorkspace {
+@@ -2270,6 +2274,19 @@ impl Render for MultiWorkspace {
                              }
                          }),
                      )

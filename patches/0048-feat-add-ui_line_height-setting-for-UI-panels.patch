@@ -23,7 +23,7 @@ Adds theme_settings::UiLineHeight to public exports.
  10 files changed, 246 insertions(+), 15 deletions(-)
 
 diff --git a/assets/settings/default.json b/assets/settings/default.json
-index dcafd20dfd..6d109be803 100644
+index 7510b7b67a..2e08ce0697 100644
 --- a/assets/settings/default.json
 +++ b/assets/settings/default.json
 @@ -50,6 +50,10 @@
@@ -38,7 +38,7 @@ index dcafd20dfd..6d109be803 100644
    // You can set this to ".SystemUIFont" to use the system font
    // ".ZedSans" currently aliases to "IBM Plex Sans", but this may
 diff --git a/crates/git_ui/src/git_panel.rs b/crates/git_ui/src/git_panel.rs
-index 32068133d0..9501b328c6 100644
+index c77215ae31..5adb772a57 100644
 --- a/crates/git_ui/src/git_panel.rs
 +++ b/crates/git_ui/src/git_panel.rs
 @@ -5818,8 +5818,9 @@ impl GitPanel {
@@ -62,7 +62,7 @@ index 32068133d0..9501b328c6 100644
              .w_full()
              .pl_3()
              .pr_1()
-@@ -6127,7 +6128,7 @@ impl GitPanel {
+@@ -6133,7 +6134,7 @@ impl GitPanel {
  
          h_flex()
              .id(id)
@@ -71,7 +71,7 @@ index 32068133d0..9501b328c6 100644
              .w_full()
              .pl_3()
              .pr_1()
-@@ -6326,7 +6327,7 @@ impl GitPanel {
+@@ -6332,7 +6333,7 @@ impl GitPanel {
  
          h_flex()
              .id(id)
@@ -81,7 +81,7 @@ index 32068133d0..9501b328c6 100644
              .w_full()
              .pl_3()
 diff --git a/crates/outline_panel/src/outline_panel.rs b/crates/outline_panel/src/outline_panel.rs
-index c9812e5ee3..1cbf30e885 100644
+index 6bd05b807d..2da57f6509 100644
 --- a/crates/outline_panel/src/outline_panel.rs
 +++ b/crates/outline_panel/src/outline_panel.rs
 @@ -2628,6 +2628,8 @@ impl OutlinePanel {
@@ -103,10 +103,10 @@ index c9812e5ee3..1cbf30e885 100644
                      .on_secondary_mouse_down(cx.listener(
                          move |outline_panel, event: &MouseDownEvent, window, cx| {
 diff --git a/crates/project_panel/src/project_panel.rs b/crates/project_panel/src/project_panel.rs
-index 960ac52bee..c2621e72e2 100644
+index 6f1d41b2bc..ef7deabb90 100644
 --- a/crates/project_panel/src/project_panel.rs
 +++ b/crates/project_panel/src/project_panel.rs
-@@ -5269,6 +5269,8 @@ impl ProjectPanel {
+@@ -5363,6 +5363,8 @@ impl ProjectPanel {
          let is_sticky = details.sticky.is_some();
          let sticky_index = details.sticky.as_ref().map(|this| this.sticky_index);
          let settings = ProjectPanelSettings::get_global(cx);
@@ -115,7 +115,7 @@ index 960ac52bee..c2621e72e2 100644
          let show_editor = details.is_editing && !details.is_processing;
  
          let selection = SelectedEntry {
-@@ -5852,10 +5854,10 @@ impl ProjectPanel {
+@@ -5946,10 +5948,10 @@ impl ProjectPanel {
                              .flex_none()
                      })
                      .child(if show_editor {
@@ -129,7 +129,7 @@ index 960ac52bee..c2621e72e2 100644
                                  Some(folded_ancestors) => {
                                      this.children(self.render_folder_elements(
 diff --git a/crates/settings/src/vscode_import.rs b/crates/settings/src/vscode_import.rs
-index 5954453769..1ae9b296b9 100644
+index 83b5c45487..01a6565d5a 100644
 --- a/crates/settings/src/vscode_import.rs
 +++ b/crates/settings/src/vscode_import.rs
 @@ -975,6 +975,7 @@ impl VsCodeSettings {
@@ -276,10 +276,10 @@ index 305e1d4053..8bfe094fcc 100644
      fn test_buffer_font_weight_schema_has_default() {
          use schemars::schema_for;
 diff --git a/crates/settings_ui/src/page_data.rs b/crates/settings_ui/src/page_data.rs
-index 983c97ae6b..5ad8e07a75 100644
+index e29a18e157..8b4ab4540a 100644
 --- a/crates/settings_ui/src/page_data.rs
 +++ b/crates/settings_ui/src/page_data.rs
-@@ -936,7 +936,7 @@ fn appearance_page() -> SettingsPage {
+@@ -1011,7 +1011,7 @@ fn appearance_page() -> SettingsPage {
          ]
      }
  
@@ -288,7 +288,7 @@ index 983c97ae6b..5ad8e07a75 100644
          [
              SettingsPageItem::SectionHeader("UI Font"),
              SettingsPageItem::SettingItem(SettingItem {
-@@ -978,6 +978,95 @@ fn appearance_page() -> SettingsPage {
+@@ -1056,6 +1056,95 @@ fn appearance_page() -> SettingsPage {
                  metadata: None,
                  files: USER,
              }),
@@ -385,10 +385,10 @@ index 983c97ae6b..5ad8e07a75 100644
                  files: USER,
                  title: "Font Features",
 diff --git a/crates/settings_ui/src/settings_ui.rs b/crates/settings_ui/src/settings_ui.rs
-index 10f38ef216..e35dc672e1 100644
+index 44785d051e..4a9d9d1c95 100644
 --- a/crates/settings_ui/src/settings_ui.rs
 +++ b/crates/settings_ui/src/settings_ui.rs
-@@ -549,6 +549,7 @@ fn init_renderers(cx: &mut App) {
+@@ -605,6 +605,7 @@ fn init_renderers(cx: &mut App) {
          .add_basic_renderer::<settings::IconThemeSelectionDiscriminants>(render_dropdown)
          .add_basic_renderer::<settings::IconThemeName>(render_icon_theme_picker)
          .add_basic_renderer::<settings::BufferLineHeightDiscriminants>(render_dropdown)

@@ -15,7 +15,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
-index 8c0daf5555..e042feee60 100644
+index 70ae30c3c1..4a30c85fa5 100644
 --- a/crates/zed/Cargo.toml
 +++ b/crates/zed/Cargo.toml
 @@ -1,11 +1,11 @@
@@ -24,7 +24,7 @@ index 8c0daf5555..e042feee60 100644
 +description = "Zedium - a telemetry-free, cloud-free fork of the Zed editor."
  edition.workspace = true
  name = "zed"
- version = "1.5.4"
+ version = "1.7.2"
  publish.workspace = true
  license = "GPL-3.0-or-later"
 -authors = ["Zed Team <hi@zed.dev>"]

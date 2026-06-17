@@ -16,22 +16,22 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  Cargo.toml                                    |  2 -
  crates/web_search_providers/Cargo.toml        | 26 -----
  crates/web_search_providers/LICENSE-GPL       |  1 -
- crates/web_search_providers/src/cloud.rs      | 95 -------------------
+ crates/web_search_providers/src/cloud.rs      | 97 -------------------
  .../src/web_search_providers.rs               | 68 -------------
  crates/zed/Cargo.toml                         |  1 -
- crates/zed/src/main.rs                        |  1 -
+ crates/zed/src/main.rs                        |  2 -
  crates/zed/src/zed.rs                         |  1 -
- 9 files changed, 214 deletions(-)
+ 9 files changed, 217 deletions(-)
  delete mode 100644 crates/web_search_providers/Cargo.toml
  delete mode 120000 crates/web_search_providers/LICENSE-GPL
  delete mode 100644 crates/web_search_providers/src/cloud.rs
  delete mode 100644 crates/web_search_providers/src/web_search_providers.rs
 
 diff --git a/Cargo.lock b/Cargo.lock
-index 606dd8cc1f..e44f8fff58 100644
+index 5d42c5f8e7..aabaf2e59d 100644
 --- a/Cargo.lock
 +++ b/Cargo.lock
-@@ -21166,24 +21166,6 @@ dependencies = [
+@@ -20800,24 +20800,6 @@ dependencies = [
   "serde",
  ]
  
@@ -56,7 +56,7 @@ index 606dd8cc1f..e44f8fff58 100644
  [[package]]
  name = "webpki-root-certs"
  version = "0.26.8"
-@@ -23295,7 +23277,6 @@ dependencies = [
+@@ -22959,7 +22941,6 @@ dependencies = [
   "vim_mode_setting",
   "watch",
   "web_search",
@@ -65,10 +65,10 @@ index 606dd8cc1f..e44f8fff58 100644
   "windows 0.61.3",
   "windows_resources",
 diff --git a/Cargo.toml b/Cargo.toml
-index 24f8b2c17c..723d9d9e91 100644
+index e7a767537f..a424fba264 100644
 --- a/Cargo.toml
 +++ b/Cargo.toml
-@@ -208,7 +208,6 @@ members = [
+@@ -205,7 +205,6 @@ members = [
      "crates/vim_mode_setting",
      "crates/watch",
      "crates/web_search",
@@ -76,7 +76,7 @@ index 24f8b2c17c..723d9d9e91 100644
      "crates/which_key",
      "crates/workspace",
      "crates/worktree",
-@@ -455,7 +454,6 @@ which_key = { path = "crates/which_key" }
+@@ -449,7 +448,6 @@ which_key = { path = "crates/which_key" }
  
  watch = { path = "crates/watch" }
  web_search = { path = "crates/web_search" }
@@ -126,13 +126,13 @@ index 89e542f750..0000000000
 \ No newline at end of file
 diff --git a/crates/web_search_providers/src/cloud.rs b/crates/web_search_providers/src/cloud.rs
 deleted file mode 100644
-index 1795647144..0000000000
+index a1c66d1d1e..0000000000
 --- a/crates/web_search_providers/src/cloud.rs
 +++ /dev/null
-@@ -1,95 +0,0 @@
+@@ -1,97 +0,0 @@
 -use std::sync::Arc;
 -
--use anyhow::Result;
+-use anyhow::{Result, anyhow};
 -use client::{Client, UserStore, global_llm_token};
 -use cloud_api_client::LlmApiToken;
 -use cloud_api_types::OrganizationId;
@@ -201,6 +201,8 @@ index 1795647144..0000000000
 -    organization_id: Option<OrganizationId>,
 -    body: WebSearchBody,
 -) -> Result<WebSearchResponse> {
+-    let organization_id = organization_id.ok_or_else(|| anyhow!("No organization selected."))?;
+-
 -    let url = client.http_client().build_zed_llm_url("/web_search", &[])?;
 -    let body = serde_json::to_string(&body)?;
 -    let mut response = client
@@ -300,10 +302,10 @@ index 509632429f..0000000000
 -    }
 -}
 diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
-index e042feee60..6e8f380e46 100644
+index 4a30c85fa5..888fedbacc 100644
 --- a/crates/zed/Cargo.toml
 +++ b/crates/zed/Cargo.toml
-@@ -206,7 +206,6 @@ vim.workspace = true
+@@ -207,7 +207,6 @@ vim.workspace = true
  vim_mode_setting.workspace = true
  watch.workspace = true
  web_search.workspace = true
@@ -312,10 +314,10 @@ index e042feee60..6e8f380e46 100644
  workspace.workspace = true
  zed_actions.workspace = true
 diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
-index 71f1bd12e7..b175c77617 100644
+index 1ec5e5b0eb..6a3bef89b1 100644
 --- a/crates/zed/src/main.rs
 +++ b/crates/zed/src/main.rs
-@@ -661,7 +661,6 @@ fn main() {
+@@ -658,7 +658,6 @@ fn main() {
          zed::remote_debug::init(cx);
          edit_prediction_ui::init(cx);
          web_search::init(cx);
@@ -323,14 +325,22 @@ index 71f1bd12e7..b175c77617 100644
          snippet_provider::init(cx);
          edit_prediction_registry::init(app_state.client.clone(), app_state.user_store.clone(), cx);
          let prompt_builder = PromptBuilder::load(app_state.fs.clone(), stdout_is_a_pty(), cx);
+@@ -722,7 +721,6 @@ fn main() {
+         settings_profile_selector::init(cx);
+         language_tools::init(cx);
+         git_ui::init(cx);
+-        git_graph::init(cx);
+         markdown_preview::init(cx);
+         csv_preview::init(cx);
+         svg_preview::init(cx);
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index 2e21b917c9..d610ad0445 100644
+index e6da09dfb5..0cf53bae93 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
-@@ -5450,7 +5450,6 @@ mod tests {
+@@ -5535,7 +5535,6 @@ mod tests {
+             );
              language_models::init(app_state.user_store.clone(), app_state.client.clone(), cx);
              web_search::init(cx);
-             git_graph::init(cx);
 -            web_search_providers::init(app_state.client.clone(), app_state.user_store.clone(), cx);
              let prompt_builder = PromptBuilder::load(app_state.fs.clone(), false, cx);
              project::AgentRegistryStore::init_global(

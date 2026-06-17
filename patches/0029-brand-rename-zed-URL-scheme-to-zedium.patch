@@ -17,8 +17,9 @@ workspace test suite. Zedium ships no hosted edit-prediction provider.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 ---
- assets/settings/default.json                  |  8 ++--
- crates/acp_thread/src/mention.rs              | 36 +++++++-------
+ Cargo.toml                                    |  8 ---
+ assets/settings/default.json                  |  8 +--
+ crates/acp_thread/src/mention.rs              | 43 ++++++++++------
  crates/agent_ui/src/agent_panel.rs            |  2 +-
  crates/cli/src/main.rs                        |  2 +-
  crates/client/src/client.rs                   |  6 +--
@@ -31,14 +32,42 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
  crates/settings_ui/src/settings_ui.rs         |  2 +-
  crates/zed/src/main.rs                        | 12 ++---
  crates/zed/src/zed.rs                         |  4 +-
- crates/zed/src/zed/open_listener.rs           | 48 +++++++++----------
+ crates/zed/src/zed/open_listener.rs           | 50 ++++++++++---------
  crates/zed/src/zed/open_url_modal.rs          |  6 +--
  crates/zed/src/zed/windows_only_instance.rs   |  2 +-
  crates/zed_actions/src/lib.rs                 |  2 +-
- 18 files changed, 89 insertions(+), 87 deletions(-)
+ 19 files changed, 101 insertions(+), 92 deletions(-)
 
+diff --git a/Cargo.toml b/Cargo.toml
+index c116ff84f1..a502eca270 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -14,11 +14,7 @@ members = [
+     "crates/assets",
+     "crates/audio",
+     "crates/aws_http_client",
+-<<<<<<< HEAD
+-    "crates/bedrock",
+     "crates/benchmarks",
+-=======
+->>>>>>> c67c3adb44 (strip: delete orphan vendor LLM provider crates)
+     "crates/breadcrumbs",
+     "crates/buffer_diff",
+     "crates/cli",
+@@ -43,11 +39,7 @@ members = [
+     "crates/debug_adapter_extension",
+     "crates/debugger_tools",
+     "crates/debugger_ui",
+-<<<<<<< HEAD
+-    "crates/deepseek",
+-=======
+     "crates/denoise",
+->>>>>>> c67c3adb44 (strip: delete orphan vendor LLM provider crates)
+     "crates/dev_container",
+     "crates/diagnostics",
+     "crates/docs_preprocessor",
 diff --git a/assets/settings/default.json b/assets/settings/default.json
-index 969d89ff90..139afa5008 100644
+index e75525ab59..7a3d8f089a 100644
 --- a/assets/settings/default.json
 +++ b/assets/settings/default.json
 @@ -1,5 +1,5 @@
@@ -48,7 +77,7 @@ index 969d89ff90..139afa5008 100644
    // The name of the Zed theme to use for the UI.
    //
    // `mode` is one of:
-@@ -1657,8 +1657,10 @@
+@@ -1683,8 +1683,10 @@
    //      "load_direnv": "disabled"
    "load_direnv": "direct",
    "edit_predictions": {
@@ -62,10 +91,10 @@ index 969d89ff90..139afa5008 100644
      // There's a sensible default list of globs already included.
      // Any addition to this list will be merged with the default list.
 diff --git a/crates/acp_thread/src/mention.rs b/crates/acp_thread/src/mention.rs
-index cb96de3481..c26437acd7 100644
+index 0ebe1712ff..488207469a 100644
 --- a/crates/acp_thread/src/mention.rs
 +++ b/crates/acp_thread/src/mention.rs
-@@ -466,7 +466,7 @@ impl MentionUri {
+@@ -471,7 +471,7 @@ impl MentionUri {
                  url
              }
              MentionUri::PastedImage { name } => {
@@ -74,7 +103,7 @@ index cb96de3481..c26437acd7 100644
                  url.query_pairs_mut().append_pair("name", name);
                  url
              }
-@@ -505,7 +505,7 @@ impl MentionUri {
+@@ -510,7 +510,7 @@ impl MentionUri {
                      url.set_path(&path.to_string_lossy());
                      url
                  } else {
@@ -83,7 +112,7 @@ index cb96de3481..c26437acd7 100644
                      url.set_path("/agent/untitled-buffer");
                      url
                  };
-@@ -521,13 +521,13 @@ impl MentionUri {
+@@ -526,11 +526,12 @@ impl MentionUri {
                  url
              }
              MentionUri::Thread { name, id } => {
@@ -93,13 +122,23 @@ index cb96de3481..c26437acd7 100644
                  url.query_pairs_mut().append_pair("name", name);
                  url
              }
-             MentionUri::Rule { name, id } => {
--                let mut url = Url::parse("zed:///").unwrap();
++<<<<<<< HEAD
+             MentionUri::Rule { id, name } => {
+                 let mut url = Url::parse("zed:///").unwrap();
+                 let rule_id = id
+@@ -539,6 +540,11 @@ impl MentionUri {
+                     .and_then(|uuid| uuid.as_str())
+                     .unwrap_or_default();
+                 url.set_path(&format!("/agent/rule/{rule_id}"));
++=======
++            MentionUri::Rule { name, id } => {
 +                let mut url = Url::parse("zedium:///").unwrap();
-                 url.set_path(&format!("/agent/rule/{id}"));
++                url.set_path(&format!("/agent/rule/{id}"));
++>>>>>>> c05db00b9d (brand: rename zed:// URL scheme to zedium://)
                  url.query_pairs_mut().append_pair("name", name);
                  url
-@@ -536,7 +536,7 @@ impl MentionUri {
+             }
+@@ -546,7 +552,7 @@ impl MentionUri {
                  include_errors,
                  include_warnings,
              } => {
@@ -108,7 +147,7 @@ index cb96de3481..c26437acd7 100644
                  url.set_path("/agent/diagnostics");
                  if *include_warnings {
                      url.query_pairs_mut()
-@@ -549,18 +549,18 @@ impl MentionUri {
+@@ -559,18 +565,18 @@ impl MentionUri {
              }
              MentionUri::Fetch { url } => url.clone(),
              MentionUri::TerminalSelection { line_count } => {
@@ -130,7 +169,7 @@ index cb96de3481..c26437acd7 100644
                  url.query_pairs_mut().append_pair("path", file_path);
                  url
              }
-@@ -569,7 +569,7 @@ impl MentionUri {
+@@ -579,7 +585,7 @@ impl MentionUri {
                  source,
                  skill_file_path,
              } => {
@@ -139,7 +178,7 @@ index cb96de3481..c26437acd7 100644
                  url.set_path("/agent/skill");
                  url.query_pairs_mut()
                      .append_pair("name", name)
-@@ -778,7 +778,7 @@ mod tests {
+@@ -806,7 +812,7 @@ mod tests {
  
      #[test]
      fn test_parse_untitled_selection_uri() {
@@ -148,7 +187,7 @@ index cb96de3481..c26437acd7 100644
          let parsed = MentionUri::parse(selection_uri, PathStyle::local()).unwrap();
          match &parsed {
              MentionUri::Selection {
-@@ -796,7 +796,7 @@ mod tests {
+@@ -824,7 +830,7 @@ mod tests {
  
      #[test]
      fn test_parse_thread_uri() {
@@ -157,16 +196,21 @@ index cb96de3481..c26437acd7 100644
          let parsed = MentionUri::parse(thread_uri, PathStyle::local()).unwrap();
          match &parsed {
              MentionUri::Thread {
-@@ -813,7 +813,7 @@ mod tests {
+@@ -840,8 +846,13 @@ mod tests {
+     }
  
      #[test]
-     fn test_parse_rule_uri() {
--        let rule_uri = "zed:///agent/rule/d8694ff2-90d5-4b6f-be33-33c1763acd52?name=Some+rule";
++<<<<<<< HEAD
+     fn test_parse_legacy_rule_uri() {
+         let rule_uri = "zed:///agent/rule/d8694ff2-90d5-4b6f-be33-33c1763acd52?name=Some+rule";
++=======
++    fn test_parse_rule_uri() {
 +        let rule_uri = "zedium:///agent/rule/d8694ff2-90d5-4b6f-be33-33c1763acd52?name=Some+rule";
++>>>>>>> c05db00b9d (brand: rename zed:// URL scheme to zedium://)
          let parsed = MentionUri::parse(rule_uri, PathStyle::local()).unwrap();
          match &parsed {
-             MentionUri::Rule { id, name } => {
-@@ -867,7 +867,7 @@ mod tests {
+             MentionUri::Rule { name, .. } => assert_eq!(name, "Some rule"),
+@@ -918,7 +929,7 @@ mod tests {
  
      #[test]
      fn test_parse_diagnostics_uri() {
@@ -175,7 +219,7 @@ index cb96de3481..c26437acd7 100644
          let parsed = MentionUri::parse(uri, PathStyle::local()).unwrap();
          match &parsed {
              MentionUri::Diagnostics {
-@@ -884,7 +884,7 @@ mod tests {
+@@ -935,7 +946,7 @@ mod tests {
  
      #[test]
      fn test_parse_diagnostics_uri_warnings_only() {
@@ -184,7 +228,7 @@ index cb96de3481..c26437acd7 100644
          let parsed = MentionUri::parse(uri, PathStyle::local()).unwrap();
          match &parsed {
              MentionUri::Diagnostics {
-@@ -908,8 +908,8 @@ mod tests {
+@@ -959,8 +970,8 @@ mod tests {
  
      #[test]
      fn test_invalid_zed_path() {
@@ -195,7 +239,7 @@ index cb96de3481..c26437acd7 100644
      }
  
      #[test]
-@@ -1143,7 +1143,7 @@ mod tests {
+@@ -1194,7 +1205,7 @@ mod tests {
  
      #[test]
      fn test_parse_terminal_selection_uri() {
@@ -204,7 +248,7 @@ index cb96de3481..c26437acd7 100644
          let parsed = MentionUri::parse(terminal_uri, PathStyle::local()).unwrap();
          match &parsed {
              MentionUri::TerminalSelection { line_count } => {
-@@ -1155,7 +1155,7 @@ mod tests {
+@@ -1206,7 +1217,7 @@ mod tests {
          assert_eq!(parsed.name(), "Terminal (42 lines)");
  
          // Test single line
@@ -214,10 +258,10 @@ index cb96de3481..c26437acd7 100644
          assert_eq!(parsed_single.name(), "Terminal (1 line)");
      }
 diff --git a/crates/agent_ui/src/agent_panel.rs b/crates/agent_ui/src/agent_panel.rs
-index fe06f0348d..e2771a19e8 100644
+index 1943a0e185..ac2403e972 100644
 --- a/crates/agent_ui/src/agent_panel.rs
 +++ b/crates/agent_ui/src/agent_panel.rs
-@@ -7227,7 +7227,7 @@ mod tests {
+@@ -7966,7 +7966,7 @@ mod tests {
              "resource text should be the raw conflict"
          );
          assert!(
@@ -227,7 +271,7 @@ index fe06f0348d..e2771a19e8 100644
          );
          assert!(uri.contains("utils.rs"), "URI should encode the file path");
 diff --git a/crates/cli/src/main.rs b/crates/cli/src/main.rs
-index 6f0c86f940..888450c6a3 100644
+index d9c976b688..d261c99b02 100644
 --- a/crates/cli/src/main.rs
 +++ b/crates/cli/src/main.rs
 @@ -27,7 +27,7 @@ use walkdir::WalkDir;
@@ -240,7 +284,7 @@ index 6f0c86f940..888450c6a3 100644
  struct Detect;
  
 diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
-index 55e5f17ff9..7c44f08f7f 100644
+index afba3a25c6..5209f9bb92 100644
 --- a/crates/client/src/client.rs
 +++ b/crates/client/src/client.rs
 @@ -1824,13 +1824,13 @@ impl ProtoClient for Client {
@@ -261,10 +305,10 @@ index 55e5f17ff9..7c44f08f7f 100644
      /// Open channel notes: `zed.dev/channel/channel-name-123/notes` or with heading `notes#heading`
      ChannelNotes {
 diff --git a/crates/client/src/zed_urls.rs b/crates/client/src/zed_urls.rs
-index 8cd284da03..35911d3fb2 100644
+index 70ff9537d7..94515d9283 100644
 --- a/crates/client/src/zed_urls.rs
 +++ b/crates/client/src/zed_urls.rs
-@@ -69,5 +69,5 @@ pub fn acp_registry_blog(cx: &App) -> String {
+@@ -65,5 +65,5 @@ pub fn acp_registry_blog(cx: &App) -> String {
  }
  
  pub fn shared_agent_thread_url(session_id: &str) -> String {
@@ -272,10 +316,10 @@ index 8cd284da03..35911d3fb2 100644
 +    format!("zedium://agent/shared/{}", session_id)
  }
 diff --git a/crates/gpui/src/app.rs b/crates/gpui/src/app.rs
-index a9255898da..e1a876b2ff 100644
+index 794009f518..083c40ecf1 100644
 --- a/crates/gpui/src/app.rs
 +++ b/crates/gpui/src/app.rs
-@@ -1305,7 +1305,7 @@ impl App {
+@@ -1328,7 +1328,7 @@ impl App {
          self.platform.open_url(url);
      }
  
@@ -344,7 +388,7 @@ index 1f2fa0330b..1a93a9fb3a 100644
  struct SchemaContentRequest {}
  
 diff --git a/crates/settings/src/settings_store.rs b/crates/settings/src/settings_store.rs
-index 5677b70b7c..13f90a3beb 100644
+index 725e555287..78e2a003a5 100644
 --- a/crates/settings/src/settings_store.rs
 +++ b/crates/settings/src/settings_store.rs
 @@ -43,7 +43,7 @@ use crate::{
@@ -356,7 +400,7 @@ index 5677b70b7c..13f90a3beb 100644
  
  pub trait SettingsKey: 'static + Send + Sync {
      /// The name of a key within the JSON file from which this setting should
-@@ -2910,7 +2910,7 @@ mod tests {
+@@ -2958,7 +2958,7 @@ mod tests {
  
          assert_eq!(
              init_options_ref,
@@ -365,7 +409,7 @@ index 5677b70b7c..13f90a3beb 100644
          );
  
          let settings_ref = properties
-@@ -2923,7 +2923,7 @@ mod tests {
+@@ -2971,7 +2971,7 @@ mod tests {
  
          assert_eq!(
              settings_ref,
@@ -374,7 +418,7 @@ index 5677b70b7c..13f90a3beb 100644
          );
      }
  
-@@ -2965,7 +2965,7 @@ mod tests {
+@@ -3013,7 +3013,7 @@ mod tests {
  
          assert_eq!(
              init_options_ref,
@@ -383,7 +427,7 @@ index 5677b70b7c..13f90a3beb 100644
          );
  
          let settings_ref = properties
-@@ -2978,7 +2978,7 @@ mod tests {
+@@ -3026,7 +3026,7 @@ mod tests {
  
          assert_eq!(
              settings_ref,
@@ -393,10 +437,10 @@ index 5677b70b7c..13f90a3beb 100644
      }
  
 diff --git a/crates/settings_ui/src/settings_ui.rs b/crates/settings_ui/src/settings_ui.rs
-index eb55599fdc..10f38ef216 100644
+index ca183dae44..44785d051e 100644
 --- a/crates/settings_ui/src/settings_ui.rs
 +++ b/crates/settings_ui/src/settings_ui.rs
-@@ -1279,7 +1279,7 @@ fn render_settings_item_link(
+@@ -1425,7 +1425,7 @@ fn render_settings_item_link(
                  .tooltip(Tooltip::text("Copy Link"))
                  .when_some(json_path, |this, path| {
                      this.on_click(cx.listener(move |this, _, _, cx| {
@@ -406,10 +450,10 @@ index eb55599fdc..10f38ef216 100644
                          this.last_copied_link_path = Some(path);
                          cx.notify();
 diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
-index ed3e872baf..0b2d21e899 100644
+index ec67caa4f0..0695ec9e8f 100644
 --- a/crates/zed/src/main.rs
 +++ b/crates/zed/src/main.rs
-@@ -957,7 +957,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
+@@ -953,7 +953,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
                                  });
                              } else {
                                  log::warn!(
@@ -418,7 +462,7 @@ index ed3e872baf..0b2d21e899 100644
                                       (is `disable_ai` enabled?)"
                                  );
                              }
-@@ -1079,7 +1079,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
+@@ -1090,7 +1090,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
                                      .project()
                                      .update(cx, |project, _| project.lsp_store())
                              })?;
@@ -427,7 +471,7 @@ index ed3e872baf..0b2d21e899 100644
                              let json_schema_content =
                                  json_schema_store::handle_schema_request(lsp_store, uri, cx)
                                      .await?;
-@@ -1128,8 +1128,8 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
+@@ -1139,8 +1139,8 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
                  });
              }
              OpenRequestKind::Setting { setting_path } => {
@@ -438,7 +482,7 @@ index ed3e872baf..0b2d21e899 100644
                  // languages.$(language).tab_size
                  // [ languages $(language) tab_size]
                  cx.spawn(async move |cx| {
-@@ -1620,7 +1620,7 @@ struct Args {
+@@ -1634,7 +1634,7 @@ struct Args {
      /// Use `path:line:row` syntax to open a file at a specific location.
      /// Non-existing paths and directories will ignore `:line:row` suffix.
      ///
@@ -447,7 +491,7 @@ index ed3e872baf..0b2d21e899 100644
      paths_or_urls: Vec<String>,
  
      /// Pairs of file paths to diff. Can be specified multiple times.
-@@ -1731,7 +1731,7 @@ fn parse_url_arg(arg: &str, cx: &App) -> String {
+@@ -1740,7 +1740,7 @@ fn parse_url_arg(arg: &str, cx: &App) -> String {
          Ok(path) => format!("file://{}", path.display()),
          Err(_) => {
              if arg.starts_with("file://")
@@ -457,10 +501,10 @@ index ed3e872baf..0b2d21e899 100644
                  || arg.starts_with("ssh://")
                  || parse_zed_link(arg, cx).is_some()
 diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
-index 4aabed68f8..3249ba7813 100644
+index d8d220ad52..3a382c7974 100644
 --- a/crates/zed/src/zed.rs
 +++ b/crates/zed/src/zed.rs
-@@ -1096,7 +1096,7 @@ fn register_actions(
+@@ -1113,7 +1113,7 @@ fn register_actions(
                          Toast::new(
                              NotificationId::unique::<RegisterZedScheme>(),
                              format!(
@@ -469,7 +513,7 @@ index 4aabed68f8..3249ba7813 100644
                                  ReleaseChannel::global(cx).display_name()
                              ),
                          ),
-@@ -1106,7 +1106,7 @@ fn register_actions(
+@@ -1123,7 +1123,7 @@ fn register_actions(
                  Ok(())
              })
              .detach_and_prompt_err(
@@ -479,10 +523,10 @@ index 4aabed68f8..3249ba7813 100644
                  cx,
                  |_, _, _| None,
 diff --git a/crates/zed/src/zed/open_listener.rs b/crates/zed/src/zed/open_listener.rs
-index 4a4f5fca51..f3a9ae5167 100644
+index 2b33614f29..2b858cf838 100644
 --- a/crates/zed/src/zed/open_listener.rs
 +++ b/crates/zed/src/zed/open_listener.rs
-@@ -161,16 +161,16 @@ impl OpenRequest {
+@@ -169,16 +169,16 @@ impl OpenRequest {
                  });
              } else if let Some(file) = url.strip_prefix("file://") {
                  this.parse_file_path(file)
@@ -503,12 +547,17 @@ index 4a4f5fca51..f3a9ae5167 100644
                  if uuid::Uuid::parse_str(session_id_str).is_ok() {
                      this.kind = Some(OpenRequestKind::SharedAgentThread {
                          session_id: session_id_str.to_string(),
-@@ -178,23 +178,23 @@ impl OpenRequest {
+@@ -186,25 +186,29 @@ impl OpenRequest {
                  } else {
                      log::error!("Invalid session ID in URL: {}", session_id_str);
                  }
--            } else if let Some(agent_path) = url.strip_prefix("zed://agent") {
++<<<<<<< HEAD
+             } else if url.starts_with(agent_skills::SKILL_SHARE_LINK_PREFIX) {
+                 this.parse_skill_install_url(&url)?
+             } else if let Some(agent_path) = url.strip_prefix("zed://agent") {
++=======
 +            } else if let Some(agent_path) = url.strip_prefix("zedium://agent") {
++>>>>>>> c05db00b9d (brand: rename zed:// URL scheme to zedium://)
                  this.parse_agent_url(agent_path)
 -            } else if url == "zed://" || url == "zed://open" || url == "zed://open/" {
 +            } else if url == "zedium://" || url == "zedium://open" || url == "zedium://open/" {
@@ -534,7 +583,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                  this.parse_git_commit_url(commit_path)?
              } else if url.starts_with("ssh://") {
                  this.parse_ssh_file_path(&url, cx)?
-@@ -1250,7 +1250,7 @@ mod tests {
+@@ -1267,7 +1271,7 @@ mod tests {
          let request = cx.update(|cx| {
              OpenRequest::parse(
                  RawOpenRequest {
@@ -543,7 +592,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                      ..Default::default()
                  },
                  cx,
-@@ -1269,7 +1269,7 @@ mod tests {
+@@ -1332,7 +1336,7 @@ mod tests {
      }
  
      fn agent_url_with_prompt(prompt: &str) -> String {
@@ -552,7 +601,7 @@ index 4a4f5fca51..f3a9ae5167 100644
          serializer.append_pair("prompt", prompt);
          serializer.finish()
      }
-@@ -1312,7 +1312,7 @@ mod tests {
+@@ -1375,7 +1379,7 @@ mod tests {
          let request = cx.update(|cx| {
              OpenRequest::parse(
                  RawOpenRequest {
@@ -561,7 +610,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                      ..Default::default()
                  },
                  cx,
-@@ -1339,7 +1339,7 @@ mod tests {
+@@ -1402,7 +1406,7 @@ mod tests {
      fn test_parse_focus_app_url(cx: &mut TestAppContext) {
          let _app_state = init_test(cx);
  
@@ -570,7 +619,7 @@ index 4a4f5fca51..f3a9ae5167 100644
              let request = cx.update(|cx| {
                  OpenRequest::parse(
                      RawOpenRequest {
-@@ -1395,7 +1395,7 @@ mod tests {
+@@ -1458,7 +1462,7 @@ mod tests {
          let request = cx.update(|cx| {
              OpenRequest::parse(
                  RawOpenRequest {
@@ -579,7 +628,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                      ..Default::default()
                  },
                  cx,
-@@ -1420,7 +1420,7 @@ mod tests {
+@@ -1483,7 +1487,7 @@ mod tests {
          let request = cx.update(|cx| {
              OpenRequest::parse(
                  RawOpenRequest {
@@ -588,7 +637,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                      ..Default::default()
                  },
                  cx,
-@@ -1439,7 +1439,7 @@ mod tests {
+@@ -1502,7 +1506,7 @@ mod tests {
          let request = cx.update(|cx| {
              OpenRequest::parse(
                  RawOpenRequest {
@@ -597,7 +646,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                      ..Default::default()
                  },
                  cx,
-@@ -1460,7 +1460,7 @@ mod tests {
+@@ -1523,7 +1527,7 @@ mod tests {
          let request = cx.update(|cx| {
              OpenRequest::parse(
                  RawOpenRequest {
@@ -606,7 +655,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                      ..Default::default()
                  },
                  cx,
-@@ -1481,7 +1481,7 @@ mod tests {
+@@ -1544,7 +1548,7 @@ mod tests {
              assert!(
                  OpenRequest::parse(
                      RawOpenRequest {
@@ -615,7 +664,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                          ..Default::default()
                      },
                      cx,
-@@ -1496,7 +1496,7 @@ mod tests {
+@@ -1559,7 +1563,7 @@ mod tests {
          let result = cx.update(|cx| {
              OpenRequest::parse(
                  RawOpenRequest {
@@ -624,7 +673,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                      ..Default::default()
                  },
                  cx,
-@@ -1858,7 +1858,7 @@ mod tests {
+@@ -1921,7 +1925,7 @@ mod tests {
              OpenRequest::parse(
                  RawOpenRequest {
                      urls: vec![
@@ -633,7 +682,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                      ],
                      ..Default::default()
                  },
-@@ -1883,7 +1883,7 @@ mod tests {
+@@ -1946,7 +1950,7 @@ mod tests {
              OpenRequest::parse(
                  RawOpenRequest {
                      urls: vec![
@@ -642,7 +691,7 @@ index 4a4f5fca51..f3a9ae5167 100644
                      ],
                      ..Default::default()
                  },
-@@ -1908,7 +1908,7 @@ mod tests {
+@@ -1971,7 +1975,7 @@ mod tests {
              OpenRequest::parse(
                  RawOpenRequest {
                      urls: vec![
@@ -689,11 +738,11 @@ index c43e4f9e19..3a1412f614 100644
                          || path.starts_with("https://")
                          || path.starts_with("file://")
 diff --git a/crates/zed_actions/src/lib.rs b/crates/zed_actions/src/lib.rs
-index da94647d49..f04782f0f0 100644
+index c76e7c6d40..0ad33cf924 100644
 --- a/crates/zed_actions/src/lib.rs
 +++ b/crates/zed_actions/src/lib.rs
 @@ -20,7 +20,7 @@ pub struct OpenBrowser {
-     pub url: String,
+     pub url: Arc<str>,
  }
  
 -/// Opens a zed:// URL within the application.

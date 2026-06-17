@@ -35,10 +35,10 @@ index d222bd1c0c..a0a8df7934 100644
  /// Lowercased form of [`APP_NAME`], for use in XDG-style paths on
  /// Linux/FreeBSD and the macOS `~/.config` fallback.
 diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
-index 6e8f380e46..b3ef235b17 100644
+index 888fedbacc..64bc7a6025 100644
 --- a/crates/zed/Cargo.toml
 +++ b/crates/zed/Cargo.toml
-@@ -6,7 +6,7 @@ version = "1.5.4"
+@@ -6,7 +6,7 @@ version = "1.7.2"
  publish.workspace = true
  license = "GPL-3.0-or-later"
  authors = ["Zedium contributors"]
@@ -56,7 +56,7 @@ index 6e8f380e46..b3ef235b17 100644
  path = "src/main.rs"
  
  [[bin]]
-@@ -261,35 +261,35 @@ repl = { workspace = true, features = ["test-support"] }
+@@ -262,35 +262,35 @@ repl = { workspace = true, features = ["test-support"] }
  
  [package.metadata.bundle-dev]
  icon = ["resources/app-icon-dev@2x.png", "resources/app-icon-dev.png"]
