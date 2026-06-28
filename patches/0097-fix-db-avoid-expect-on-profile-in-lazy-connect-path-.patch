@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sat, 27 Jun 2026 23:33:38 +0300
+Subject: [PATCH] fix(db): avoid expect() on profile in lazy-connect path (use
+ let-else)
+
+---
+ crates/database_client/src/query_view.rs | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index abeeeef39d..54e49da286 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -168,7 +168,9 @@ impl QueryView {
+             let connection = if let Some(conn) = existing_connection {
+                 Ok(conn)
+             } else {
+-                let profile = profile.expect("profile is Some when connection is None");
++                let Some(profile) = profile else {
++                    return;
++                };
+                 let password = cx
+                     .update(|cx| store::read_password(cx, &profile))
+                     .await

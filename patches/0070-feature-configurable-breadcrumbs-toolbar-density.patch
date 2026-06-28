@@ -1,0 +1,307 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Thu, 18 Jun 2026 01:22:20 +0300
+Subject: [PATCH] feature: configurable breadcrumbs/toolbar density
+
+---
+ assets/settings/default.json               |  6 ++++
+ crates/breadcrumbs/src/breadcrumbs.rs      |  9 ++++--
+ crates/editor/src/element.rs               |  6 ++--
+ crates/settings_content/src/editor.rs      |  8 ++++-
+ crates/workspace/src/toolbar.rs            | 36 +++++++++++++++++-----
+ crates/workspace/src/workspace.rs          |  3 +-
+ crates/workspace/src/workspace_settings.rs | 18 +++++++++++
+ crates/zed/src/zed/quick_action_bar.rs     | 30 ++++++++++++++----
+ 8 files changed, 97 insertions(+), 19 deletions(-)
+
+diff --git a/assets/settings/default.json b/assets/settings/default.json
+index 1eca6022a2..1cc168233c 100644
+--- a/assets/settings/default.json
++++ b/assets/settings/default.json
+@@ -508,6 +508,12 @@
+     "agent_review": true,
+     // Whether to show code action buttons in the editor toolbar.
+     "code_actions": false,
++    // Vertical padding (px) of the editor toolbar; unset = default density.
++    // "padding": 6,
++    // Font size (px) of breadcrumb text; unset = default (14).
++    // "font_size": 14,
++    // Icon size (px) of toolbar icons; unset = default.
++    // "icon_size": 14,
+   },
+   // Whether to allow windows to tab together based on the user’s tabbing preference (macOS only).
+   "use_system_window_tabs": false,
+diff --git a/crates/breadcrumbs/src/breadcrumbs.rs b/crates/breadcrumbs/src/breadcrumbs.rs
+index b981e17c33..14c90eeda3 100644
+--- a/crates/breadcrumbs/src/breadcrumbs.rs
++++ b/crates/breadcrumbs/src/breadcrumbs.rs
+@@ -3,7 +3,8 @@ use gpui::{
+ };
+ use ui::prelude::*;
+ use workspace::{
+-    ToolbarItemEvent, ToolbarItemLocation, ToolbarItemView,
++    ToolbarItemEvent, ToolbarItemLocation, ToolbarItemView, ToolbarSettings,
++    WorkspaceSetting as _,
+     item::{HighlightedText, ItemEvent, ItemHandle},
+ };
+ 
+@@ -47,10 +48,14 @@ impl EventEmitter<ToolbarItemEvent> for Breadcrumbs {}
+ 
+ impl Render for Breadcrumbs {
+     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
++        let settings = ToolbarSettings::get_global(cx);
+         let element = h_flex()
+             .id("breadcrumb-container")
+             .flex_grow_1()
+-            .h_8()
++            .map(|this| match settings.padding {
++                Some(_) => this.items_center(),
++                None => this.h_8(),
++            })
+             .overflow_x_scroll()
+             .text_ui(cx);
+ 
+diff --git a/crates/editor/src/element.rs b/crates/editor/src/element.rs
+index e3d634b4a0..e447c926bc 100644
+--- a/crates/editor/src/element.rs
++++ b/crates/editor/src/element.rs
+@@ -6707,8 +6707,10 @@ pub fn render_breadcrumb_text(
+             .into_any()
+     });
+ 
+-    let breadcrumbs = Itertools::intersperse_with(highlighted_segments, || {
+-        Label::new("›").color(Color::Placeholder).into_any_element()
++    let breadcrumbs = Itertools::intersperse_with(highlighted_segments, move || {
++        Label::new("›")
++            .color(Color::Placeholder)
++            .into_any_element()
+     });
+ 
+     let breadcrumbs_stack = h_flex()
+diff --git a/crates/settings_content/src/editor.rs b/crates/settings_content/src/editor.rs
+index 499fb10e3b..a38eb82b0a 100644
+--- a/crates/settings_content/src/editor.rs
++++ b/crates/settings_content/src/editor.rs
+@@ -352,7 +352,7 @@ impl RelativeLineNumbers {
+ 
+ // Toolbar related settings
+ #[with_fallible_options]
+-#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq, Eq)]
++#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
+ pub struct ToolbarContent {
+     /// Whether to display breadcrumbs in the editor toolbar.
+     ///
+@@ -375,6 +375,12 @@ pub struct ToolbarContent {
+     ///
+     /// Default: false
+     pub code_actions: Option<bool>,
++    /// Vertical padding (px) of the editor toolbar. Unset = default density.
++    pub padding: Option<f32>,
++    /// Font size (px) of breadcrumb text. Unset = default (14).
++    pub font_size: Option<f32>,
++    /// Icon size (px) of toolbar icons. Unset = default.
++    pub icon_size: Option<f32>,
+ }
+ 
+ /// Scrollbar related settings
+diff --git a/crates/workspace/src/toolbar.rs b/crates/workspace/src/toolbar.rs
+index b14775f289..b9040bbbbb 100644
+--- a/crates/workspace/src/toolbar.rs
++++ b/crates/workspace/src/toolbar.rs
+@@ -1,4 +1,5 @@
+-use crate::ItemHandle;
++use crate::{ItemHandle, workspace_settings::ToolbarSettings};
++use settings::Settings;
+ use gpui::{
+     AnyView, App, Context, Div, Entity, EntityId, EventEmitter, Global, KeyContext,
+     ParentElement as _, Render, Styled, Window,
+@@ -109,7 +110,7 @@ impl Toolbar {
+ impl Render for Toolbar {
+     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+         if !self.has_any_visible_items() {
+-            return div();
++            return div().into_any_element();
+         }
+ 
+         let secondary_items = self.secondary_items().map(|item| item.to_any());
+@@ -117,10 +118,17 @@ impl Render for Toolbar {
+         let has_left_items = self.left_items().count() > 0;
+         let has_right_items = self.right_items().count() > 0;
+ 
+-        v_flex()
++        let settings = ToolbarSettings::get_global(cx);
++        let font_size = settings.font_size;
++        let padding = settings.padding.map(|padding| px(ui::clamp_bar_padding(padding)));
++
++        let content = v_flex()
+             .group("toolbar")
+             .relative()
+-            .py(DynamicSpacing::Base06.rems(cx))
++            .map(|this| match padding {
++                Some(padding) => this.py(padding),
++                None => this.py(DynamicSpacing::Base06.rems(cx)),
++            })
+             .px(DynamicSpacing::Base08.rems(cx))
+             .when(has_left_items || has_right_items, |this| {
+                 this.gap(DynamicSpacing::Base06.rems(cx))
+@@ -137,7 +145,10 @@ impl Render for Toolbar {
+                         .when(has_left_items, |this| {
+                             this.child(
+                                 h_flex()
+-                                    .min_h_8()
++                                    .map(|this| match padding {
++                                        Some(_) => this.items_center(),
++                                        None => this.min_h_8(),
++                                    })
+                                     .flex_auto()
+                                     .justify_start()
+                                     .overflow_x_hidden()
+@@ -147,7 +158,10 @@ impl Render for Toolbar {
+                         .when(has_right_items, |this| {
+                             this.child(
+                                 h_flex()
+-                                    .h_8()
++                                    .map(|this| match padding {
++                                        Some(_) => this.items_center(),
++                                        None => this.h_8(),
++                                    })
+                                     .flex_row_reverse()
+                                     .when(has_left_items, |this| this.flex_none())
+                                     .justify_end()
+@@ -156,7 +170,15 @@ impl Render for Toolbar {
+                         }),
+                 )
+             })
+-            .children(secondary_items)
++            .children(secondary_items);
++
++        match font_size {
++            Some(font_size) => ui::utils::WithRemSize::new(px(font_size))
++                .w_full()
++                .child(content)
++                .into_any_element(),
++            None => content.into_any_element(),
++        }
+     }
+ }
+ 
+diff --git a/crates/workspace/src/workspace.rs b/crates/workspace/src/workspace.rs
+index b156219a04..980bcea15a 100644
+--- a/crates/workspace/src/workspace.rs
++++ b/crates/workspace/src/workspace.rs
+@@ -156,7 +156,8 @@ use util::{
+ use uuid::Uuid;
+ pub use workspace_settings::{
+     AutosaveSetting, BottomDockLayout, EncodingDisplayOptions, FocusFollowsMouse,
+-    RestoreOnStartupBehavior, StatusBarSettings, TabBarSettings, WorkspaceSettings,
++    RestoreOnStartupBehavior, Settings as WorkspaceSetting, StatusBarSettings, TabBarSettings,
++    ToolbarSettings, WorkspaceSettings,
+ };
+ use zed_actions::{Spawn, theme::ToggleMode};
+ 
+diff --git a/crates/workspace/src/workspace_settings.rs b/crates/workspace/src/workspace_settings.rs
+index f70a19f61d..329b8d48db 100644
+--- a/crates/workspace/src/workspace_settings.rs
++++ b/crates/workspace/src/workspace_settings.rs
+@@ -191,3 +191,21 @@ impl Settings for StatusBarSettings {
+         }
+     }
+ }
++
++#[derive(Clone, Debug, PartialEq, Deserialize, RegisterSetting)]
++pub struct ToolbarSettings {
++    pub padding: Option<f32>,
++    pub font_size: Option<f32>,
++    pub icon_size: Option<f32>,
++}
++
++impl Settings for ToolbarSettings {
++    fn from_settings(content: &settings::SettingsContent) -> Self {
++        let toolbar = content.editor.toolbar.clone().unwrap_or_default();
++        ToolbarSettings {
++            padding: toolbar.padding,
++            font_size: toolbar.font_size,
++            icon_size: toolbar.icon_size,
++        }
++    }
++}
+diff --git a/crates/zed/src/zed/quick_action_bar.rs b/crates/zed/src/zed/quick_action_bar.rs
+index d1ffb58b79..7b5b877e1d 100644
+--- a/crates/zed/src/zed/quick_action_bar.rs
++++ b/crates/zed/src/zed/quick_action_bar.rs
+@@ -25,7 +25,8 @@ use ui::{
+ use vim_mode_setting::{HelixModeSetting, VimModeSetting};
+ use workspace::item::ItemBufferKind;
+ use workspace::{
+-    ToolbarItemEvent, ToolbarItemLocation, ToolbarItemView, Workspace, item::ItemHandle,
++    ToolbarItemEvent, ToolbarItemLocation, ToolbarItemView, ToolbarSettings, Workspace,
++    item::ItemHandle,
+ };
+ use zed_actions::{agent::AddSelectionToThread, assistant::InlineAssist, outline::ToggleOutline};
+ 
+@@ -109,6 +110,15 @@ impl Render for QuickActionBar {
+             return div().id("empty quick action bar");
+         };
+ 
++        let ui_font_size = f32::from(theme::theme_settings(cx).ui_font_size(cx));
++        let rem_size = ToolbarSettings::get_global(cx)
++            .font_size
++            .unwrap_or(ui_font_size);
++        let toolbar_icon_size = ToolbarSettings::get_global(cx)
++            .icon_size
++            .map(|s| ui::bar_icon_size(s, rem_size))
++            .unwrap_or(IconSize::Small);
++
+         let supports_inlay_hints = editor.update(cx, |editor, cx| editor.supports_inlay_hints(cx));
+         let supports_semantic_tokens =
+             editor.update(cx, |editor, cx| editor.supports_semantic_tokens(cx));
+@@ -189,7 +199,7 @@ impl Render for QuickActionBar {
+             v_flex()
+                 .child(
+                     IconButton::new("toggle_code_actions_icon", IconName::BoltOutlined)
+-                        .icon_size(IconSize::Small)
++                        .icon_size(toolbar_icon_size)
+                         .style(ButtonStyle::Subtle)
+                         .disabled(!has_available_code_actions)
+                         .toggle_state(is_deployed)
+@@ -255,7 +265,7 @@ impl Render for QuickActionBar {
+             PopoverMenu::new("editor-selections-dropdown")
+                 .trigger_with_tooltip(
+                     IconButton::new("toggle_editor_selections_icon", IconName::CursorIBeam)
+-                        .icon_size(IconSize::Small)
++                        .icon_size(toolbar_icon_size)
+                         .style(ButtonStyle::Subtle)
+                         .toggle_state(self.toggle_selections_handle.is_deployed()),
+                     Tooltip::text("Selection Controls"),
+@@ -328,7 +338,7 @@ impl Render for QuickActionBar {
+             PopoverMenu::new("editor-settings")
+                 .trigger_with_tooltip(
+                     IconButton::new("toggle_editor_settings_icon", IconName::Sliders)
+-                        .icon_size(IconSize::Small)
++                        .icon_size(toolbar_icon_size)
+                         .style(ButtonStyle::Subtle)
+                         .toggle_state(self.toggle_settings_handle.is_deployed()),
+                     Tooltip::text("Editor Controls"),
+@@ -725,12 +735,20 @@ impl QuickActionBarButton {
+ }
+ 
+ impl RenderOnce for QuickActionBarButton {
+-    fn render(self, _window: &mut Window, _: &mut App) -> impl IntoElement {
++    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+         let tooltip = self.tooltip.clone();
+         let action = self.action.boxed_clone();
++        let ui_font_size = f32::from(theme::theme_settings(cx).ui_font_size(cx));
++        let rem_size = ToolbarSettings::get_global(cx)
++            .font_size
++            .unwrap_or(ui_font_size);
++        let icon_size = ToolbarSettings::get_global(cx)
++            .icon_size
++            .map(|s| ui::bar_icon_size(s, rem_size))
++            .unwrap_or(IconSize::Small);
+ 
+         IconButton::new(self.id.clone(), self.icon)
+-            .icon_size(IconSize::Small)
++            .icon_size(icon_size)
+             .style(ButtonStyle::Subtle)
+             .toggle_state(self.toggled)
+             .tooltip(move |_window, cx| {

@@ -1,0 +1,650 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sat, 27 Jun 2026 21:59:40 +0300
+Subject: [PATCH] feat(db): lazy schema explorer tree
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GbHBSdw2MBBgxKxLnVCbf6
+---
+ crates/database_client/src/database_client.rs |   1 +
+ crates/database_client/src/panel.rs           | 272 ++++++++++++++++-
+ crates/database_client/src/tree.rs            | 286 ++++++++++++++++++
+ 3 files changed, 551 insertions(+), 8 deletions(-)
+ create mode 100644 crates/database_client/src/tree.rs
+
+diff --git a/crates/database_client/src/database_client.rs b/crates/database_client/src/database_client.rs
+index 494f48c7ae..f91c646cf2 100644
+--- a/crates/database_client/src/database_client.rs
++++ b/crates/database_client/src/database_client.rs
+@@ -6,6 +6,7 @@ use workspace::Workspace;
+ mod connection;
+ mod connection_modal;
+ mod panel;
++mod tree;
+ 
+ pub use connection::client::DEFAULT_RESULT_LIMIT;
+ pub use panel::DatabasePanel;
+diff --git a/crates/database_client/src/panel.rs b/crates/database_client/src/panel.rs
+index e1eb90fd37..0635d1e7a3 100644
+--- a/crates/database_client/src/panel.rs
++++ b/crates/database_client/src/panel.rs
+@@ -1,20 +1,34 @@
+-use crate::{ToggleFocus, connection::profile::ConnectionProfile, connection::store};
++use std::collections::{HashMap, HashSet};
++
++use crate::{
++    ToggleFocus,
++    connection::{
++        client::Connection,
++        introspect::RelationKind,
++        profile::ConnectionProfile,
++        store,
++    },
++    tree::{NodeKind, TreeState},
++};
+ use anyhow::Result;
+ use gpui::{
+     App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
+     ParentElement, Render, Styled, WeakEntity, Window, div, px,
+ };
+-use ui::{Tooltip, prelude::*};
++use ui::{Disclosure, IconName, Tooltip, prelude::*};
+ use workspace::{
+     Workspace,
+     dock::{DockPosition, Panel, PanelEvent},
+ };
+ 
+-
+ pub struct DatabasePanel {
+     focus_handle: FocusHandle,
+     workspace: WeakEntity<Workspace>,
+     profiles: Vec<ConnectionProfile>,
++    tree: TreeState,
++    connections: HashMap<String, Connection>,
++    errors: HashMap<String, String>,
++    loading: HashSet<String>,
+ }
+ 
+ impl DatabasePanel {
+@@ -24,10 +38,18 @@ impl DatabasePanel {
+         cx: &mut Context<Workspace>,
+     ) -> Entity<Self> {
+         let weak = cx.entity().downgrade();
+-        cx.new(|cx| DatabasePanel {
+-            focus_handle: cx.focus_handle(),
+-            workspace: weak,
+-            profiles: store::load_profiles(),
++        cx.new(|cx| {
++            let profiles = store::load_profiles();
++            let tree = Self::build_tree(&profiles);
++            DatabasePanel {
++                focus_handle: cx.focus_handle(),
++                workspace: weak,
++                profiles,
++                tree,
++                connections: HashMap::new(),
++                errors: HashMap::new(),
++                loading: HashSet::new(),
++            }
+         })
+     }
+ 
+@@ -40,10 +62,188 @@ impl DatabasePanel {
+         })
+     }
+ 
++    fn build_tree(profiles: &[ConnectionProfile]) -> TreeState {
++        TreeState::new(
++            profiles
++                .iter()
++                .map(|p| (p.id.clone(), p.name.clone()))
++                .collect(),
++        )
++    }
++
+     pub(crate) fn reload_profiles(&mut self, cx: &mut Context<Self>) {
+         self.profiles = store::load_profiles();
++        self.tree = Self::build_tree(&self.profiles);
+         cx.notify();
+     }
++
++    fn toggle_node(&mut self, node_id: String, cx: &mut Context<Self>) {
++        self.tree.toggle(&node_id);
++
++        if self.tree.is_expanded(&node_id) {
++            let depth = node_id.split('/').count();
++            match depth {
++                1 => self.expand_connection(node_id, cx),
++                2 => self.expand_schema(node_id, cx),
++                3 => self.expand_relation(node_id, cx),
++                _ => {}
++            }
++        }
++
++        cx.notify();
++    }
++
++    fn expand_connection(&mut self, profile_id: String, cx: &mut Context<Self>) {
++        if self.tree.schemas_loaded(&profile_id) || self.loading.contains(&profile_id) {
++            return;
++        }
++
++        let Some(profile) = self.profiles.iter().find(|p| p.id == profile_id).cloned() else {
++            return;
++        };
++
++        self.loading.insert(profile_id.clone());
++
++        cx.spawn(async move |this, cx| {
++            let password: Option<String> = cx
++                .update(|cx| store::read_password(cx, &profile))
++                .await
++                .ok()
++                .flatten();
++
++            let conn_result: Result<Connection> = cx
++                .update(|cx| Connection::connect(profile.clone(), password, cx))
++                .await;
++
++            match conn_result {
++                Ok(conn) => {
++                    let schemas_result = cx.update(|cx| conn.list_schemas(cx)).await;
++                    this.update(cx, |this, cx| {
++                        this.loading.remove(&profile_id);
++                        match schemas_result {
++                            Ok(schemas) => {
++                                this.connections.insert(profile_id.clone(), conn);
++                                this.tree.set_schemas(
++                                    &profile_id,
++                                    schemas.into_iter().map(|s| s.name).collect(),
++                                );
++                                this.errors.remove(&profile_id);
++                            }
++                            Err(err) => {
++                                this.errors.insert(profile_id.clone(), err.to_string());
++                            }
++                        }
++                        cx.notify();
++                    })
++                    .ok();
++                }
++                Err(err) => {
++                    this.update(cx, |this, cx| {
++                        this.loading.remove(&profile_id);
++                        this.errors.insert(profile_id.clone(), err.to_string());
++                        cx.notify();
++                    })
++                    .ok();
++                }
++            }
++        })
++        .detach();
++    }
++
++    fn expand_schema(&mut self, schema_id: String, cx: &mut Context<Self>) {
++        if self.tree.relations_loaded(&schema_id) || self.loading.contains(&schema_id) {
++            return;
++        }
++
++        let mut parts = schema_id.splitn(2, '/');
++        let (Some(conn_id), Some(schema_name)) = (parts.next(), parts.next()) else {
++            return;
++        };
++        let conn_id = conn_id.to_string();
++        let schema_name = schema_name.to_string();
++
++        let Some(conn) = self.connections.get(&conn_id).cloned() else {
++            return;
++        };
++
++        self.loading.insert(schema_id.clone());
++
++        cx.spawn(async move |this, cx| {
++            let relations_result = cx
++                .update(|cx| conn.list_relations(schema_name.clone(), cx))
++                .await;
++            this.update(cx, |this, cx| {
++                this.loading.remove(&schema_id);
++                match relations_result {
++                    Ok(relations) => {
++                        this.tree.set_relations(&schema_id, relations);
++                        this.errors.remove(&schema_id);
++                    }
++                    Err(err) => {
++                        this.errors.insert(schema_id.clone(), err.to_string());
++                    }
++                }
++                cx.notify();
++            })
++            .ok();
++        })
++        .detach();
++    }
++
++    fn expand_relation(&mut self, rel_id: String, cx: &mut Context<Self>) {
++        if self.tree.columns_loaded(&rel_id) || self.loading.contains(&rel_id) {
++            return;
++        }
++
++        let mut parts = rel_id.splitn(3, '/');
++        let (Some(conn_id), Some(schema_name), Some(table_name)) =
++            (parts.next(), parts.next(), parts.next())
++        else {
++            return;
++        };
++        let conn_id = conn_id.to_string();
++        let schema_name = schema_name.to_string();
++        let table_name = table_name.to_string();
++
++        let Some(conn) = self.connections.get(&conn_id).cloned() else {
++            return;
++        };
++
++        self.loading.insert(rel_id.clone());
++
++        cx.spawn(async move |this, cx| {
++            let columns_result = cx
++                .update(|cx| conn.list_columns(schema_name.clone(), table_name.clone(), cx))
++                .await;
++            this.update(cx, |this, cx| {
++                this.loading.remove(&rel_id);
++                match columns_result {
++                    Ok(columns) => {
++                        this.tree.set_columns(&rel_id, columns);
++                        this.errors.remove(&rel_id);
++                    }
++                    Err(err) => {
++                        this.errors.insert(rel_id.clone(), err.to_string());
++                    }
++                }
++                cx.notify();
++            })
++            .ok();
++        })
++        .detach();
++    }
++}
++
++fn node_icon(kind: &NodeKind, relation_kind: Option<RelationKind>) -> IconName {
++    match kind {
++        NodeKind::Connection => IconName::DatabaseZap,
++        NodeKind::Schema => IconName::Folder,
++        NodeKind::Relation => match relation_kind {
++            Some(RelationKind::View) => IconName::Eye,
++            _ => IconName::File,
++        },
++        NodeKind::Column => IconName::Hash,
++    }
+ }
+ 
+ impl Focusable for DatabasePanel {
+@@ -96,14 +296,62 @@ impl Panel for DatabasePanel {
+ 
+ impl Render for DatabasePanel {
+     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
++        let nodes = self.tree.visible_nodes();
++        let errors = self.errors.clone();
++        let loading = self.loading.clone();
++
++        let rows = nodes.into_iter().enumerate().map(|(index, node)| {
++            let indent_px = node.depth * 16;
++            let node_id_for_toggle = node.id.clone();
++            let is_loading = loading.contains(&node.id);
++            let error = errors.get(&node.id).cloned();
++            let icon = node_icon(&node.kind, node.relation_kind);
++            let label_text = node.label.clone();
++            let is_expanded = node.expanded;
++            let has_children = node.has_children;
++
++            h_flex()
++                .id(("tree-row", index))
++                .w_full()
++                .py_0p5()
++                .pl(px(indent_px as f32 + 4.0))
++                .pr_2()
++                .gap_1()
++                .when(has_children, |this| {
++                    this.child(
++                        Disclosure::new(("disclosure", index), is_expanded).on_click(
++                            cx.listener(move |this, _, _, cx| {
++                                this.toggle_node(node_id_for_toggle.clone(), cx);
++                            }),
++                        ),
++                    )
++                })
++                .when(!has_children, |this| this.pl(px(20.0)))
++                .child(Icon::new(icon).size(IconSize::Small).color(Color::Muted))
++                .child(
++                    Label::new(label_text)
++                        .size(LabelSize::Small)
++                        .when(is_loading, |this| this.color(Color::Muted)),
++                )
++                .when_some(error, |this, err_text| {
++                    this.child(
++                        Label::new(format!("— {err_text}"))
++                            .size(LabelSize::Small)
++                            .color(Color::Error),
++                    )
++                })
++        });
++
+         div()
+             .key_context("DatabasePanel")
+             .track_focus(&self.focus_handle)
+             .size_full()
+-            .p_2()
++            .flex()
++            .flex_col()
+             .child(
+                 h_flex()
+                     .w_full()
++                    .p_2()
+                     .justify_between()
+                     .child(Label::new(format!("{} connection(s)", self.profiles.len())))
+                     .child(
+@@ -126,5 +374,13 @@ impl Render for DatabasePanel {
+                             })),
+                     ),
+             )
++            .child(
++                div()
++                    .id("db-tree-scroll")
++                    .flex_1()
++                    .w_full()
++                    .overflow_y_scroll()
++                    .children(rows),
++            )
+     }
+ }
+diff --git a/crates/database_client/src/tree.rs b/crates/database_client/src/tree.rs
+new file mode 100644
+index 0000000000..2074d1098f
+--- /dev/null
++++ b/crates/database_client/src/tree.rs
+@@ -0,0 +1,286 @@
++use std::collections::{HashMap, HashSet};
++
++use crate::connection::introspect::{ColumnInfo, RelationInfo, RelationKind};
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum NodeKind {
++    Connection,
++    Schema,
++    Relation,
++    Column,
++}
++
++pub struct TreeNode {
++    pub id: String,
++    pub depth: usize,
++    pub kind: NodeKind,
++    pub label: String,
++    pub expanded: bool,
++    pub has_children: bool,
++    pub relation_kind: Option<RelationKind>,
++}
++
++struct ConnectionEntry {
++    id: String,
++    name: String,
++}
++
++pub struct TreeState {
++    connections: Vec<ConnectionEntry>,
++    schemas: HashMap<String, Vec<String>>,
++    relations: HashMap<String, Vec<RelationInfo>>,
++    columns: HashMap<String, Vec<ColumnInfo>>,
++    expanded: HashSet<String>,
++}
++
++impl TreeState {
++    pub fn new(connections: Vec<(String, String)>) -> Self {
++        TreeState {
++            connections: connections
++                .into_iter()
++                .map(|(id, name)| ConnectionEntry { id, name })
++                .collect(),
++            schemas: HashMap::new(),
++            relations: HashMap::new(),
++            columns: HashMap::new(),
++            expanded: HashSet::new(),
++        }
++    }
++
++    pub fn visible_nodes(&self) -> Vec<TreeNode> {
++        let mut nodes = Vec::new();
++        for conn in &self.connections {
++            let expanded = self.expanded.contains(&conn.id);
++            nodes.push(TreeNode {
++                id: conn.id.clone(),
++                depth: 0,
++                kind: NodeKind::Connection,
++                label: conn.name.clone(),
++                expanded,
++                has_children: true,
++                relation_kind: None,
++            });
++            if expanded {
++                if let Some(schema_names) = self.schemas.get(&conn.id) {
++                    for schema_name in schema_names {
++                        let schema_id = format!("{}/{}", conn.id, schema_name);
++                        let schema_expanded = self.expanded.contains(&schema_id);
++                        nodes.push(TreeNode {
++                            id: schema_id.clone(),
++                            depth: 1,
++                            kind: NodeKind::Schema,
++                            label: schema_name.clone(),
++                            expanded: schema_expanded,
++                            has_children: true,
++                            relation_kind: None,
++                        });
++                        if schema_expanded {
++                            if let Some(relation_infos) = self.relations.get(&schema_id) {
++                                for rel in relation_infos {
++                                    let rel_id = format!("{}/{}", schema_id, rel.name);
++                                    let rel_expanded = self.expanded.contains(&rel_id);
++                                    nodes.push(TreeNode {
++                                        id: rel_id.clone(),
++                                        depth: 2,
++                                        kind: NodeKind::Relation,
++                                        label: rel.name.clone(),
++                                        expanded: rel_expanded,
++                                        has_children: true,
++                                        relation_kind: Some(rel.kind),
++                                    });
++                                    if rel_expanded {
++                                        if let Some(col_infos) = self.columns.get(&rel_id) {
++                                            for col in col_infos {
++                                                let col_id = format!("{}/{}", rel_id, col.name);
++                                                nodes.push(TreeNode {
++                                                    id: col_id,
++                                                    depth: 3,
++                                                    kind: NodeKind::Column,
++                                                    label: format!(
++                                                        "{}: {}",
++                                                        col.name, col.data_type
++                                                    ),
++                                                    expanded: false,
++                                                    has_children: false,
++                                                    relation_kind: None,
++                                                });
++                                            }
++                                        }
++                                    }
++                                }
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        nodes
++    }
++
++    pub fn toggle(&mut self, id: &str) {
++        if self.expanded.contains(id) {
++            self.expanded.remove(id);
++        } else {
++            self.expanded.insert(id.to_string());
++        }
++    }
++
++    pub fn set_schemas(&mut self, conn_id: &str, schemas: Vec<String>) {
++        self.schemas.insert(conn_id.to_string(), schemas);
++    }
++
++    pub fn set_relations(&mut self, schema_id: &str, relations: Vec<RelationInfo>) {
++        self.relations.insert(schema_id.to_string(), relations);
++    }
++
++    pub fn set_columns(&mut self, rel_id: &str, columns: Vec<ColumnInfo>) {
++        self.columns.insert(rel_id.to_string(), columns);
++    }
++
++    pub fn is_expanded(&self, id: &str) -> bool {
++        self.expanded.contains(id)
++    }
++
++    pub fn schemas_loaded(&self, conn_id: &str) -> bool {
++        self.schemas.contains_key(conn_id)
++    }
++
++    pub fn relations_loaded(&self, schema_id: &str) -> bool {
++        self.relations.contains_key(schema_id)
++    }
++
++    pub fn columns_loaded(&self, rel_id: &str) -> bool {
++        self.columns.contains_key(rel_id)
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn collapsed_connection_shows_only_itself() {
++        let t = TreeState::new(vec![("p1".into(), "Local".into())]);
++        let nodes = t.visible_nodes();
++        assert_eq!(nodes.len(), 1);
++        assert_eq!(nodes[0].kind, NodeKind::Connection);
++        assert!(!nodes[0].expanded);
++    }
++
++    #[test]
++    fn expanding_connection_reveals_loaded_schemas() {
++        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++        t.toggle("p1");
++        t.set_schemas("p1", vec!["public".into(), "app".into()]);
++        let labels: Vec<_> = t.visible_nodes().iter().map(|n| n.label.clone()).collect();
++        assert_eq!(labels, vec!["Local", "public", "app"]);
++    }
++
++    #[test]
++    fn expanding_then_collapsing_hides_schemas() {
++        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++        t.toggle("p1");
++        t.set_schemas("p1", vec!["public".into()]);
++        assert_eq!(t.visible_nodes().len(), 2);
++        t.toggle("p1");
++        assert_eq!(t.visible_nodes().len(), 1);
++    }
++
++    #[test]
++    fn expanded_but_not_yet_loaded_shows_only_parent() {
++        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++        t.toggle("p1");
++        // schemas not loaded yet
++        assert_eq!(t.visible_nodes().len(), 1);
++    }
++
++    #[test]
++    fn expanding_schema_reveals_relations() {
++        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++        t.toggle("p1");
++        t.set_schemas("p1", vec!["public".into()]);
++        t.toggle("p1/public");
++        t.set_relations(
++            "p1/public",
++            vec![RelationInfo {
++                name: "users".into(),
++                kind: RelationKind::Table,
++            }],
++        );
++        let labels: Vec<_> = t.visible_nodes().iter().map(|n| n.label.clone()).collect();
++        assert_eq!(labels, vec!["Local", "public", "users"]);
++    }
++
++    #[test]
++    fn expanding_relation_reveals_columns() {
++        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++        t.toggle("p1");
++        t.set_schemas("p1", vec!["public".into()]);
++        t.toggle("p1/public");
++        t.set_relations(
++            "p1/public",
++            vec![RelationInfo {
++                name: "users".into(),
++                kind: RelationKind::Table,
++            }],
++        );
++        t.toggle("p1/public/users");
++        t.set_columns(
++            "p1/public/users",
++            vec![ColumnInfo {
++                name: "id".into(),
++                data_type: "integer".into(),
++            }],
++        );
++        let nodes = t.visible_nodes();
++        assert_eq!(nodes.len(), 4);
++        assert_eq!(nodes[3].kind, NodeKind::Column);
++        assert_eq!(nodes[3].label, "id: integer");
++        assert_eq!(nodes[3].id, "p1/public/users/id");
++    }
++
++    #[test]
++    fn multiple_connections_both_visible() {
++        let t = TreeState::new(vec![
++            ("p1".into(), "Local".into()),
++            ("p2".into(), "Remote".into()),
++        ]);
++        let nodes = t.visible_nodes();
++        assert_eq!(nodes.len(), 2);
++        assert_eq!(nodes[0].label, "Local");
++        assert_eq!(nodes[1].label, "Remote");
++    }
++
++    #[test]
++    fn connection_node_has_children() {
++        let t = TreeState::new(vec![("p1".into(), "Local".into())]);
++        let nodes = t.visible_nodes();
++        assert!(nodes[0].has_children);
++    }
++
++    #[test]
++    fn column_node_has_no_children() {
++        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++        t.toggle("p1");
++        t.set_schemas("p1", vec!["public".into()]);
++        t.toggle("p1/public");
++        t.set_relations(
++            "p1/public",
++            vec![RelationInfo {
++                name: "users".into(),
++                kind: RelationKind::Table,
++            }],
++        );
++        t.toggle("p1/public/users");
++        t.set_columns(
++            "p1/public/users",
++            vec![ColumnInfo {
++                name: "id".into(),
++                data_type: "integer".into(),
++            }],
++        );
++        let nodes = t.visible_nodes();
++        let col = nodes.iter().find(|n| n.kind == NodeKind::Column).unwrap();
++        assert!(!col.has_children);
++    }
++}

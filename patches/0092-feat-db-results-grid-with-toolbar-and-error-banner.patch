@@ -1,0 +1,291 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sat, 27 Jun 2026 22:37:31 +0300
+Subject: [PATCH] feat(db): results grid with toolbar and error banner
+
+---
+ crates/database_client/src/query_view.rs | 215 +++++++++++++++++------
+ 1 file changed, 158 insertions(+), 57 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index 03aa13c52d..31b4c07c0f 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -10,6 +10,7 @@ use language::Buffer;
+ use settings::Settings as _;
+ use theme::ActiveTheme;
+ use theme_settings::ThemeSettings;
++use ui::{Table, TableInteractionState};
+ use ui::prelude::*;
+ use workspace::{
+     Workspace, WorkspaceId,
+@@ -45,6 +46,12 @@ pub struct QueryView {
+     result: Option<QueryResult>,
+     error: Option<String>,
+     elapsed_ms: Option<u128>,
++    /// Monotonically increasing counter; each `run` call captures its value so that
++    /// stale async completions can detect they are no longer the most recent query.
++    run_generation: usize,
++    /// True while a query is in flight; cleared when the matching generation completes.
++    running: bool,
++    table_interaction: Entity<TableInteractionState>,
+     #[allow(dead_code)]
+     workspace: WeakEntity<Workspace>,
+     #[allow(dead_code)]
+@@ -63,6 +70,7 @@ impl QueryView {
+     ) -> Self {
+         let buffer = cx.new(|cx| Buffer::local(initial_sql, cx));
+         let editor = cx.new(|cx| Editor::for_buffer(buffer.clone(), None, window, cx));
++        let table_interaction = cx.new(|cx| TableInteractionState::new(cx));
+ 
+         let language_future = workspace
+             .read_with(cx, |ws, cx| {
+@@ -86,6 +94,9 @@ impl QueryView {
+             result: None,
+             error: None,
+             elapsed_ms: None,
++            run_generation: 0,
++            running: false,
++            table_interaction,
+             workspace,
+             workspace_id,
+         }
+@@ -114,25 +125,38 @@ impl QueryView {
+             cx.notify();
+             return;
+         };
++
++        self.run_generation += 1;
++        let generation_id = self.run_generation;
++        self.running = true;
++        cx.notify();
++
+         let start = Instant::now();
+         let task = connection.execute(sql, DEFAULT_RESULT_LIMIT, cx);
+         cx.spawn(async move |this, cx| {
+             let outcome = task.await;
+             let elapsed = start.elapsed().as_millis();
+-            this.update(cx, |this, cx| match outcome {
+-                Ok(result) => {
+-                    this.result = Some(result);
+-                    this.error = None;
+-                    this.elapsed_ms = Some(elapsed);
+-                    cx.emit(QueryViewEvent::ResultsChanged);
+-                    cx.notify();
++            this.update(cx, |this, cx| {
++                // Discard result if a newer query has been dispatched in the meantime.
++                if this.run_generation != generation_id {
++                    return;
+                 }
+-                Err(err) => {
+-                    this.error = Some(err.to_string());
+-                    this.result = None;
+-                    this.elapsed_ms = Some(elapsed);
+-                    cx.emit(QueryViewEvent::ResultsChanged);
+-                    cx.notify();
++                this.running = false;
++                match outcome {
++                    Ok(result) => {
++                        this.result = Some(result);
++                        this.error = None;
++                        this.elapsed_ms = Some(elapsed);
++                        cx.emit(QueryViewEvent::ResultsChanged);
++                        cx.notify();
++                    }
++                    Err(err) => {
++                        this.error = Some(err.to_string());
++                        this.result = None;
++                        this.elapsed_ms = Some(elapsed);
++                        cx.emit(QueryViewEvent::ResultsChanged);
++                        cx.notify();
++                    }
+                 }
+             })
+             .ok();
+@@ -192,46 +216,134 @@ impl Render for QueryView {
+     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+         let editor_style = Self::editor_style(cx);
+ 
+-        let status_line = if let Some(error) = &self.error {
+-            let error = error.clone();
+-            Some(
+-                h_flex()
+-                    .px_2()
+-                    .py_1()
+-                    .gap_1()
+-                    .child(
+-                        Label::new(format!("Error: {error}"))
+-                            .size(LabelSize::Small)
+-                            .color(Color::Error),
+-                    )
+-                    .into_any_element(),
++        let profile_name: SharedString = self
++            .profile
++            .as_ref()
++            .map(|p| SharedString::from(p.name.clone()))
++            .unwrap_or_else(|| "No Connection".into());
++
++        let run_label: &str = if self.running { "Running…" } else { "Run" };
++        let run_button = Button::new("run-query", run_label)
++            .style(ButtonStyle::Filled)
++            .disabled(self.running)
++            .on_click(cx.listener(|this, _, window, cx| {
++                this.run(&RunQuery, window, cx);
++            }));
++
++        let toolbar = h_flex()
++            .px_2()
++            .py_1()
++            .gap_2()
++            .border_b_1()
++            .border_color(cx.theme().colors().border)
++            .child(
++                Label::new(profile_name)
++                    .size(LabelSize::Small)
++                    .color(Color::Muted),
+             )
++            .child(run_button)
++            .when_some(
++                self.result.as_ref().zip(self.elapsed_ms),
++                |toolbar, (result, elapsed)| {
++                    let row_count = result.rows.len();
++                    let truncated = result.truncated;
++                    toolbar
++                        .child(
++                            Label::new(format!("{} rows", row_count))
++                                .size(LabelSize::Small)
++                                .color(Color::Muted),
++                        )
++                        .child(
++                            Label::new(format!("{} ms", elapsed))
++                                .size(LabelSize::Small)
++                                .color(Color::Muted),
++                        )
++                        .when(truncated, |toolbar| {
++                            toolbar.child(
++                                Label::new(format!("(showing first {})", DEFAULT_RESULT_LIMIT))
++                                    .size(LabelSize::Small)
++                                    .color(Color::Muted),
++                            )
++                        })
++                },
++            );
++
++        let results_area: AnyElement = if let Some(error) = &self.error {
++            let error_msg = format!("Error: {}", error);
++            div()
++                .flex_1()
++                .w_full()
++                .px_2()
++                .py_1()
++                .child(Label::new(error_msg).color(Color::Error))
++                .into_any_element()
+         } else if let Some(result) = &self.result {
+-            let row_count = result.rows.len();
+-            let truncated = result.truncated;
+-            let elapsed = self.elapsed_ms.unwrap_or(0);
+-            let tag = result
+-                .command_tag
+-                .clone()
+-                .unwrap_or_else(|| format!("{row_count} row(s)"));
+-            let truncation_note = if truncated {
+-                format!(" (truncated to {DEFAULT_RESULT_LIMIT})")
+-            } else {
+-                String::new()
+-            };
+-            Some(
+-                h_flex()
++            if result.columns.is_empty() {
++                // DML/DDL result with no column data — toolbar already shows row count and timing.
++                div()
++                    .flex_1()
++                    .w_full()
+                     .px_2()
+                     .py_1()
+                     .child(
+-                        Label::new(format!("{tag}{truncation_note} — {elapsed}ms"))
++                        Label::new("Query executed successfully.")
+                             .size(LabelSize::Small)
+                             .color(Color::Muted),
+                     )
+-                    .into_any_element(),
+-            )
++                    .into_any_element()
++            } else {
++                let columns = result.columns.clone();
++                let rows = result.rows.clone();
++                let cols = columns.len();
++
++                let table = Table::new(cols)
++                    .header(columns)
++                    .uniform_list(
++                        "query-results",
++                        rows.len(),
++                        move |range, _window, _cx| {
++                            range
++                                .map(|i| {
++                                    rows[i]
++                                        .iter()
++                                        .map(|cell| match cell {
++                                            None => Label::new("NULL")
++                                                .color(Color::Muted)
++                                                .into_any_element(),
++                                            Some(s) => Label::new(s.clone()).into_any_element(),
++                                        })
++                                        .collect::<Vec<AnyElement>>()
++                                })
++                                .collect()
++                        },
++                    )
++                    .empty_table_callback(|_window, _cx| {
++                        Label::new("No rows returned.")
++                            .size(LabelSize::Small)
++                            .color(Color::Muted)
++                            .into_any_element()
++                    })
++                    .interactable(&self.table_interaction);
++
++                div()
++                    .flex_1()
++                    .w_full()
++                    .overflow_hidden()
++                    .child(table)
++                    .into_any_element()
++            }
+         } else {
+-            None
++            div()
++                .flex_1()
++                .w_full()
++                .px_2()
++                .py_1()
++                .child(
++                    Label::new("Run a query (⌘↵)")
++                        .size(LabelSize::Small)
++                        .color(Color::Muted),
++                )
++                .into_any_element()
+         };
+ 
+         div()
+@@ -247,18 +359,7 @@ impl Render for QueryView {
+                     .h(gpui::px(200.0))
+                     .child(EditorElement::new(&self.editor, editor_style)),
+             )
+-            .when_some(status_line, |this, line| this.child(line))
+-            .child(
+-                div()
+-                    .flex_1()
+-                    .w_full()
+-                    .px_2()
+-                    .py_1()
+-                    .child(
+-                        Label::new("Results will appear here (Task 10).")
+-                            .size(LabelSize::Small)
+-                            .color(Color::Muted),
+-                    ),
+-            )
++            .child(toolbar)
++            .child(results_area)
+     }
+ }

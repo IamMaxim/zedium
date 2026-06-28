@@ -1,0 +1,193 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sat, 27 Jun 2026 21:28:52 +0300
+Subject: [PATCH] feat(db): schema introspection queries + parsers
+
+---
+ crates/database_client/src/connection.rs      |   1 +
+ .../src/connection/introspect.rs              | 167 ++++++++++++++++++
+ 2 files changed, 168 insertions(+)
+ create mode 100644 crates/database_client/src/connection/introspect.rs
+
+diff --git a/crates/database_client/src/connection.rs b/crates/database_client/src/connection.rs
+index 62221668c9..9f5abd9c43 100644
+--- a/crates/database_client/src/connection.rs
++++ b/crates/database_client/src/connection.rs
+@@ -1,3 +1,4 @@
+ pub mod client;
++pub mod introspect;
+ pub mod profile;
+ pub mod store;
+diff --git a/crates/database_client/src/connection/introspect.rs b/crates/database_client/src/connection/introspect.rs
+new file mode 100644
+index 0000000000..79ca949881
+--- /dev/null
++++ b/crates/database_client/src/connection/introspect.rs
+@@ -0,0 +1,167 @@
++use crate::connection::client::{Connection, QueryResult};
++use anyhow::Result;
++use gpui::{App, AppContext, Task};
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct SchemaInfo {
++    pub name: String,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum RelationKind {
++    Table,
++    View,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct RelationInfo {
++    pub name: String,
++    pub kind: RelationKind,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ColumnInfo {
++    pub name: String,
++    pub data_type: String,
++}
++
++fn col(r: &QueryResult, row: &[Option<String>], name: &str) -> String {
++    r.columns
++        .iter()
++        .position(|c| c == name)
++        .and_then(|i| row.get(i).cloned().flatten())
++        .unwrap_or_default()
++}
++
++pub(crate) fn parse_schemas(r: &QueryResult) -> Vec<SchemaInfo> {
++    r.rows
++        .iter()
++        .map(|row| SchemaInfo {
++            name: col(r, row, "schema_name"),
++        })
++        .collect()
++}
++
++pub(crate) fn parse_relations(r: &QueryResult) -> Vec<RelationInfo> {
++    r.rows
++        .iter()
++        .map(|row| {
++            let kind = if col(r, row, "table_type") == "VIEW" {
++                RelationKind::View
++            } else {
++                RelationKind::Table
++            };
++            RelationInfo {
++                name: col(r, row, "table_name"),
++                kind,
++            }
++        })
++        .collect()
++}
++
++pub(crate) fn parse_columns(r: &QueryResult) -> Vec<ColumnInfo> {
++    r.rows
++        .iter()
++        .map(|row| ColumnInfo {
++            name: col(r, row, "column_name"),
++            data_type: col(r, row, "data_type"),
++        })
++        .collect()
++}
++
++pub(crate) fn quote_literal(s: &str) -> String {
++    format!("'{}'", s.replace('\'', "''"))
++}
++
++impl Connection {
++    pub fn list_schemas(&self, cx: &App) -> Task<Result<Vec<SchemaInfo>>> {
++        let sql = "select schema_name from information_schema.schemata \
++                   where schema_name not in ('pg_catalog','information_schema') \
++                   order by schema_name"
++            .to_string();
++        let task = self.execute(sql, 10_000, cx);
++        cx.background_spawn(async move { Ok(parse_schemas(&task.await?)) })
++    }
++
++    pub fn list_relations(&self, schema: String, cx: &App) -> Task<Result<Vec<RelationInfo>>> {
++        let sql = format!(
++            "select table_name, table_type from information_schema.tables \
++             where table_schema = {} order by table_name",
++            quote_literal(&schema)
++        );
++        let task = self.execute(sql, 10_000, cx);
++        cx.background_spawn(async move { Ok(parse_relations(&task.await?)) })
++    }
++
++    pub fn list_columns(&self, schema: String, table: String, cx: &App) -> Task<Result<Vec<ColumnInfo>>> {
++        let sql = format!(
++            "select column_name, data_type from information_schema.columns \
++             where table_schema = {} and table_name = {} order by ordinal_position",
++            quote_literal(&schema),
++            quote_literal(&table)
++        );
++        let task = self.execute(sql, 10_000, cx);
++        cx.background_spawn(async move { Ok(parse_columns(&task.await?)) })
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::connection::client::QueryResult;
++
++    fn qr(columns: &[&str], rows: Vec<Vec<Option<&str>>>) -> QueryResult {
++        QueryResult {
++            columns: columns.iter().map(|s| s.to_string()).collect(),
++            rows: rows
++                .into_iter()
++                .map(|r| r.into_iter().map(|c| c.map(String::from)).collect())
++                .collect(),
++            command_tag: None,
++            truncated: false,
++        }
++    }
++
++    #[test]
++    fn parses_schemas() {
++        let r = qr(
++            &["schema_name"],
++            vec![vec![Some("public")], vec![Some("app")]],
++        );
++        let s = parse_schemas(&r);
++        assert_eq!(
++            s.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
++            ["public", "app"]
++        );
++    }
++
++    #[test]
++    fn parses_relations_kind() {
++        let r = qr(
++            &["table_name", "table_type"],
++            vec![
++                vec![Some("users"), Some("BASE TABLE")],
++                vec![Some("v_users"), Some("VIEW")],
++            ],
++        );
++        let rels = parse_relations(&r);
++        assert_eq!(rels[0].kind, RelationKind::Table);
++        assert_eq!(rels[1].kind, RelationKind::View);
++    }
++
++    #[test]
++    fn parses_columns() {
++        let r = qr(
++            &["column_name", "data_type"],
++            vec![vec![Some("id"), Some("integer")]],
++        );
++        let cols = parse_columns(&r);
++        assert_eq!(cols[0].name, "id");
++        assert_eq!(cols[0].data_type, "integer");
++    }
++
++    #[test]
++    fn quote_literal_escapes_apostrophes() {
++        assert_eq!(quote_literal("o'brien"), "'o''brien'");
++    }
++}

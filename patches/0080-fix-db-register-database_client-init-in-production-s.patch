@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sat, 27 Jun 2026 21:08:26 +0300
+Subject: [PATCH] fix(db): register database_client::init in production startup
+
+---
+ crates/zed/src/main.rs | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
+index ed3dc1d197..fcc3679500 100644
+--- a/crates/zed/src/main.rs
++++ b/crates/zed/src/main.rs
+@@ -673,6 +673,7 @@ fn main() {
+         project_symbols::init(cx);
+         project_panel::init(cx);
+         outline_panel::init(cx);
++        database_client::init(cx);
+         tasks_ui::init(cx);
+         snippets_ui::init(cx);
+         search::init(cx);

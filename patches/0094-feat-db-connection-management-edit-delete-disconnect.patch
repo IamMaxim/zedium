@@ -1,0 +1,700 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sat, 27 Jun 2026 23:02:20 +0300
+Subject: [PATCH] feat(db): connection management (edit/delete/disconnect),
+ stale reconnect, empty states, docs
+
+- Context menu on connection nodes (right-click): Disconnect, Edit, Delete
+  - Disconnect clears cached connection and schemas; next expand reconnects
+  - Edit opens ConnectionModal pre-filled with existing profile; blank
+    password field preserves the existing keychain credential
+  - Delete removes profile from connections.json and keychain
+- Stale-connection handling: any error during schema/column load drops the
+  cached connection and collapses the node so the next expand reconnects
+- Empty state: zero-profile panel shows "No connections" + "Add connection"
+  button wired to the same modal as the header "+"
+- store::delete_password + store::replace_profile_by_id helpers (unit-tested)
+- TreeState::clear_connection + TreeState::collapse helpers (unit-tested)
+- ConnectionModal extended with edit mode (ConnectionModal::edit)
+- README documenting config path, keychain behaviour, actions, and SQL extension
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GbHBSdw2MBBgxKxLnVCbf6
+---
+ crates/database_client/README.md              |  52 ++++
+ .../database_client/src/connection/store.rs   |  33 +++
+ .../database_client/src/connection_modal.rs   | 128 +++++++--
+ crates/database_client/src/panel.rs           | 255 +++++++++++++++---
+ crates/database_client/src/tree.rs            |  43 +++
+ 5 files changed, 452 insertions(+), 59 deletions(-)
+ create mode 100644 crates/database_client/README.md
+
+diff --git a/crates/database_client/README.md b/crates/database_client/README.md
+new file mode 100644
+index 0000000000..00295f1afa
+--- /dev/null
++++ b/crates/database_client/README.md
+@@ -0,0 +1,52 @@
++# database_client
++
++A Postgres database browser panel for Zed/Zedium.
++
++## Configuration
++
++Connection profiles are stored as JSON at:
++
++```
++$config_dir/database_client/connections.json
++```
++
++where `$config_dir` is the platform config directory (e.g. `~/.config/zed` on Linux, `~/Library/Application Support/Zed` on macOS).
++
++Passwords are **not** stored on disk. They are kept in the OS keychain (Keychain on macOS, Secret Service on Linux) and looked up by a stable URL key derived from the connection parameters.
++
++## Actions
++
++| Action | Description |
++|--------|-------------|
++| `database_client::ToggleFocus` | Show or hide the Database panel |
++| `database_client::NewConnection` | Open the New Connection modal |
++| `database_client::RunQuery` | Execute the SQL in the active Query View |
++
++Default key bindings are registered inside the crate:
++
++- `cmd-enter` / `ctrl-enter` in the `QueryView` context runs `RunQuery`.
++
++To add custom global bindings, add them to your `keymap.json`:
++
++```json
++[
++  {
++    "context": "Workspace",
++    "bindings": {
++      "ctrl-shift-d": "database_client::ToggleFocus"
++    }
++  }
++]
++```
++
++## SQL syntax highlighting
++
++SQL syntax highlighting in the Query View requires the **SQL** language extension to be installed. Without it, queries are treated as plain text.
++
++## Connection context menu
++
++Right-clicking a connection node in the panel reveals three actions:
++
++- **Disconnect** — drops the live connection; the next expand reconnects.
++- **Edit** — opens the modal pre-filled with the existing settings; leaving the password field blank keeps the current keychain password.
++- **Delete** — removes the profile from `connections.json` and deletes the keychain entry.
+diff --git a/crates/database_client/src/connection/store.rs b/crates/database_client/src/connection/store.rs
+index 9a8800677b..ae698eeac7 100644
+--- a/crates/database_client/src/connection/store.rs
++++ b/crates/database_client/src/connection/store.rs
+@@ -48,6 +48,20 @@ pub fn read_password(cx: &App, profile: &ConnectionProfile) -> Task<Result<Optio
+     })
+ }
+ 
++pub fn delete_password(cx: &App, profile: &ConnectionProfile) -> Task<Result<()>> {
++    cx.delete_credentials(&profile.keychain_url())
++}
++
++/// Replace the entry matching `updated.id` in-place. No-op if no entry has that id.
++pub(crate) fn replace_profile_by_id(
++    profiles: &mut Vec<ConnectionProfile>,
++    updated: ConnectionProfile,
++) {
++    if let Some(entry) = profiles.iter_mut().find(|p| p.id == updated.id) {
++        *entry = updated;
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -61,6 +75,25 @@ mod tests {
+         }
+     }
+ 
++    #[test]
++    fn replace_profile_by_id_updates_matching_entry() {
++        let mut profiles = vec![sample()];
++        let mut updated = sample();
++        updated.name = "Updated".into();
++        replace_profile_by_id(&mut profiles, updated);
++        assert_eq!(profiles[0].name, "Updated");
++    }
++
++    #[test]
++    fn replace_profile_by_id_ignores_unknown_id() {
++        let mut profiles = vec![sample()];
++        let mut unknown = sample();
++        unknown.id = "other".into();
++        unknown.name = "Other".into();
++        replace_profile_by_id(&mut profiles, unknown);
++        assert_eq!(profiles[0].name, "Local");
++    }
++
+     #[test]
+     fn save_then_load_round_trips_via_explicit_path() {
+         let dir = tempfile::tempdir().unwrap();
+diff --git a/crates/database_client/src/connection_modal.rs b/crates/database_client/src/connection_modal.rs
+index 585f896629..62d4ea9acc 100644
+--- a/crates/database_client/src/connection_modal.rs
++++ b/crates/database_client/src/connection_modal.rs
+@@ -21,6 +21,8 @@ pub struct ConnectionModal {
+     user_input: Entity<Editor>,
+     password_input: Entity<Editor>,
+     ssl_mode: SslMode,
++    /// When `Some`, we are editing an existing profile rather than creating a new one.
++    edit_profile: Option<ConnectionProfile>,
+ }
+ 
+ impl ConnectionModal {
+@@ -69,6 +71,64 @@ impl ConnectionModal {
+             user_input,
+             password_input,
+             ssl_mode: SslMode::default(),
++            edit_profile: None,
++        }
++    }
++
++    /// Open the modal pre-filled with an existing profile for editing.
++    pub fn edit(
++        panel: Entity<DatabasePanel>,
++        profile: ConnectionProfile,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) -> Self {
++        let name_input = cx.new(|cx| {
++            let mut editor = Editor::single_line(window, cx);
++            editor.set_placeholder_text("Connection name", window, cx);
++            editor.set_text(profile.name.as_str(), window, cx);
++            editor
++        });
++        let host_input = cx.new(|cx| {
++            let mut editor = Editor::single_line(window, cx);
++            editor.set_placeholder_text("localhost", window, cx);
++            editor.set_text(profile.host.as_str(), window, cx);
++            editor
++        });
++        let port_input = cx.new(|cx| {
++            let mut editor = Editor::single_line(window, cx);
++            editor.set_placeholder_text("5432", window, cx);
++            editor.set_text(profile.port.to_string().as_str(), window, cx);
++            editor
++        });
++        let database_input = cx.new(|cx| {
++            let mut editor = Editor::single_line(window, cx);
++            editor.set_placeholder_text("postgres", window, cx);
++            editor.set_text(profile.database.as_str(), window, cx);
++            editor
++        });
++        let user_input = cx.new(|cx| {
++            let mut editor = Editor::single_line(window, cx);
++            editor.set_placeholder_text("user", window, cx);
++            editor.set_text(profile.user.as_str(), window, cx);
++            editor
++        });
++        let password_input = cx.new(|cx| {
++            let mut editor = Editor::single_line(window, cx);
++            editor.set_placeholder_text("password (leave blank to keep current)", window, cx);
++            editor.set_masked(true, cx);
++            editor
++        });
++        let ssl_mode = profile.ssl_mode;
++        Self {
++            panel,
++            name_input,
++            host_input,
++            port_input,
++            database_input,
++            user_input,
++            password_input,
++            ssl_mode,
++            edit_profile: Some(profile),
+         }
+     }
+ 
+@@ -85,27 +145,50 @@ impl ConnectionModal {
+         let password = self.password_input.read(cx).text(cx).to_string();
+ 
+         let port = port_str.parse::<u16>().unwrap_or(5432);
+-        let millis = std::time::SystemTime::now()
+-            .duration_since(std::time::UNIX_EPOCH)
+-            .unwrap_or_default()
+-            .as_millis();
+-
+-        let profile = ConnectionProfile {
+-            id: format!("conn-{millis}"),
+-            name,
+-            host,
+-            port,
+-            database,
+-            user,
+-            ssl_mode: self.ssl_mode,
+-        };
+ 
+-        let mut profiles = store::load_profiles();
+-        profiles.push(profile.clone());
+-        if let Err(e) = store::save_profiles(&profiles) {
+-            log::error!("failed to save connection profiles: {e}");
++        if let Some(ref existing) = self.edit_profile {
++            // Edit mode: replace the profile in JSON; update keychain only when password is non-blank.
++            let profile = ConnectionProfile {
++                id: existing.id.clone(),
++                name,
++                host,
++                port,
++                database,
++                user,
++                ssl_mode: self.ssl_mode,
++            };
++            let mut profiles = store::load_profiles();
++            store::replace_profile_by_id(&mut profiles, profile.clone());
++            if let Err(e) = store::save_profiles(&profiles) {
++                log::error!("failed to save connection profiles: {e}");
++            }
++            if !password.is_empty() {
++                store::store_password(cx, &profile, &password).detach_and_log_err(cx);
++            }
++        } else {
++            // Add mode: append a new profile.
++            let millis = std::time::SystemTime::now()
++                .duration_since(std::time::UNIX_EPOCH)
++                .unwrap_or_default()
++                .as_millis();
++
++            let profile = ConnectionProfile {
++                id: format!("conn-{millis}"),
++                name,
++                host,
++                port,
++                database,
++                user,
++                ssl_mode: self.ssl_mode,
++            };
++
++            let mut profiles = store::load_profiles();
++            profiles.push(profile.clone());
++            if let Err(e) = store::save_profiles(&profiles) {
++                log::error!("failed to save connection profiles: {e}");
++            }
++            store::store_password(cx, &profile, &password).detach_and_log_err(cx);
+         }
+-        store::store_password(cx, &profile, &password).detach_and_log_err(cx);
+ 
+         self.panel.update(cx, |panel, cx| {
+             panel.reload_profiles(cx);
+@@ -140,6 +223,11 @@ impl Render for ConnectionModal {
+             SslMode::Prefer => "SSL: Prefer",
+             SslMode::Require => "SSL: Require",
+         };
++        let title = if self.edit_profile.is_some() {
++            "Edit Connection"
++        } else {
++            "New Connection"
++        };
+ 
+         v_flex()
+             .key_context("ConnectionModal")
+@@ -155,7 +243,7 @@ impl Render for ConnectionModal {
+                     .w_full()
+                     .gap_1p5()
+                     .child(Icon::new(IconName::DatabaseZap).size(IconSize::XSmall))
+-                    .child(Headline::new("New Connection").size(HeadlineSize::XSmall)),
++                    .child(Headline::new(title).size(HeadlineSize::XSmall)),
+             )
+             .child(
+                 v_flex()
+diff --git a/crates/database_client/src/panel.rs b/crates/database_client/src/panel.rs
+index 8e45ad1f55..8ca196312c 100644
+--- a/crates/database_client/src/panel.rs
++++ b/crates/database_client/src/panel.rs
+@@ -12,10 +12,11 @@ use crate::{
+ };
+ use anyhow::Result;
+ use gpui::{
+-    App, AsyncWindowContext, ClickEvent, Context, Entity, EventEmitter, FocusHandle, Focusable,
+-    IntoElement, ParentElement, Render, Styled, WeakEntity, Window, div, px,
++    App, AsyncWindowContext, ClickEvent, Context, DismissEvent, Entity, EventEmitter, FocusHandle,
++    Focusable, IntoElement, MouseButton, MouseDownEvent, ParentElement, Pixels, Point, Render,
++    Styled, Subscription, WeakEntity, Window, anchored, deferred, div, px,
+ };
+-use ui::{Disclosure, IconName, Tooltip, prelude::*};
++use ui::{ContextMenu, ContextMenuEntry, Disclosure, IconName, Tooltip, prelude::*};
+ use workspace::{
+     Workspace,
+     dock::{DockPosition, Panel, PanelEvent},
+@@ -29,6 +30,7 @@ pub struct DatabasePanel {
+     connections: HashMap<String, Connection>,
+     errors: HashMap<String, String>,
+     loading: HashSet<String>,
++    context_menu: Option<(Entity<ContextMenu>, Point<Pixels>, Subscription)>,
+ }
+ 
+ impl DatabasePanel {
+@@ -49,6 +51,7 @@ impl DatabasePanel {
+                 connections: HashMap::new(),
+                 errors: HashMap::new(),
+                 loading: HashSet::new(),
++                context_menu: None,
+             }
+         })
+     }
+@@ -183,7 +186,12 @@ impl DatabasePanel {
+                         this.errors.remove(&schema_id);
+                     }
+                     Err(err) => {
+-                        this.errors.insert(schema_id.clone(), err.to_string());
++                        log::error!("list_relations for {schema_id}: {err}");
++                        // Drop the cached connection so the next expand reconnects.
++                        let conn_id = schema_id.split('/').next().unwrap_or("").to_string();
++                        if !conn_id.is_empty() {
++                            this.mark_connection_stale(&conn_id);
++                        }
+                     }
+                 }
+                 cx.notify();
+@@ -259,7 +267,12 @@ impl DatabasePanel {
+                         this.errors.remove(&rel_id);
+                     }
+                     Err(err) => {
+-                        this.errors.insert(rel_id.clone(), err.to_string());
++                        log::error!("list_columns for {rel_id}: {err}");
++                        // Drop the cached connection so the next expand reconnects.
++                        let conn_id = rel_id.split('/').next().unwrap_or("").to_string();
++                        if !conn_id.is_empty() {
++                            this.mark_connection_stale(&conn_id);
++                        }
+                     }
+                 }
+                 cx.notify();
+@@ -268,6 +281,132 @@ impl DatabasePanel {
+         })
+         .detach();
+     }
++
++    /// Mark a connection as stale: clear its cached data, collapse it, and record an error
++    /// prompting the user to expand again to reconnect.
++    fn mark_connection_stale(&mut self, conn_id: &str) {
++        self.connections.remove(conn_id);
++        self.loading.remove(conn_id);
++        self.tree.clear_connection(conn_id);
++        self.tree.collapse(conn_id);
++        self.errors.insert(
++            conn_id.to_string(),
++            "Disconnected — expand to reconnect".to_string(),
++        );
++    }
++
++    fn disconnect_connection(&mut self, profile_id: String, cx: &mut Context<Self>) {
++        self.connections.remove(&profile_id);
++        self.loading.remove(&profile_id);
++        self.tree.clear_connection(&profile_id);
++        self.errors.remove(&profile_id);
++        cx.notify();
++    }
++
++    fn delete_connection(&mut self, profile_id: String, cx: &mut Context<Self>) {
++        let profile = self.profiles.iter().find(|p| p.id == profile_id).cloned();
++        self.profiles.retain(|p| p.id != profile_id);
++        if let Err(e) = store::save_profiles(&self.profiles) {
++            log::error!("failed to save profiles after delete: {e}");
++        }
++        if let Some(profile) = profile {
++            store::delete_password(cx, &profile).detach_and_log_err(cx);
++        }
++        self.connections.remove(&profile_id);
++        self.loading.remove(&profile_id);
++        self.errors.remove(&profile_id);
++        self.tree = Self::build_tree(&self.profiles);
++        cx.notify();
++    }
++
++    fn edit_connection(
++        &mut self,
++        profile_id: String,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) {
++        let Some(profile) = self.profiles.iter().find(|p| p.id == profile_id).cloned() else {
++            return;
++        };
++        let panel = cx.entity();
++        self.workspace
++            .update(cx, |workspace, cx| {
++                workspace.toggle_modal(window, cx, |window, cx| {
++                    crate::connection_modal::ConnectionModal::edit(
++                        panel.clone(),
++                        profile.clone(),
++                        window,
++                        cx,
++                    )
++                });
++            })
++            .ok();
++    }
++
++    fn deploy_connection_context_menu(
++        &mut self,
++        profile_id: String,
++        position: Point<Pixels>,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) {
++        let entity = cx.entity();
++
++        let context_menu = ContextMenu::build(window, cx, |menu, _, _| {
++            menu.item(
++                ContextMenuEntry::new("Disconnect").handler({
++                    let entity = entity.clone();
++                    let profile_id = profile_id.clone();
++                    move |_window, cx| {
++                        entity.update(cx, |this, cx| {
++                            this.disconnect_connection(profile_id.clone(), cx);
++                        });
++                    }
++                }),
++            )
++            .item(
++                ContextMenuEntry::new("Edit").handler({
++                    let entity = entity.clone();
++                    let profile_id = profile_id.clone();
++                    move |window, cx| {
++                        entity.update(cx, |this, cx| {
++                            this.edit_connection(profile_id.clone(), window, cx);
++                        });
++                    }
++                }),
++            )
++            .item(
++                ContextMenuEntry::new("Delete").handler({
++                    let entity = entity.clone();
++                    let profile_id = profile_id.clone();
++                    move |_window, cx| {
++                        entity.update(cx, |this, cx| {
++                            this.delete_connection(profile_id.clone(), cx);
++                        });
++                    }
++                }),
++            )
++        });
++
++        window.focus(&context_menu.focus_handle(cx), cx);
++        let subscription = cx.subscribe(&context_menu, |this, _, _: &DismissEvent, cx| {
++            this.context_menu.take();
++            cx.notify();
++        });
++        self.context_menu = Some((context_menu, position, subscription));
++        cx.notify();
++    }
++
++    fn open_new_connection_modal(&mut self, window: &mut Window, cx: &mut Context<Self>) {
++        let panel = cx.entity();
++        self.workspace
++            .update(cx, |workspace, cx| {
++                workspace.toggle_modal(window, cx, |window, cx| {
++                    crate::connection_modal::ConnectionModal::new(panel.clone(), window, cx)
++                });
++            })
++            .ok();
++    }
+ }
+ 
+ fn node_icon(kind: &NodeKind, relation_kind: Option<RelationKind>) -> IconName {
+@@ -340,6 +479,7 @@ impl Render for DatabasePanel {
+             let indent_px = node.depth * 16;
+             let node_id_for_toggle = node.id.clone();
+             let node_id_for_query = node.id.clone();
++            let node_id_for_menu = node.id.clone();
+             let is_loading = loading.contains(&node.id);
+             let error = errors.get(&node.id).cloned();
+             let icon = node_icon(&node.kind, node.relation_kind);
+@@ -347,6 +487,7 @@ impl Render for DatabasePanel {
+             let is_expanded = node.expanded;
+             let has_children = node.has_children;
+             let is_relation = matches!(node.kind, NodeKind::Relation);
++            let is_connection = matches!(node.kind, NodeKind::Connection);
+ 
+             h_flex()
+                 .id(("tree-row", index))
+@@ -391,47 +532,83 @@ impl Render for DatabasePanel {
+                         },
+                     ))
+                 })
++                .when(is_connection, |this| {
++                    this.on_mouse_down(
++                        MouseButton::Right,
++                        cx.listener(move |this, event: &MouseDownEvent, window, cx| {
++                            this.deploy_connection_context_menu(
++                                node_id_for_menu.clone(),
++                                event.position,
++                                window,
++                                cx,
++                            );
++                        }),
++                    )
++                })
+         });
+ 
++        let header = h_flex()
++            .w_full()
++            .p_2()
++            .justify_between()
++            .child(Label::new(format!("{} connection(s)", self.profiles.len())))
++            .child(
++                IconButton::new("new-connection", IconName::Plus)
++                    .icon_size(IconSize::Small)
++                    .tooltip(Tooltip::text("New Connection"))
++                    .on_click(cx.listener(|this, _, window, cx| {
++                        this.open_new_connection_modal(window, cx);
++                    })),
++            );
++
++        let content = if self.profiles.is_empty() {
++            div()
++                .flex_1()
++                .w_full()
++                .flex()
++                .flex_col()
++                .items_center()
++                .justify_center()
++                .gap_2()
++                .child(
++                    Label::new("No connections")
++                        .size(LabelSize::Small)
++                        .color(Color::Muted),
++                )
++                .child(
++                    Button::new("add-connection-empty", "Add connection").on_click(
++                        cx.listener(|this, _, window, cx| {
++                            this.open_new_connection_modal(window, cx);
++                        }),
++                    ),
++                )
++                .into_any_element()
++        } else {
++            div()
++                .id("db-tree-scroll")
++                .flex_1()
++                .w_full()
++                .overflow_y_scroll()
++                .children(rows)
++                .into_any_element()
++        };
++
+         div()
+             .key_context("DatabasePanel")
+             .track_focus(&self.focus_handle)
+             .size_full()
+             .flex()
+             .flex_col()
+-            .child(
+-                h_flex()
+-                    .w_full()
+-                    .p_2()
+-                    .justify_between()
+-                    .child(Label::new(format!("{} connection(s)", self.profiles.len())))
+-                    .child(
+-                        IconButton::new("new-connection", IconName::Plus)
+-                            .icon_size(IconSize::Small)
+-                            .tooltip(Tooltip::text("New Connection"))
+-                            .on_click(cx.listener(|this, _, window, cx| {
+-                                let panel = cx.entity();
+-                                this.workspace
+-                                    .update(cx, |workspace, cx| {
+-                                        workspace.toggle_modal(window, cx, |window, cx| {
+-                                            crate::connection_modal::ConnectionModal::new(
+-                                                panel.clone(),
+-                                                window,
+-                                                cx,
+-                                            )
+-                                        });
+-                                    })
+-                                    .ok();
+-                            })),
+-                    ),
+-            )
+-            .child(
+-                div()
+-                    .id("db-tree-scroll")
+-                    .flex_1()
+-                    .w_full()
+-                    .overflow_y_scroll()
+-                    .children(rows),
+-            )
++            .child(header)
++            .child(content)
++            .children(self.context_menu.as_ref().map(|(menu, position, _)| {
++                deferred(
++                    anchored()
++                        .position(*position)
++                        .anchor(gpui::Anchor::TopLeft)
++                        .child(menu.clone()),
++                )
++                .with_priority(1)
++            }))
+     }
+ }
+diff --git a/crates/database_client/src/tree.rs b/crates/database_client/src/tree.rs
+index d011da438c..e2a2ed877b 100644
+--- a/crates/database_client/src/tree.rs
++++ b/crates/database_client/src/tree.rs
+@@ -152,6 +152,21 @@ impl TreeState {
+     pub fn columns_loaded(&self, rel_id: &str) -> bool {
+         self.columns.contains_key(rel_id)
+     }
++
++    /// Remove all cached schemas, relations, and columns for a connection and collapse its children.
++    /// The connection node's own expanded state is preserved so callers can collapse it separately.
++    pub fn clear_connection(&mut self, conn_id: &str) {
++        self.schemas.remove(conn_id);
++        let prefix = format!("{}/", conn_id);
++        self.relations.retain(|k, _| !k.starts_with(&prefix));
++        self.columns.retain(|k, _| !k.starts_with(&prefix));
++        self.expanded.retain(|k| !k.starts_with(&prefix));
++    }
++
++    /// Collapse a node (remove from the expanded set).
++    pub fn collapse(&mut self, id: &str) {
++        self.expanded.remove(id);
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -262,6 +277,34 @@ mod tests {
+         assert_eq!(labels, vec!["Local", "public"]); // data survived
+     }
+ 
++    #[test]
++    fn clear_connection_removes_all_child_data_and_keeps_connection_node() {
++        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++        t.toggle("p1");
++        t.set_schemas("p1", vec!["public".into()]);
++        t.toggle("p1/public");
++        t.set_relations(
++            "p1/public",
++            vec![RelationInfo {
++                name: "users".into(),
++                kind: RelationKind::Table,
++            }],
++        );
++        assert!(t.schemas_loaded("p1"));
++        assert!(t.relations_loaded("p1/public"));
++        assert!(t.is_expanded("p1/public"));
++
++        t.clear_connection("p1");
++
++        assert!(!t.schemas_loaded("p1"));
++        assert!(!t.relations_loaded("p1/public"));
++        assert!(!t.is_expanded("p1/public"));
++        // Connection node itself is still visible
++        let nodes = t.visible_nodes();
++        assert_eq!(nodes.len(), 1);
++        assert_eq!(nodes[0].kind, NodeKind::Connection);
++    }
++
+     #[test]
+     fn connection_node_has_children() {
+         let t = TreeState::new(vec![("p1".into(), "Local".into())]);

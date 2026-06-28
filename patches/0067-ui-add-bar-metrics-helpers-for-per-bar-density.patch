@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Thu, 18 Jun 2026 00:57:20 +0300
+Subject: [PATCH] ui: add bar-metrics helpers for per-bar density
+
+---
+ crates/ui/src/components/icon.rs    | 21 ++++++++++++++-------
+ crates/ui/src/styles.rs             |  2 ++
+ crates/ui/src/styles/bar_metrics.rs | 15 +++++++++++++++
+ 3 files changed, 31 insertions(+), 7 deletions(-)
+ create mode 100644 crates/ui/src/styles/bar_metrics.rs
+
+diff --git a/crates/ui/src/components/icon.rs b/crates/ui/src/components/icon.rs
+index 6089bba4b8..df52dc8680 100644
+--- a/crates/ui/src/components/icon.rs
++++ b/crates/ui/src/components/icon.rs
+@@ -85,14 +85,21 @@ impl IconSize {
+     ///   2. The padding of one side of the square
+     pub fn square_components(&self, window: &mut Window, cx: &mut App) -> (Pixels, Pixels) {
+         let icon_size = self.rems() * window.rem_size();
++        // Resolve the padding against the window rem size (rather than the global
++        // `ui_font_size` that `DynamicSpacing::px` uses) so an icon button scales
++        // uniformly inside a `WithRemSize` scope (e.g. a per-bar `font_size`).
++        // At the default rem size (which equals `ui_font_size`) this is identical
++        // to the previous `.px(cx)` values.
+         let padding = match self {
+-            IconSize::Indicator => DynamicSpacing::Base00.px(cx),
+-            IconSize::XSmall => DynamicSpacing::Base02.px(cx),
+-            IconSize::Small => DynamicSpacing::Base02.px(cx),
+-            IconSize::Medium => DynamicSpacing::Base02.px(cx),
+-            IconSize::XLarge => DynamicSpacing::Base02.px(cx),
+-            // TODO: Wire into dynamic spacing
+-            IconSize::Custom(size) => size.to_pixels(window.rem_size()),
++            IconSize::Indicator => DynamicSpacing::Base00.rems(cx).to_pixels(window.rem_size()),
++            IconSize::XSmall => DynamicSpacing::Base02.rems(cx).to_pixels(window.rem_size()),
++            IconSize::Small => DynamicSpacing::Base02.rems(cx).to_pixels(window.rem_size()),
++            IconSize::Medium => DynamicSpacing::Base02.rems(cx).to_pixels(window.rem_size()),
++            IconSize::XLarge => DynamicSpacing::Base02.rems(cx).to_pixels(window.rem_size()),
++            // A custom size takes the same small glyph padding as the built-in
++            // sizes. (Previously this used the icon size itself as the padding,
++            // which tripled the square — e.g. a 12px icon produced a 36px button.)
++            IconSize::Custom(_) => DynamicSpacing::Base02.rems(cx).to_pixels(window.rem_size()),
+         };
+ 
+         (icon_size, padding)
+diff --git a/crates/ui/src/styles.rs b/crates/ui/src/styles.rs
+index bc2399f54b..be8f09586c 100644
+--- a/crates/ui/src/styles.rs
++++ b/crates/ui/src/styles.rs
+@@ -1,5 +1,6 @@
+ pub mod animation;
+ mod appearance;
++mod bar_metrics;
+ mod color;
+ mod elevation;
+ mod platform;
+@@ -9,6 +10,7 @@ mod typography;
+ mod units;
+ 
+ pub use appearance::*;
++pub use bar_metrics::*;
+ pub use color::*;
+ pub use elevation::*;
+ pub use platform::*;
+diff --git a/crates/ui/src/styles/bar_metrics.rs b/crates/ui/src/styles/bar_metrics.rs
+new file mode 100644
+index 0000000000..362637fd60
+--- /dev/null
++++ b/crates/ui/src/styles/bar_metrics.rs
+@@ -0,0 +1,15 @@
++use gpui::rems;
++
++use crate::IconSize;
++
++/// Clamp a user-supplied bar vertical padding (px) to the range `[0, 40]`.
++pub fn clamp_bar_padding(value: f32) -> f32 {
++    value.clamp(0., 40.)
++}
++
++/// An absolute-px icon size for a bar, expressed relative to that bar's effective
++/// rem size (`font_size` override, else the UI font size) so it renders at exactly
++/// `icon_px` regardless of any surrounding [`WithRemSize`] scope. Clamped `[6, 48]`.
++pub fn bar_icon_size(icon_px: f32, rem_size: f32) -> IconSize {
++    IconSize::Custom(rems(icon_px.clamp(6., 48.) / rem_size))
++}
