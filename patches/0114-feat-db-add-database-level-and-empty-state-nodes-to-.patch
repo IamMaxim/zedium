@@ -1,0 +1,642 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Wed, 1 Jul 2026 23:12:04 +0300
+Subject: [PATCH] feat(db): add database level and empty-state nodes to
+ explorer tree model
+
+---
+ crates/database_client/src/panel.rs |   2 +
+ crates/database_client/src/tree.rs  | 468 ++++++++++++++++++----------
+ 2 files changed, 299 insertions(+), 171 deletions(-)
+
+diff --git a/crates/database_client/src/panel.rs b/crates/database_client/src/panel.rs
+index cb6e8d094d..56f11008df 100644
+--- a/crates/database_client/src/panel.rs
++++ b/crates/database_client/src/panel.rs
+@@ -414,12 +414,14 @@ impl DatabasePanel {
+ fn node_icon(kind: &NodeKind, relation_kind: Option<RelationKind>) -> IconName {
+     match kind {
+         NodeKind::Connection => IconName::DatabaseZap,
++        NodeKind::Database => IconName::Box,
+         NodeKind::Schema => IconName::Folder,
+         NodeKind::Relation => match relation_kind {
+             Some(RelationKind::View) => IconName::Eye,
+             _ => IconName::File,
+         },
+         NodeKind::Column => IconName::Hash,
++        NodeKind::Empty => IconName::Hash,
+     }
+ }
+ 
+diff --git a/crates/database_client/src/tree.rs b/crates/database_client/src/tree.rs
+index bdddd9f7d6..c9cc5f7b3c 100644
+--- a/crates/database_client/src/tree.rs
++++ b/crates/database_client/src/tree.rs
+@@ -5,9 +5,13 @@ use crate::connection::introspect::{ColumnInfo, RelationInfo, RelationKind};
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub enum NodeKind {
+     Connection,
++    Database,
+     Schema,
+     Relation,
+     Column,
++    /// Synthetic placeholder rendered under an expanded node whose children
++    /// loaded empty, e.g. "(no tables)". Non-interactive.
++    Empty,
+ }
+ 
+ pub struct TreeNode {
+@@ -27,12 +31,37 @@ struct ConnectionEntry {
+ 
+ pub struct TreeState {
+     connections: Vec<ConnectionEntry>,
++    /// conn-id -> database names
++    databases: HashMap<String, Vec<String>>,
++    /// "{conn}/{db}" -> schema names
+     schemas: HashMap<String, Vec<String>>,
++    /// "{conn}/{db}/{schema}" -> relations
+     relations: HashMap<String, Vec<RelationInfo>>,
++    /// "{conn}/{db}/{schema}/{rel}" -> columns
+     columns: HashMap<String, Vec<ColumnInfo>>,
+     expanded: HashSet<String>,
+ }
+ 
++/// Unloaded children (None) keep the disclosure arrow; loaded-empty hides it.
++fn loaded_has_children<T>(loaded: Option<&Vec<T>>) -> bool {
++    match loaded {
++        None => true,
++        Some(v) => !v.is_empty(),
++    }
++}
++
++fn empty_node(parent_id: &str, depth: usize, what: &str) -> TreeNode {
++    TreeNode {
++        id: format!("{parent_id}/(empty)"),
++        depth,
++        kind: NodeKind::Empty,
++        label: format!("(no {what})"),
++        expanded: false,
++        has_children: false,
++        relation_kind: None,
++    }
++}
++
+ impl TreeState {
+     pub fn new(connections: Vec<(String, String)>) -> Self {
+         TreeState {
+@@ -40,6 +69,7 @@ impl TreeState {
+                 .into_iter()
+                 .map(|(id, name)| ConnectionEntry { id, name })
+                 .collect(),
++            databases: HashMap::new(),
+             schemas: HashMap::new(),
+             relations: HashMap::new(),
+             columns: HashMap::new(),
+@@ -57,73 +87,113 @@ impl TreeState {
+                 kind: NodeKind::Connection,
+                 label: conn.name.clone(),
+                 expanded,
+-                has_children: match self.schemas.get(&conn.id) {
+-                    None => true,
+-                    Some(v) => !v.is_empty(),
+-                },
++                has_children: loaded_has_children(self.databases.get(&conn.id)),
+                 relation_kind: None,
+             });
+             if expanded {
+-                if let Some(schema_names) = self.schemas.get(&conn.id) {
+-                    for schema_name in schema_names {
+-                        let schema_id = format!("{}/{}", conn.id, schema_name);
+-                        let schema_expanded = self.expanded.contains(&schema_id);
++                match self.databases.get(&conn.id) {
++                    None => {}
++                    Some(dbs) if dbs.is_empty() => {
++                        nodes.push(empty_node(&conn.id, 1, "databases"));
++                    }
++                    Some(dbs) => {
++                        for db_name in dbs {
++                            self.push_database(&mut nodes, &conn.id, db_name);
++                        }
++                    }
++                }
++            }
++        }
++        nodes
++    }
++
++    fn push_database(&self, nodes: &mut Vec<TreeNode>, conn_id: &str, db_name: &str) {
++        let db_id = format!("{conn_id}/{db_name}");
++        let expanded = self.expanded.contains(&db_id);
++        nodes.push(TreeNode {
++            id: db_id.clone(),
++            depth: 1,
++            kind: NodeKind::Database,
++            label: db_name.to_string(),
++            expanded,
++            has_children: loaded_has_children(self.schemas.get(&db_id)),
++            relation_kind: None,
++        });
++        if expanded {
++            match self.schemas.get(&db_id) {
++                None => {}
++                Some(schemas) if schemas.is_empty() => {
++                    nodes.push(empty_node(&db_id, 2, "schemas"));
++                }
++                Some(schemas) => {
++                    for schema_name in schemas {
++                        self.push_schema(nodes, &db_id, schema_name);
++                    }
++                }
++            }
++        }
++    }
++
++    fn push_schema(&self, nodes: &mut Vec<TreeNode>, db_id: &str, schema_name: &str) {
++        let schema_id = format!("{db_id}/{schema_name}");
++        let expanded = self.expanded.contains(&schema_id);
++        nodes.push(TreeNode {
++            id: schema_id.clone(),
++            depth: 2,
++            kind: NodeKind::Schema,
++            label: schema_name.to_string(),
++            expanded,
++            has_children: loaded_has_children(self.relations.get(&schema_id)),
++            relation_kind: None,
++        });
++        if expanded {
++            match self.relations.get(&schema_id) {
++                None => {}
++                Some(rels) if rels.is_empty() => {
++                    nodes.push(empty_node(&schema_id, 3, "tables"));
++                }
++                Some(rels) => {
++                    for rel in rels {
++                        self.push_relation(nodes, &schema_id, rel);
++                    }
++                }
++            }
++        }
++    }
++
++    fn push_relation(&self, nodes: &mut Vec<TreeNode>, schema_id: &str, rel: &RelationInfo) {
++        let rel_id = format!("{schema_id}/{}", rel.name);
++        let expanded = self.expanded.contains(&rel_id);
++        nodes.push(TreeNode {
++            id: rel_id.clone(),
++            depth: 3,
++            kind: NodeKind::Relation,
++            label: rel.name.clone(),
++            expanded,
++            has_children: loaded_has_children(self.columns.get(&rel_id)),
++            relation_kind: Some(rel.kind),
++        });
++        if expanded {
++            match self.columns.get(&rel_id) {
++                None => {}
++                Some(cols) if cols.is_empty() => {
++                    nodes.push(empty_node(&rel_id, 4, "columns"));
++                }
++                Some(cols) => {
++                    for col in cols {
+                         nodes.push(TreeNode {
+-                            id: schema_id.clone(),
+-                            depth: 1,
+-                            kind: NodeKind::Schema,
+-                            label: schema_name.clone(),
+-                            expanded: schema_expanded,
+-                            has_children: match self.relations.get(&schema_id) {
+-                                None => true,
+-                                Some(v) => !v.is_empty(),
+-                            },
++                            id: format!("{rel_id}/{}", col.name),
++                            depth: 4,
++                            kind: NodeKind::Column,
++                            label: format!("{}: {}", col.name, col.data_type),
++                            expanded: false,
++                            has_children: false,
+                             relation_kind: None,
+                         });
+-                        if schema_expanded {
+-                            if let Some(relation_infos) = self.relations.get(&schema_id) {
+-                                for rel in relation_infos {
+-                                    let rel_id = format!("{}/{}", schema_id, rel.name);
+-                                    let rel_expanded = self.expanded.contains(&rel_id);
+-                                    nodes.push(TreeNode {
+-                                        id: rel_id.clone(),
+-                                        depth: 2,
+-                                        kind: NodeKind::Relation,
+-                                        label: rel.name.clone(),
+-                                        expanded: rel_expanded,
+-                                        has_children: match self.columns.get(&rel_id) {
+-                                            None => true,
+-                                            Some(v) => !v.is_empty(),
+-                                        },
+-                                        relation_kind: Some(rel.kind),
+-                                    });
+-                                    if rel_expanded {
+-                                        if let Some(col_infos) = self.columns.get(&rel_id) {
+-                                            for col in col_infos {
+-                                                let col_id = format!("{}/{}", rel_id, col.name);
+-                                                nodes.push(TreeNode {
+-                                                    id: col_id,
+-                                                    depth: 3,
+-                                                    kind: NodeKind::Column,
+-                                                    label: format!(
+-                                                        "{}: {}",
+-                                                        col.name, col.data_type
+-                                                    ),
+-                                                    expanded: false,
+-                                                    has_children: false,
+-                                                    relation_kind: None,
+-                                                });
+-                                            }
+-                                        }
+-                                    }
+-                                }
+-                            }
+-                        }
+                     }
+                 }
+             }
+         }
+-        nodes
+     }
+ 
+     pub fn toggle(&mut self, id: &str) {
+@@ -134,8 +204,12 @@ impl TreeState {
+         }
+     }
+ 
+-    pub fn set_schemas(&mut self, conn_id: &str, schemas: Vec<String>) {
+-        self.schemas.insert(conn_id.to_string(), schemas);
++    pub fn set_databases(&mut self, conn_id: &str, databases: Vec<String>) {
++        self.databases.insert(conn_id.to_string(), databases);
++    }
++
++    pub fn set_schemas(&mut self, db_id: &str, schemas: Vec<String>) {
++        self.schemas.insert(db_id.to_string(), schemas);
+     }
+ 
+     pub fn set_relations(&mut self, schema_id: &str, relations: Vec<RelationInfo>) {
+@@ -150,8 +224,12 @@ impl TreeState {
+         self.expanded.contains(id)
+     }
+ 
+-    pub fn schemas_loaded(&self, conn_id: &str) -> bool {
+-        self.schemas.contains_key(conn_id)
++    pub fn databases_loaded(&self, conn_id: &str) -> bool {
++        self.databases.contains_key(conn_id)
++    }
++
++    pub fn schemas_loaded(&self, db_id: &str) -> bool {
++        self.schemas.contains_key(db_id)
+     }
+ 
+     pub fn relations_loaded(&self, schema_id: &str) -> bool {
+@@ -162,11 +240,13 @@ impl TreeState {
+         self.columns.contains_key(rel_id)
+     }
+ 
+-    /// Remove all cached schemas, relations, and columns for a connection and collapse its children.
+-    /// The connection node's own expanded state is preserved so callers can collapse it separately.
++    /// Remove all cached databases, schemas, relations, and columns for a
++    /// connection and collapse its descendants. The connection node's own
++    /// expanded state is preserved so callers can collapse it separately.
+     pub fn clear_connection(&mut self, conn_id: &str) {
+-        self.schemas.remove(conn_id);
++        self.databases.remove(conn_id);
+         let prefix = format!("{}/", conn_id);
++        self.schemas.retain(|k, _| !k.starts_with(&prefix));
+         self.relations.retain(|k, _| !k.starts_with(&prefix));
+         self.columns.retain(|k, _| !k.starts_with(&prefix));
+         self.expanded.retain(|k| !k.starts_with(&prefix));
+@@ -182,9 +262,35 @@ impl TreeState {
+ mod tests {
+     use super::*;
+ 
++    fn tree_one_conn() -> TreeState {
++        TreeState::new(vec![("p1".into(), "Local".into())])
++    }
++
++    /// Expand + load the path p1 -> db1 -> public -> users.
++    fn loaded_tree() -> TreeState {
++        let mut t = tree_one_conn();
++        t.toggle("p1");
++        t.set_databases("p1", vec!["db1".into()]);
++        t.toggle("p1/db1");
++        t.set_schemas("p1/db1", vec!["public".into()]);
++        t.toggle("p1/db1/public");
++        t.set_relations(
++            "p1/db1/public",
++            vec![RelationInfo {
++                name: "users".into(),
++                kind: RelationKind::Table,
++            }],
++        );
++        t
++    }
++
++    fn labels(t: &TreeState) -> Vec<String> {
++        t.visible_nodes().iter().map(|n| n.label.clone()).collect()
++    }
++
+     #[test]
+     fn collapsed_connection_shows_only_itself() {
+-        let t = TreeState::new(vec![("p1".into(), "Local".into())]);
++        let t = tree_one_conn();
+         let nodes = t.visible_nodes();
+         assert_eq!(nodes.len(), 1);
+         assert_eq!(nodes[0].kind, NodeKind::Connection);
+@@ -192,75 +298,87 @@ mod tests {
+     }
+ 
+     #[test]
+-    fn expanding_connection_reveals_loaded_schemas() {
+-        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++    fn expanding_connection_reveals_loaded_databases() {
++        let mut t = tree_one_conn();
+         t.toggle("p1");
+-        t.set_schemas("p1", vec!["public".into(), "app".into()]);
+-        let labels: Vec<_> = t.visible_nodes().iter().map(|n| n.label.clone()).collect();
+-        assert_eq!(labels, vec!["Local", "public", "app"]);
++        t.set_databases("p1", vec!["app".into(), "postgres".into()]);
++        assert_eq!(labels(&t), vec!["Local", "app", "postgres"]);
++        let nodes = t.visible_nodes();
++        assert_eq!(nodes[1].kind, NodeKind::Database);
++        assert_eq!(nodes[1].id, "p1/app");
++        assert_eq!(nodes[1].depth, 1);
+     }
+ 
+     #[test]
+-    fn expanding_then_collapsing_hides_schemas() {
+-        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
+-        t.toggle("p1");
+-        t.set_schemas("p1", vec!["public".into()]);
+-        assert_eq!(t.visible_nodes().len(), 2);
++    fn expanded_but_not_yet_loaded_shows_only_parent() {
++        let mut t = tree_one_conn();
+         t.toggle("p1");
++        // databases not loaded yet -> no children, no empty placeholder
+         assert_eq!(t.visible_nodes().len(), 1);
+     }
+ 
+     #[test]
+-    fn expanded_but_not_yet_loaded_shows_only_parent() {
+-        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++    fn expanding_database_reveals_schemas() {
++        let mut t = tree_one_conn();
+         t.toggle("p1");
+-        // schemas not loaded yet
+-        assert_eq!(t.visible_nodes().len(), 1);
++        t.set_databases("p1", vec!["db1".into()]);
++        t.toggle("p1/db1");
++        t.set_schemas("p1/db1", vec!["app".into(), "public".into()]);
++        assert_eq!(labels(&t), vec!["Local", "db1", "app", "public"]);
++        let nodes = t.visible_nodes();
++        assert_eq!(nodes[2].kind, NodeKind::Schema);
++        assert_eq!(nodes[2].id, "p1/db1/app");
++        assert_eq!(nodes[2].depth, 2);
+     }
+ 
+     #[test]
+     fn expanding_schema_reveals_relations() {
+-        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
+-        t.toggle("p1");
+-        t.set_schemas("p1", vec!["public".into()]);
+-        t.toggle("p1/public");
+-        t.set_relations(
+-            "p1/public",
+-            vec![RelationInfo {
+-                name: "users".into(),
+-                kind: RelationKind::Table,
+-            }],
+-        );
+-        let labels: Vec<_> = t.visible_nodes().iter().map(|n| n.label.clone()).collect();
+-        assert_eq!(labels, vec!["Local", "public", "users"]);
++        let t = loaded_tree();
++        assert_eq!(labels(&t), vec!["Local", "db1", "public", "users"]);
++        let nodes = t.visible_nodes();
++        assert_eq!(nodes[3].kind, NodeKind::Relation);
++        assert_eq!(nodes[3].id, "p1/db1/public/users");
++        assert_eq!(nodes[3].depth, 3);
+     }
+ 
+     #[test]
+     fn expanding_relation_reveals_columns() {
+-        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
+-        t.toggle("p1");
+-        t.set_schemas("p1", vec!["public".into()]);
+-        t.toggle("p1/public");
+-        t.set_relations(
+-            "p1/public",
+-            vec![RelationInfo {
+-                name: "users".into(),
+-                kind: RelationKind::Table,
+-            }],
+-        );
+-        t.toggle("p1/public/users");
++        let mut t = loaded_tree();
++        t.toggle("p1/db1/public/users");
+         t.set_columns(
+-            "p1/public/users",
++            "p1/db1/public/users",
+             vec![ColumnInfo {
+                 name: "id".into(),
+                 data_type: "integer".into(),
+             }],
+         );
+         let nodes = t.visible_nodes();
+-        assert_eq!(nodes.len(), 4);
+-        assert_eq!(nodes[3].kind, NodeKind::Column);
+-        assert_eq!(nodes[3].label, "id: integer");
+-        assert_eq!(nodes[3].id, "p1/public/users/id");
++        assert_eq!(nodes.len(), 5);
++        assert_eq!(nodes[4].kind, NodeKind::Column);
++        assert_eq!(nodes[4].label, "id: integer");
++        assert_eq!(nodes[4].id, "p1/db1/public/users/id");
++        assert_eq!(nodes[4].depth, 4);
++        assert!(!nodes[4].has_children);
++    }
++
++    #[test]
++    fn expanding_then_collapsing_hides_children() {
++        let mut t = tree_one_conn();
++        t.toggle("p1");
++        t.set_databases("p1", vec!["db1".into()]);
++        assert_eq!(t.visible_nodes().len(), 2);
++        t.toggle("p1");
++        assert_eq!(t.visible_nodes().len(), 1);
++    }
++
++    #[test]
++    fn re_expanding_after_collapse_does_not_lose_children() {
++        let mut t = tree_one_conn();
++        t.toggle("p1");
++        t.set_databases("p1", vec!["db1".into()]);
++        t.toggle("p1"); // collapse
++        t.toggle("p1"); // re-expand, no set_databases call
++        assert_eq!(labels(&t), vec!["Local", "db1"]);
+     }
+ 
+     #[test]
+@@ -269,90 +387,98 @@ mod tests {
+             ("p1".into(), "Local".into()),
+             ("p2".into(), "Remote".into()),
+         ]);
++        assert_eq!(labels(&t), vec!["Local", "Remote"]);
++    }
++
++    // --- empty-state placeholders ---
++
++    #[test]
++    fn loaded_empty_databases_show_placeholder() {
++        let mut t = tree_one_conn();
++        t.toggle("p1");
++        t.set_databases("p1", vec![]);
+         let nodes = t.visible_nodes();
+         assert_eq!(nodes.len(), 2);
+-        assert_eq!(nodes[0].label, "Local");
+-        assert_eq!(nodes[1].label, "Remote");
++        assert_eq!(nodes[1].kind, NodeKind::Empty);
++        assert_eq!(nodes[1].label, "(no databases)");
++        assert_eq!(nodes[1].depth, 1);
++        assert!(!nodes[1].has_children);
++        // parent hides its disclosure arrow
++        assert!(!nodes[0].has_children);
+     }
+ 
+     #[test]
+-    fn re_expanding_after_collapse_does_not_lose_children() {
+-        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++    fn loaded_empty_schemas_show_placeholder() {
++        let mut t = tree_one_conn();
+         t.toggle("p1");
+-        t.set_schemas("p1", vec!["public".into()]);
+-        t.toggle("p1"); // collapse
+-        t.toggle("p1"); // re-expand — no set_schemas called again
+-        let labels: Vec<_> = t.visible_nodes().iter().map(|n| n.label.clone()).collect();
+-        assert_eq!(labels, vec!["Local", "public"]); // data survived
++        t.set_databases("p1", vec!["db1".into()]);
++        t.toggle("p1/db1");
++        t.set_schemas("p1/db1", vec![]);
++        let nodes = t.visible_nodes();
++        assert_eq!(nodes[2].kind, NodeKind::Empty);
++        assert_eq!(nodes[2].label, "(no schemas)");
++        assert_eq!(nodes[2].depth, 2);
+     }
+ 
+     #[test]
+-    fn clear_connection_removes_all_child_data_and_keeps_connection_node() {
+-        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++    fn loaded_empty_relations_show_placeholder() {
++        let mut t = tree_one_conn();
+         t.toggle("p1");
+-        t.set_schemas("p1", vec!["public".into()]);
+-        t.toggle("p1/public");
+-        t.set_relations(
+-            "p1/public",
+-            vec![RelationInfo {
+-                name: "users".into(),
+-                kind: RelationKind::Table,
+-            }],
+-        );
+-        assert!(t.schemas_loaded("p1"));
+-        assert!(t.relations_loaded("p1/public"));
+-        assert!(t.is_expanded("p1/public"));
+-
+-        t.clear_connection("p1");
+-
+-        assert!(!t.schemas_loaded("p1"));
+-        assert!(!t.relations_loaded("p1/public"));
+-        assert!(!t.is_expanded("p1/public"));
+-        // Connection node itself is still visible
++        t.set_databases("p1", vec!["db1".into()]);
++        t.toggle("p1/db1");
++        t.set_schemas("p1/db1", vec!["public".into()]);
++        t.toggle("p1/db1/public");
++        t.set_relations("p1/db1/public", vec![]);
+         let nodes = t.visible_nodes();
+-        assert_eq!(nodes.len(), 1);
+-        assert_eq!(nodes[0].kind, NodeKind::Connection);
++        assert_eq!(nodes[3].kind, NodeKind::Empty);
++        assert_eq!(nodes[3].label, "(no tables)");
++        assert_eq!(nodes[3].depth, 3);
+     }
+ 
+     #[test]
+-    fn connection_node_has_children() {
+-        let t = TreeState::new(vec![("p1".into(), "Local".into())]);
++    fn loaded_empty_columns_show_placeholder() {
++        let mut t = loaded_tree();
++        t.toggle("p1/db1/public/users");
++        t.set_columns("p1/db1/public/users", vec![]);
+         let nodes = t.visible_nodes();
+-        assert!(nodes[0].has_children);
++        assert_eq!(nodes[4].kind, NodeKind::Empty);
++        assert_eq!(nodes[4].label, "(no columns)");
++        assert_eq!(nodes[4].depth, 4);
+     }
+ 
+     #[test]
+-    fn loaded_empty_schemas_hide_disclosure() {
+-        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
++    fn unloaded_children_show_no_placeholder() {
++        let mut t = tree_one_conn();
+         t.toggle("p1");
+-        t.set_schemas("p1", vec![]); // loaded, but empty
+-        let conn = t.visible_nodes().into_iter().find(|n| n.id == "p1").unwrap();
+-        assert!(!conn.has_children, "loaded-empty connection should not show a disclosure arrow");
++        t.set_databases("p1", vec!["db1".into()]);
++        t.toggle("p1/db1"); // schemas NOT loaded
++        let nodes = t.visible_nodes();
++        assert_eq!(nodes.len(), 2, "no placeholder while loading");
+     }
+ 
++    // --- lifecycle ---
++
+     #[test]
+-    fn column_node_has_no_children() {
+-        let mut t = TreeState::new(vec![("p1".into(), "Local".into())]);
+-        t.toggle("p1");
+-        t.set_schemas("p1", vec!["public".into()]);
+-        t.toggle("p1/public");
+-        t.set_relations(
+-            "p1/public",
+-            vec![RelationInfo {
+-                name: "users".into(),
+-                kind: RelationKind::Table,
+-            }],
+-        );
+-        t.toggle("p1/public/users");
+-        t.set_columns(
+-            "p1/public/users",
+-            vec![ColumnInfo {
+-                name: "id".into(),
+-                data_type: "integer".into(),
+-            }],
+-        );
++    fn clear_connection_removes_all_child_data_and_keeps_connection_node() {
++        let mut t = loaded_tree();
++        assert!(t.databases_loaded("p1"));
++        assert!(t.schemas_loaded("p1/db1"));
++        assert!(t.relations_loaded("p1/db1/public"));
++
++        t.clear_connection("p1");
++
++        assert!(!t.databases_loaded("p1"));
++        assert!(!t.schemas_loaded("p1/db1"));
++        assert!(!t.relations_loaded("p1/db1/public"));
++        assert!(!t.is_expanded("p1/db1"));
+         let nodes = t.visible_nodes();
+-        let col = nodes.iter().find(|n| n.kind == NodeKind::Column).unwrap();
+-        assert!(!col.has_children);
++        assert_eq!(nodes.len(), 1);
++        assert_eq!(nodes[0].kind, NodeKind::Connection);
++    }
++
++    #[test]
++    fn connection_node_has_children_before_load() {
++        let t = tree_one_conn();
++        assert!(t.visible_nodes()[0].has_children);
+     }
+ }

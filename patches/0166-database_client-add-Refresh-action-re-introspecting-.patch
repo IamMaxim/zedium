@@ -1,0 +1,265 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 16:39:28 +0300
+Subject: [PATCH] database_client: add Refresh action re-introspecting a
+ subtree; live object-group coverage
+
+---
+ crates/database_client/src/panel.rs | 149 +++++++++++++++++++++++++---
+ crates/database_client/src/tree.rs  |  41 ++++++++
+ 2 files changed, 177 insertions(+), 13 deletions(-)
+
+diff --git a/crates/database_client/src/panel.rs b/crates/database_client/src/panel.rs
+index bd1293e55e..95bffa4cf3 100644
+--- a/crates/database_client/src/panel.rs
++++ b/crates/database_client/src/panel.rs
+@@ -155,6 +155,27 @@ impl DatabasePanel {
+         cx.notify();
+     }
+ 
++    fn refresh_node(&mut self, node_id: String, kind: NodeKind, cx: &mut Context<Self>) {
++        self.tree.clear_subtree(&node_id);
++        self.loading
++            .retain(|k| k != &node_id && !k.starts_with(&format!("{node_id}/")));
++        if self.tree.is_expanded(&node_id) {
++            match kind {
++                NodeKind::Schema => {}
++                NodeKind::ObjectGroup(group) => {
++                    if node_id.split('/').count() >= 6 {
++                        self.expand_table_group(node_id.clone(), group, cx);
++                    } else {
++                        self.expand_schema_group(node_id.clone(), group, cx);
++                    }
++                }
++                NodeKind::Relation => self.expand_relation(node_id.clone(), cx),
++                _ => {}
++            }
++        }
++        cx.notify();
++    }
++
+     fn expand_connection(&mut self, profile_id: String, cx: &mut Context<Self>) {
+         if self.tree.databases_loaded(&profile_id) || self.loading.contains(&profile_id) {
+             return;
+@@ -818,18 +839,37 @@ impl DatabasePanel {
+                             cx.write_to_clipboard(ClipboardItem::new_string(table_name.clone()));
+                         }
+                     }))
+-                    .item(
+-                        ContextMenuEntry::new("Copy Qualified Name").handler({
+-                            move |_window, cx| {
+-                                cx.write_to_clipboard(ClipboardItem::new_string(qualified.clone()));
+-                            }
+-                        }),
+-                    )
++                    .item(ContextMenuEntry::new("Copy Qualified Name").handler({
++                        move |_window, cx| {
++                            cx.write_to_clipboard(ClipboardItem::new_string(qualified.clone()));
++                        }
++                    }))
++                    .item(ContextMenuEntry::new("Refresh").handler({
++                        let entity = entity.clone();
++                        let rel_id = rel_id.clone();
++                        move |_window, cx| {
++                            entity.update(cx, |this, cx| {
++                                this.refresh_node(rel_id.clone(), NodeKind::Relation, cx);
++                            });
++                        }
++                    }))
+                 })
+             }
+-            NodeKind::Schema
+-            | NodeKind::Column
+-            | NodeKind::ObjectGroup(_)
++            NodeKind::Schema | NodeKind::ObjectGroup(_) => {
++                let refresh_id = node_id;
++                let refresh_kind = kind;
++                ContextMenu::build(window, cx, |menu, _, _| {
++                    menu.item(ContextMenuEntry::new("Refresh").handler({
++                        let entity = entity.clone();
++                        move |_window, cx| {
++                            entity.update(cx, |this, cx| {
++                                this.refresh_node(refresh_id.clone(), refresh_kind.clone(), cx);
++                            });
++                        }
++                    }))
++                })
++            }
++            NodeKind::Column
+             | NodeKind::Index
+             | NodeKind::ForeignKey
+             | NodeKind::Constraint
+@@ -999,7 +1039,11 @@ impl DatabasePanel {
+         let is_empty = matches!(node.kind, NodeKind::Empty);
+         let has_context_menu = matches!(
+             node.kind,
+-            NodeKind::Connection | NodeKind::Database | NodeKind::Relation
++            NodeKind::Connection
++                | NodeKind::Database
++                | NodeKind::Relation
++                | NodeKind::Schema
++                | NodeKind::ObjectGroup(_)
+         );
+         let is_loading = self.loading.contains(&node.id);
+         let is_selected = self.selected_node_id.as_deref() == Some(node.id.as_str());
+@@ -1724,7 +1768,7 @@ mod tests {
+     }
+ 
+     #[gpui::test]
+-    async fn context_menu_deploys_for_connection_database_and_relation_only(
++    async fn context_menu_deploys_for_connection_database_relation_schema_and_group(
+         cx: &mut TestAppContext,
+     ) {
+         init_test(cx);
+@@ -1759,7 +1803,13 @@ mod tests {
+             "p1/db/public/tables/users",
+             NodeKind::Relation
+         ));
+-        assert!(!deploys(&panel, cx, "p1/db/public", NodeKind::Schema));
++        assert!(deploys(&panel, cx, "p1/db/public", NodeKind::Schema));
++        assert!(deploys(
++            &panel,
++            cx,
++            "p1/db/public/tables",
++            NodeKind::ObjectGroup(crate::tree::ObjectGroupKind::Tables)
++        ));
+         assert!(!deploys(
+             &panel,
+             cx,
+@@ -1986,4 +2036,77 @@ mod tests {
+         });
+         assert_eq!(query_views, 1, "double-click should open one QueryView tab");
+     }
++
++    // Drives table-level object-group expansion (indexes/fkeys/constraints/
++    // triggers) against a live Postgres. Run with:
++    // DATABASE_CLIENT_TEST_PG_URL=postgres://postgres@localhost:55432/testdb?sslmode=disable \
++    //   cargo test -p database_client --lib -- --ignored live_panel
++    // Requires the `testdb` seed extended with: an extra index on `users`
++    // (besides its pkey), a foreign key on `orders`, a function, a sequence,
++    // a trigger on `users`, and a materialized view.
++    #[gpui::test]
++    #[ignore]
++    async fn live_panel_expands_table_object_groups(cx: &mut TestAppContext) {
++        let Ok(url) = std::env::var("DATABASE_CLIENT_TEST_PG_URL") else {
++            return;
++        };
++        cx.executor().allow_parking();
++        init_test(cx);
++        let mut profile = ConnectionProfile::from_url(&url).expect("valid test url");
++        profile.id = "p1".into();
++        profile.ssl_mode = SslMode::Disable;
++        let (panel, _workspace, cx) = panel_with_profile(profile, cx).await;
++
++        panel.update(cx, |panel, cx| {
++            panel.toggle_node("p1".into(), NodeKind::Connection, cx)
++        });
++        wait_until(&panel, cx, "databases", |p| p.tree.databases_loaded("p1")).await;
++        panel.update(cx, |panel, cx| {
++            panel.toggle_node("p1/testdb".into(), NodeKind::Database, cx)
++        });
++        wait_until(&panel, cx, "schemas", |p| {
++            p.tree.schemas_loaded("p1/testdb")
++        })
++        .await;
++        panel.update(cx, |panel, cx| {
++            panel.toggle_node("p1/testdb/public".into(), NodeKind::Schema, cx)
++        });
++        panel.update(cx, |panel, cx| {
++            panel.toggle_node(
++                "p1/testdb/public/tables".into(),
++                NodeKind::ObjectGroup(crate::tree::ObjectGroupKind::Tables),
++                cx,
++            )
++        });
++        wait_until(&panel, cx, "tables", |p| {
++            p.tree.relations_loaded("p1/testdb/public")
++        })
++        .await;
++        panel.update(cx, |panel, cx| {
++            panel.toggle_node(
++                "p1/testdb/public/tables/users".into(),
++                NodeKind::Relation,
++                cx,
++            )
++        });
++        panel.update(cx, |panel, cx| {
++            panel.toggle_node(
++                "p1/testdb/public/tables/users/indexes".into(),
++                NodeKind::ObjectGroup(crate::tree::ObjectGroupKind::Indexes),
++                cx,
++            )
++        });
++        wait_until(&panel, cx, "indexes", |p| {
++            p.tree.indexes_loaded("p1/testdb/public/tables/users")
++        })
++        .await;
++        let has_pkey = panel.read_with(cx, |panel, _| {
++            panel
++                .tree
++                .visible_nodes()
++                .iter()
++                .any(|n| n.kind == NodeKind::Index && n.label.starts_with("users_pkey"))
++        });
++        assert!(has_pkey, "expected users_pkey index leaf");
++    }
+ }
+diff --git a/crates/database_client/src/tree.rs b/crates/database_client/src/tree.rs
+index 6b67181410..793baa3dfe 100644
+--- a/crates/database_client/src/tree.rs
++++ b/crates/database_client/src/tree.rs
+@@ -791,6 +791,25 @@ impl TreeState {
+     pub fn collapse(&mut self, id: &str) {
+         self.expanded.remove(id);
+     }
++
++    /// Drop cached children for `id` and every descendant so a subsequent
++    /// expand re-introspects. The node's own expanded state is preserved.
++    pub fn clear_subtree(&mut self, id: &str) {
++        let prefix = format!("{id}/");
++        let matches = |key: &str| key == id || key.starts_with(&prefix);
++        self.schemas.retain(|k, _| !matches(k));
++        self.relations.retain(|k, _| !matches(k));
++        self.columns.retain(|k, _| !matches(k));
++        self.materialized_views.retain(|k, _| !matches(k));
++        self.functions.retain(|k, _| !matches(k));
++        self.sequences.retain(|k, _| !matches(k));
++        self.indexes.retain(|k, _| !matches(k));
++        self.foreign_keys.retain(|k, _| !matches(k));
++        self.constraints.retain(|k, _| !matches(k));
++        self.triggers.retain(|k, _| !matches(k));
++        self.row_counts.retain(|k, _| !matches(k));
++        self.databases.retain(|k, _| !matches(k));
++    }
+ }
+ 
+ /// Muted, right-aligned suffix for a table's approximate row count. A negative
+@@ -1156,6 +1175,28 @@ mod tests {
+         assert_eq!(nodes[0].kind, NodeKind::Connection);
+     }
+ 
++    #[test]
++    fn clear_subtree_invalidates_node_and_descendants() {
++        let mut t = loaded_tree();
++        t.set_columns(
++            "p1/db1/public/tables/users",
++            vec![ColumnInfo {
++                name: "id".into(),
++                data_type: "integer".into(),
++                is_primary_key: true,
++            }],
++        );
++        t.set_indexes("p1/db1/public/tables/users", vec![]);
++        t.set_row_count("p1/db1/public/tables/users", 5);
++
++        // Refreshing the schema drops relations + everything below it.
++        t.clear_subtree("p1/db1/public");
++        assert!(!t.relations_loaded("p1/db1/public"));
++        assert!(!t.columns_loaded("p1/db1/public/tables/users"));
++        assert!(!t.indexes_loaded("p1/db1/public/tables/users"));
++        assert_eq!(t.row_count("p1/db1/public/tables/users"), None);
++    }
++
+     #[test]
+     fn connection_node_has_children_before_load() {
+         let t = tree_one_conn();

@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 22:29:41 +0300
+Subject: [PATCH] database_client: add per-profile read_only flag (serde
+ default false)
+
+---
+ .../database_client/src/connection/profile.rs | 23 +++++++++++++++++++
+ .../database_client/src/connection/store.rs   |  1 +
+ .../database_client/src/connection_modal.rs   |  2 ++
+ crates/database_client/src/panel.rs           |  4 ++++
+ crates/database_client/src/query_view.rs      |  1 +
+ 5 files changed, 31 insertions(+)
+
+diff --git a/crates/database_client/src/connection/profile.rs b/crates/database_client/src/connection/profile.rs
+index f9a46948a3..de6b5acdc5 100644
+--- a/crates/database_client/src/connection/profile.rs
++++ b/crates/database_client/src/connection/profile.rs
+@@ -19,6 +19,8 @@ pub struct ConnectionProfile {
+     pub user: String,
+     #[serde(default)]
+     pub ssl_mode: SslMode,
++    #[serde(default)]
++    pub read_only: bool,
+ }
+ 
+ impl ConnectionProfile {
+@@ -61,6 +63,7 @@ impl ConnectionProfile {
+             database,
+             user,
+             ssl_mode,
++            read_only: false,
+         })
+     }
+ 
+@@ -99,9 +102,29 @@ mod tests {
+             database: "mydb".into(),
+             user: "alice".into(),
+             ssl_mode: SslMode::Prefer,
++            read_only: false,
+         }
+     }
+ 
++    #[test]
++    fn read_only_defaults_false_for_old_json() {
++        // Old profile JSON without the field must load as read_only = false.
++        let json = r#"{"id":"p1","name":"Local","host":"localhost","port":5432,
++            "database":"mydb","user":"alice","ssl_mode":"prefer"}"#;
++        let profile: ConnectionProfile = serde_json::from_str(json).unwrap();
++        assert!(!profile.read_only);
++    }
++
++    #[test]
++    fn read_only_round_trips_when_set() {
++        let mut profile = sample();
++        profile.read_only = true;
++        let json = serde_json::to_string(&profile).unwrap();
++        let back: ConnectionProfile = serde_json::from_str(&json).unwrap();
++        assert!(back.read_only);
++        assert_eq!(profile, back);
++    }
++
+     #[test]
+     fn serde_round_trip() {
+         let p = sample();
+diff --git a/crates/database_client/src/connection/store.rs b/crates/database_client/src/connection/store.rs
+index 6829609c70..275d59b3ff 100644
+--- a/crates/database_client/src/connection/store.rs
++++ b/crates/database_client/src/connection/store.rs
+@@ -78,6 +78,7 @@ mod tests {
+             database: "mydb".into(),
+             user: "alice".into(),
+             ssl_mode: SslMode::Prefer,
++            read_only: false,
+         }
+     }
+ 
+diff --git a/crates/database_client/src/connection_modal.rs b/crates/database_client/src/connection_modal.rs
+index dc4db3d569..abc283818c 100644
+--- a/crates/database_client/src/connection_modal.rs
++++ b/crates/database_client/src/connection_modal.rs
+@@ -152,6 +152,7 @@ impl ConnectionModal {
+                 database,
+                 user,
+                 ssl_mode: self.ssl_mode,
++                read_only: false,
+             };
+             let mut profiles = store::load_profiles();
+             store::replace_profile_by_id(&mut profiles, profile.clone());
+@@ -180,6 +181,7 @@ impl ConnectionModal {
+                 database,
+                 user,
+                 ssl_mode: self.ssl_mode,
++                read_only: false,
+             };
+ 
+             let mut profiles = store::load_profiles();
+diff --git a/crates/database_client/src/panel.rs b/crates/database_client/src/panel.rs
+index 242f0deae0..5af453d205 100644
+--- a/crates/database_client/src/panel.rs
++++ b/crates/database_client/src/panel.rs
+@@ -1709,6 +1709,7 @@ mod tests {
+             database: "db1".into(),
+             user: "u".into(),
+             ssl_mode: SslMode::Disable,
++            read_only: false,
+         }
+     }
+ 
+@@ -2035,6 +2036,7 @@ mod tests {
+             database: "db".into(),
+             user: "u".into(),
+             ssl_mode: SslMode::Disable,
++            read_only: false,
+         };
+         let (panel, _workspace, cx) = panel_with_profile(profile, cx).await;
+ 
+@@ -2073,6 +2075,7 @@ mod tests {
+             database: "db".into(),
+             user: "u".into(),
+             ssl_mode: SslMode::Disable,
++            read_only: false,
+         };
+         let (panel, _workspace, cx) = panel_with_profile(profile, cx).await;
+ 
+@@ -2146,6 +2149,7 @@ mod tests {
+             database: "defaultdb".into(),
+             user: "u".into(),
+             ssl_mode: SslMode::Disable,
++            read_only: false,
+         };
+         let (panel, workspace, cx) = panel_with_profile(profile, cx).await;
+ 
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index 98125956f1..df8a3cd864 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -2866,6 +2866,7 @@ mod tests {
+             database: "db".into(),
+             user: "u".into(),
+             ssl_mode: SslMode::Disable,
++            read_only: false,
+         }
+     }
+ 

@@ -1,0 +1,145 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 2 Jul 2026 01:34:56 +0300
+Subject: [PATCH] feat(db): report primary-key membership in column
+ introspection
+
+list_columns now left-joins information_schema.table_constraints and
+key_column_usage (constraint_type = 'PRIMARY KEY', matched on
+table_schema/table_name/column_name) and emits an is_primary_key
+YES/NO marker; ColumnInfo gains is_primary_key: bool. Parser unit
+tests cover YES/NO and the missing-column fallback; a live test
+asserts users.id is the seeded PK. Tree labels are unchanged - the
+PK icon lands with the sidebar rework.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MQKuAnEREjToPLedE7KAqP
+---
+ .../src/connection/introspect.rs              | 71 +++++++++++++++++--
+ crates/database_client/src/tree.rs            |  1 +
+ 2 files changed, 68 insertions(+), 4 deletions(-)
+
+diff --git a/crates/database_client/src/connection/introspect.rs b/crates/database_client/src/connection/introspect.rs
+index ba31f5f9ee..534128d0ec 100644
+--- a/crates/database_client/src/connection/introspect.rs
++++ b/crates/database_client/src/connection/introspect.rs
+@@ -28,6 +28,7 @@ pub struct RelationInfo {
+ pub struct ColumnInfo {
+     pub name: String,
+     pub data_type: String,
++    pub is_primary_key: bool,
+ }
+ 
+ fn col(r: &QueryResult, row: &[Option<String>], name: &str) -> String {
+@@ -79,6 +80,7 @@ pub(crate) fn parse_columns(r: &QueryResult) -> Vec<ColumnInfo> {
+         .map(|row| ColumnInfo {
+             name: col(r, row, "column_name"),
+             data_type: col(r, row, "data_type"),
++            is_primary_key: col(r, row, "is_primary_key") == "YES",
+         })
+         .collect()
+ }
+@@ -128,8 +130,22 @@ impl Connection {
+         cx: &App,
+     ) -> Task<Result<Vec<ColumnInfo>>> {
+         let sql = format!(
+-            "select column_name, data_type from information_schema.columns \
+-             where table_schema = {} and table_name = {} order by ordinal_position",
++            "select c.column_name, c.data_type, \
++                    case when kcu.column_name is not null then 'YES' else 'NO' end \
++                        as is_primary_key \
++             from information_schema.columns c \
++             left join information_schema.table_constraints tc \
++               on tc.table_schema = c.table_schema \
++              and tc.table_name = c.table_name \
++              and tc.constraint_type = 'PRIMARY KEY' \
++             left join information_schema.key_column_usage kcu \
++               on kcu.constraint_schema = tc.constraint_schema \
++              and kcu.constraint_name = tc.constraint_name \
++              and kcu.table_schema = c.table_schema \
++              and kcu.table_name = c.table_name \
++              and kcu.column_name = c.column_name \
++             where c.table_schema = {} and c.table_name = {} \
++             order by c.ordinal_position",
+             quote_literal(&schema),
+             quote_literal(&table)
+         );
+@@ -198,12 +214,38 @@ mod tests {
+     #[test]
+     fn parses_columns() {
+         let r = qr(
+-            &["column_name", "data_type"],
+-            vec![vec![Some("id"), Some("integer")]],
++            &["column_name", "data_type", "is_primary_key"],
++            vec![
++                vec![Some("id"), Some("integer"), Some("YES")],
++                vec![Some("email"), Some("text"), Some("NO")],
++            ],
+         );
+         let cols = parse_columns(&r);
+         assert_eq!(cols[0].name, "id");
+         assert_eq!(cols[0].data_type, "integer");
++        assert!(cols[0].is_primary_key);
++        assert_eq!(cols[1].name, "email");
++        assert!(!cols[1].is_primary_key);
++    }
++
++    #[test]
++    fn parses_columns_missing_pk_column_defaults_to_false() {
++        let r = qr(
++            &["column_name", "data_type"],
++            vec![vec![Some("id"), Some("integer")]],
++        );
++        let cols = parse_columns(&r);
++        assert!(!cols[0].is_primary_key);
++
++        let r = qr(
++            &["column_name", "data_type", "is_primary_key"],
++            vec![
++                vec![Some("id"), Some("integer")],
++                vec![Some("name"), Some("text")],
++            ],
++        );
++        // Short row: `col` returns "" for the missing cell.
++        assert!(!parse_columns(&r)[1].is_primary_key);
+     }
+ 
+     #[test]
+@@ -304,4 +346,25 @@ mod tests {
+         let names: Vec<_> = columns.iter().map(|c| c.name.as_str()).collect();
+         assert_eq!(names, vec!["id", "name", "email"]);
+     }
++
++    #[gpui::test]
++    #[ignore]
++    async fn live_list_columns_reports_primary_key(cx: &mut gpui::TestAppContext) {
++        let Some(conn) = live_connection(cx).await else {
++            return;
++        };
++        let columns = cx
++            .update(|cx| conn.list_columns("public".to_string(), "users".to_string(), cx))
++            .await
++            .unwrap();
++        let pk_flags: Vec<_> = columns
++            .iter()
++            .map(|c| (c.name.as_str(), c.is_primary_key))
++            .collect();
++        assert_eq!(
++            pk_flags,
++            vec![("id", true), ("name", false), ("email", false)],
++            "users.id is the seeded PRIMARY KEY"
++        );
++    }
+ }
+diff --git a/crates/database_client/src/tree.rs b/crates/database_client/src/tree.rs
+index c9cc5f7b3c..8fd108bf86 100644
+--- a/crates/database_client/src/tree.rs
++++ b/crates/database_client/src/tree.rs
+@@ -350,6 +350,7 @@ mod tests {
+             vec![ColumnInfo {
+                 name: "id".into(),
+                 data_type: "integer".into(),
++                is_primary_key: true,
+             }],
+         );
+         let nodes = t.visible_nodes();

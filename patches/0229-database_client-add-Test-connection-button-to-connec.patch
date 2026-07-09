@@ -1,0 +1,147 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 22:40:31 +0300
+Subject: [PATCH] database_client: add Test connection button to connection
+ modal
+
+---
+ .../database_client/src/connection_modal.rs   | 87 ++++++++++++++++++-
+ 1 file changed, 86 insertions(+), 1 deletion(-)
+
+diff --git a/crates/database_client/src/connection_modal.rs b/crates/database_client/src/connection_modal.rs
+index c4fc7e3de1..e364b1ed7b 100644
+--- a/crates/database_client/src/connection_modal.rs
++++ b/crates/database_client/src/connection_modal.rs
+@@ -10,6 +10,7 @@ use gpui::{
+ };
+ use menu::{Cancel, Confirm};
+ use ui::{Checkbox, ToggleState, prelude::*};
++use util::ResultExt as _;
+ use workspace::ModalView;
+ 
+ pub struct ConnectionModal {
+@@ -24,6 +25,15 @@ pub struct ConnectionModal {
+     /// When `Some`, we are editing an existing profile rather than creating a new one.
+     edit_profile: Option<ConnectionProfile>,
+     read_only: bool,
++    test_status: Option<(String, bool)>,
++}
++
++/// Formats the result of a connection probe into a status message and a success flag.
++pub(crate) fn test_status_message(result: Result<(), String>) -> (String, bool) {
++    match result {
++        Ok(()) => ("Connection succeeded".to_string(), true),
++        Err(error) => (format!("Connection failed: {error}"), false),
++    }
+ }
+ 
+ /// A trivial toggle used by the checkbox click.
+@@ -75,6 +85,7 @@ impl ConnectionModal {
+             ssl_mode: SslMode::default(),
+             edit_profile: None,
+             read_only: false,
++            test_status: None,
+         }
+     }
+ 
+@@ -133,6 +144,7 @@ impl ConnectionModal {
+             ssl_mode,
+             read_only: profile.read_only,
+             edit_profile: Some(profile),
++            test_status: None,
+         }
+     }
+ 
+@@ -224,6 +236,53 @@ impl ConnectionModal {
+         self.read_only = toggled(self.read_only);
+         cx.notify();
+     }
++
++    fn profile_from_inputs(&self, cx: &App) -> (ConnectionProfile, String) {
++        let port = self
++            .port_input
++            .read(cx)
++            .text(cx)
++            .parse::<u16>()
++            .unwrap_or(5432);
++        let profile = ConnectionProfile {
++            id: self
++                .edit_profile
++                .as_ref()
++                .map(|existing| existing.id.clone())
++                .unwrap_or_default(),
++            name: self.name_input.read(cx).text(cx),
++            host: self.host_input.read(cx).text(cx),
++            port,
++            database: self.database_input.read(cx).text(cx),
++            user: self.user_input.read(cx).text(cx),
++            ssl_mode: self.ssl_mode,
++            read_only: self.read_only,
++        };
++        let password = self.password_input.read(cx).text(cx);
++        (profile, password)
++    }
++
++    fn test_connection(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
++        let (profile, password) = self.profile_from_inputs(cx);
++        let password = (!password.is_empty()).then_some(password);
++        self.test_status = Some(("Testing…".to_string(), true));
++        cx.notify();
++        let connect = crate::connection::client::Connection::connect(profile, password, cx);
++        cx.spawn(async move |this, cx| {
++            let result = connect.await;
++            this.update(cx, |this, cx| {
++                // Drop the Connection on success; only report status.
++                this.test_status = Some(test_status_message(
++                    result
++                        .map(|_connection| ())
++                        .map_err(|error| error.to_string()),
++                ));
++                cx.notify();
++            })
++            .log_err();
++        })
++        .detach();
++    }
+ }
+ 
+ impl ModalView for ConnectionModal {}
+@@ -297,7 +356,17 @@ impl Render for ConnectionModal {
+                                     })),
+                             )
+                             .child(Label::new("Read-only (disable all edits)")),
+-                    ),
++                    )
++                    .child(Button::new("test-connection", "Test connection").on_click(
++                        cx.listener(|this, _, window, cx| this.test_connection(window, cx)),
++                    ))
++                    .when_some(self.test_status.clone(), |this, (message, ok)| {
++                        this.child(Label::new(message).color(if ok {
++                            Color::Success
++                        } else {
++                            Color::Error
++                        }))
++                    }),
+             )
+     }
+ }
+@@ -312,3 +381,19 @@ mod tests {
+         assert!(!toggled(true));
+     }
+ }
++
++#[cfg(test)]
++mod test_connection_tests {
++    use super::test_status_message;
++
++    #[test]
++    fn formats_success_and_failure() {
++        assert_eq!(
++            test_status_message(Ok(())),
++            ("Connection succeeded".into(), true)
++        );
++        let (message, ok) = test_status_message(Err("timeout".into()));
++        assert!(!ok);
++        assert!(message.contains("timeout"));
++    }
++}

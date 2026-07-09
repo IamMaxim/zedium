@@ -1,0 +1,155 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Wed, 1 Jul 2026 22:21:46 +0300
+Subject: [PATCH] acp_thread: test background subagent members group under an
+ in_progress root
+
+Simulate the ACP wire sequence a qwen background subagent will emit once the qwen-code side forwards live activity: a root agent tool call left InProgress at launch, provenance-tagged member chunks (a thought and a message) arriving with no surrounding prompt turn, then a terminal tool_call_update: completed. Assert the members group under the root and the root ends Completed.
+
+The thought and message share the same parent and indent, so the provenance-aware coalescing fix folds them into a single AssistantMessage entry (a Thought chunk plus a Message chunk), matching the adjacent-same-agent behavior documented by interleaved_subagent_and_parent_thoughts_are_not_coalesced. The assertion checks every member entry is attributed to the root and both member texts survive under it. Test-only; no production change.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ crates/acp_thread/src/acp_thread.rs | 129 ++++++++++++++++++++++++++++
+ 1 file changed, 129 insertions(+)
+
+diff --git a/crates/acp_thread/src/acp_thread.rs b/crates/acp_thread/src/acp_thread.rs
+index 433d821c0e..dcb1ce00df 100644
+--- a/crates/acp_thread/src/acp_thread.rs
++++ b/crates/acp_thread/src/acp_thread.rs
+@@ -6516,6 +6516,135 @@ mod tests {
+         });
+     }
+ 
++    /// A qwen *background* subagent forwards live activity without a surrounding
++    /// prompt turn: the root `agent` tool call is left `InProgress` at launch,
++    /// provenance-tagged member chunks (a thought + a message) arrive across the
++    /// turn boundary, and a terminal `tool_call_update: completed` flips the card.
++    /// The members must still group under the `InProgress` root, and the root must
++    /// end `Completed`.
++    #[gpui::test]
++    async fn background_subagent_members_group_under_in_progress_root(cx: &mut TestAppContext) {
++        init_test(cx);
++
++        let fs = FakeFs::new(cx.executor());
++        let project = Project::test(fs, [], cx).await;
++        let qwen_connection = Rc::new(
++            FakeAgentConnection::new().with_subagent_grouping(Rc::new(QwenSubagentGrouping)),
++        );
++        let thread = cx
++            .update(|cx| {
++                qwen_connection.new_session(project, PathList::new(&[Path::new(path!("/test"))]), cx)
++            })
++            .await
++            .unwrap();
++
++        thread.update(cx, |thread, cx| {
++            let root = acp::ToolCallId::new("call_root");
++            // Root agent tool call, left InProgress (background launch: no
++            // completion at launch time).
++            thread
++                .upsert_tool_call(
++                    acp::ToolCall::new(root.clone(), "Explore")
++                        .status(acp::ToolCallStatus::InProgress)
++                        .meta(acp::Meta::from_iter([(
++                            "toolName".to_string(),
++                            serde_json::json!("agent"),
++                        )])),
++                    cx,
++                )
++                .unwrap();
++
++            let member_meta = || {
++                acp::Meta::from_iter([
++                    ("provenance".to_string(), serde_json::json!("subagent")),
++                    (
++                        "parentToolCallId".to_string(),
++                        serde_json::json!("call_root"),
++                    ),
++                    ("subagentType".to_string(), serde_json::json!("Explore")),
++                ])
++            };
++            // Provenance-tagged member chunks arriving with no surrounding prompt
++            // turn: a thought then a message.
++            thread
++                .handle_session_update(
++                    acp::SessionUpdate::AgentThoughtChunk(
++                        acp::ContentChunk::new(acp::ContentBlock::Text(acp::TextContent::new(
++                            "bg thinking",
++                        )))
++                        .meta(member_meta()),
++                    ),
++                    cx,
++                )
++                .unwrap();
++            thread
++                .handle_session_update(
++                    acp::SessionUpdate::AgentMessageChunk(
++                        acp::ContentChunk::new(acp::ContentBlock::Text(acp::TextContent::new(
++                            "bg result",
++                        )))
++                        .meta(member_meta()),
++                    ),
++                    cx,
++                )
++                .unwrap();
++
++            let index = thread.subagent_index();
++            let entries = thread.entries();
++            let member_ixs: Vec<usize> = (0..entries.len())
++                .filter(|ix| index.is_text_member(*ix))
++                .collect();
++            // The thought and the message share the same parent and indent, so
++            // they coalesce (by the provenance-aware coalescing fix) into a single
++            // AssistantMessage entry carrying a Thought chunk and a Message chunk —
++            // exactly as documented by
++            // `interleaved_subagent_and_parent_thoughts_are_not_coalesced` for
++            // adjacent same-agent chunks. What matters is that every member entry
++            // is attributed to the root and both member texts survive under it.
++            assert!(
++                !member_ixs.is_empty(),
++                "background members are classified under the root"
++            );
++            for ix in &member_ixs {
++                assert_eq!(
++                    index.entry_membership_of(*ix).map(|m| m.parent.clone()),
++                    Some(root.clone()),
++                    "every background member entry is attributed to the root"
++                );
++            }
++            let member_text: String = member_ixs
++                .iter()
++                .filter_map(|ix| match &entries[*ix] {
++                    AgentThreadEntry::AssistantMessage(message) => Some(message.to_markdown(cx)),
++                    _ => None,
++                })
++                .collect();
++            assert!(
++                member_text.contains("bg thinking") && member_text.contains("bg result"),
++                "both background members' text lands under the root"
++            );
++
++            // Terminal completion flips the card to Completed.
++            thread
++                .update_tool_call(
++                    acp::ToolCallUpdate::new(
++                        root.clone(),
++                        acp::ToolCallUpdateFields::new().status(acp::ToolCallStatus::Completed),
++                    ),
++                    cx,
++                )
++                .unwrap();
++            let completed = thread.entries().iter().any(|e| {
++                matches!(
++                    e,
++                    AgentThreadEntry::ToolCall(tc)
++                        if tc.id == root && matches!(tc.status, ToolCallStatus::Completed)
++                )
++            });
++            assert!(completed, "root agent tool call ends Completed");
++        });
++    }
++
+     /// Tests that restoring a checkpoint properly cleans up terminals that were
+     /// created after that checkpoint, and cancels any in-progress generation.
+     ///

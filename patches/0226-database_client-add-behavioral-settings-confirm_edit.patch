@@ -1,0 +1,176 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 22:23:04 +0300
+Subject: [PATCH] database_client: add behavioral settings
+ (confirm_edits/read_only/commit_mode/history_limit/metadata_cache/export_null_string)
+
+---
+ assets/settings/default.json                  | 10 ++-
+ crates/database_client/src/settings.rs        | 83 +++++++++++++++++++
+ .../settings_content/src/settings_content.rs  | 17 ++++
+ 3 files changed, 109 insertions(+), 1 deletion(-)
+
+diff --git a/assets/settings/default.json b/assets/settings/default.json
+index 00eecdac07..b06c53abae 100644
+--- a/assets/settings/default.json
++++ b/assets/settings/default.json
+@@ -2723,7 +2723,15 @@
+     "metadata_cache": true,
+     // String written for SQL NULL values in CSV export. Defaults to the
+     // empty string when null.
+-    "export_null_string": ""
++    "export_null_string": "",
++    // Confirm before submitting grid DML edits.
++    "confirm_edits": true,
++    // Global read-only default; a per-profile read_only disables all DML.
++    "read_only": false,
++    // Default commit mode for new query tabs: "auto" or "manual".
++    "commit_mode": "auto",
++    // Executed-statement history retention (oldest pruned beyond this).
++    "history_limit": 1000
+   },
+   "debugger": {
+     "stepping_granularity": "line",
+diff --git a/crates/database_client/src/settings.rs b/crates/database_client/src/settings.rs
+index 53b53390a4..5c21d06a95 100644
+--- a/crates/database_client/src/settings.rs
++++ b/crates/database_client/src/settings.rs
+@@ -15,6 +15,10 @@ pub const MIN_PAGE_SIZE: usize = 50;
+ pub const DEFAULT_RESULTS_ROW_PADDING: f32 = 6.0;
+ /// Upper bound applied to a configured `results_row_padding`.
+ pub const MAX_RESULTS_ROW_PADDING: f32 = 24.0;
++/// Default executed-statement history retention.
++pub const DEFAULT_HISTORY_LIMIT: usize = 1000;
++/// Lower bound applied to a configured `history_limit`.
++pub const MIN_HISTORY_LIMIT: usize = 1;
+ 
+ /// Density settings for the sidebar connection/database/schema/table tree.
+ #[derive(Clone, Copy, Debug, Default, PartialEq)]
+@@ -64,6 +68,22 @@ pub struct DatabaseClientSettings {
+     pub metadata_cache: bool,
+     /// CSV representation of SQL NULL on export; default is the empty string.
+     pub export_null_string: String,
++    /// Confirm before submitting grid DML.
++    ///
++    /// Not yet consumed by the grid submit flow (wired in a later task).
++    pub confirm_edits: bool,
++    /// Global read-only default (disables all DML).
++    ///
++    /// Not yet consumed by the grid/profile flow (wired in a later task).
++    pub read_only: bool,
++    /// Default commit mode for new query tabs: "auto" | "manual".
++    ///
++    /// Not yet consumed by the query tab flow (wired in a later task).
++    pub commit_mode: String,
++    /// Executed-statement retention; always at least [`MIN_HISTORY_LIMIT`].
++    ///
++    /// Not yet consumed by the history prune flow (wired in a later task).
++    pub history_limit: usize,
+ }
+ 
+ impl Settings for DatabaseClientSettings {
+@@ -107,6 +127,21 @@ impl Settings for DatabaseClientSettings {
+             export_null_string: database
+                 .and_then(|database| database.export_null_string.clone())
+                 .unwrap_or_default(),
++            confirm_edits: database
++                .and_then(|database| database.confirm_edits)
++                .unwrap_or(true),
++            read_only: database
++                .and_then(|database| database.read_only)
++                .unwrap_or(false),
++            commit_mode: database
++                .and_then(|database| database.commit_mode.clone())
++                .map(|mode| mode.to_ascii_lowercase())
++                .filter(|mode| mode == "auto" || mode == "manual")
++                .unwrap_or_else(|| "auto".to_string()),
++            history_limit: database
++                .and_then(|database| database.history_limit)
++                .unwrap_or(DEFAULT_HISTORY_LIMIT)
++                .max(MIN_HISTORY_LIMIT),
+         }
+     }
+ }
+@@ -171,6 +206,54 @@ mod tests {
+         assert_eq!(settings.toolbar, DatabaseToolbarSettings::default());
+         assert!(settings.metadata_cache);
+         assert_eq!(settings.export_null_string, "");
++        assert!(settings.confirm_edits);
++        assert!(!settings.read_only);
++        assert_eq!(settings.commit_mode, "auto");
++        assert_eq!(settings.history_limit, DEFAULT_HISTORY_LIMIT);
++    }
++
++    #[gpui::test]
++    fn behavioral_settings_defaults(cx: &mut App) {
++        init_settings(cx);
++        let settings = DatabaseClientSettings::get_global(cx);
++        assert!(settings.confirm_edits);
++        assert!(!settings.read_only);
++        assert_eq!(settings.commit_mode, "auto");
++        assert_eq!(settings.history_limit, DEFAULT_HISTORY_LIMIT);
++        assert!(settings.metadata_cache);
++        assert_eq!(settings.export_null_string, "");
++    }
++
++    #[gpui::test]
++    fn behavioral_settings_pass_through(cx: &mut App) {
++        init_settings(cx);
++        set_database_settings(cx, |database| {
++            database.confirm_edits = Some(false);
++            database.read_only = Some(true);
++            database.commit_mode = Some("Manual".into());
++            database.history_limit = Some(250);
++            database.metadata_cache = Some(false);
++            database.export_null_string = Some("\\N".into());
++        });
++        let settings = DatabaseClientSettings::get_global(cx);
++        assert!(!settings.confirm_edits);
++        assert!(settings.read_only);
++        assert_eq!(settings.commit_mode, "manual"); // normalized to lowercase
++        assert_eq!(settings.history_limit, 250);
++        assert!(!settings.metadata_cache);
++        assert_eq!(settings.export_null_string, "\\N");
++    }
++
++    #[gpui::test]
++    fn history_limit_is_clamped_and_commit_mode_falls_back(cx: &mut App) {
++        init_settings(cx);
++        set_database_settings(cx, |database| database.history_limit = Some(0));
++        assert_eq!(
++            DatabaseClientSettings::get_global(cx).history_limit,
++            MIN_HISTORY_LIMIT
++        );
++        set_database_settings(cx, |database| database.commit_mode = Some("bogus".into()));
++        assert_eq!(DatabaseClientSettings::get_global(cx).commit_mode, "auto");
+     }
+ 
+     #[gpui::test]
+diff --git a/crates/settings_content/src/settings_content.rs b/crates/settings_content/src/settings_content.rs
+index 951ae46db6..57ef994523 100644
+--- a/crates/settings_content/src/settings_content.rs
++++ b/crates/settings_content/src/settings_content.rs
+@@ -1276,6 +1276,23 @@ pub struct DatabaseSettingsContent {
+     ///
+     /// If this option is not included, NULLs export as an empty field.
+     pub export_null_string: Option<String>,
++    /// Confirm before submitting grid DML edits.
++    ///
++    /// Default: true
++    pub confirm_edits: Option<bool>,
++    /// Global read-only default; disables all edit/DML affordances.
++    /// A per-profile `read_only` also forces this on for that connection.
++    ///
++    /// Default: false
++    pub read_only: Option<bool>,
++    /// Default commit mode for new query tabs: "auto" or "manual".
++    ///
++    /// Default: "auto"
++    pub commit_mode: Option<String>,
++    /// Executed-statement history retention (oldest pruned beyond this).
++    ///
++    /// Default: 1000
++    pub history_limit: Option<usize>,
+ }
+ 
+ /// Density settings for the database client sidebar tree.

@@ -1,0 +1,179 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 20:05:06 +0300
+Subject: [PATCH] database_client: route Manual-mode queries through the open
+ transaction
+
+---
+ crates/database_client/src/query_view.rs | 140 ++++++++++++++++++++++-
+ 1 file changed, 136 insertions(+), 4 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index 6b845e97d4..51e14bfe49 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -511,6 +511,44 @@ impl QueryView {
+             .is_some_and(|session| session.is_open())
+     }
+ 
++    /// In Manual mode, lazily allocate a `TransactionSession` over a dedicated
++    /// clone of the tab's connection and begin its transaction. No-op if the
++    /// tab has no live connection yet. Returns the in-flight `BEGIN` task so
++    /// callers that must not run statements before the transaction is
++    /// actually open (like `dispatch_query`) can await it; when a
++    /// transaction is already open this resolves immediately with `Ok(())`
++    /// since there is nothing left to wait for.
++    fn ensure_session_open(&mut self, cx: &mut Context<Self>) -> Option<Task<anyhow::Result<()>>> {
++        if self.commit_mode != CommitMode::Manual {
++            return None;
++        }
++        if self.transaction_is_open() {
++            return Some(Task::ready(Ok(())));
++        }
++        let Some(connection) = self.connection.clone() else {
++            return None;
++        };
++        let mut session = TransactionSession::new(connection);
++        let begin_task = session.begin(cx);
++        self.session = Some(session);
++        cx.notify();
++        Some(begin_task)
++    }
++
++    /// The connection statements should run on for the current mode: the
++    /// transaction-bound connection in Manual mode with an open session,
++    /// otherwise the tab's plain connection.
++    fn manual_execute_connection(&self) -> Option<Connection> {
++        match self.commit_mode {
++            CommitMode::Manual => self
++                .session
++                .as_ref()
++                .filter(|session| session.is_open())
++                .map(|session| session.connection()),
++            CommitMode::Auto => None,
++        }
++    }
++
+     /// Discards all pending grid edits without touching the database.
+     fn revert_edits(&mut self, cx: &mut Context<Self>) {
+         self.results_grid
+@@ -613,14 +651,46 @@ impl QueryView {
+             build_page_request(sql, self.sort.as_ref(), page, page_size);
+ 
+         let start = Instant::now();
++        // Manual mode: lazily open the transaction session so this statement lands
++        // inside the open transaction rather than autocommitting. `BEGIN` is async
++        // and only flips `is_open()` once it actually succeeds, so the task below
++        // is awaited before anything is executed — `manual_execute_connection`
++        // would otherwise still see the session as closed and fall back to the
++        // plain connection, racing the `BEGIN` on the wire.
++        let begin_task = if self.commit_mode == CommitMode::Manual && self.connection.is_some() {
++            self.ensure_session_open(cx)
++        } else {
++            None
++        };
+         let existing_connection = self.connection.clone();
+         let profile = self.profile.clone();
+ 
+         cx.spawn(async move |this, cx| {
+-            // Use the live connection if present, otherwise lazily connect using the stored
+-            // profile. This covers query tabs restored after restart: they have a profile
+-            // but no live connection, so the first Run establishes one transparently.
+-            let connection = if let Some(conn) = existing_connection {
++            if let Some(begin_task) = begin_task {
++                if let Err(error) = begin_task.await {
++                    this.update(cx, |this, cx| {
++                        if this.run_generation != generation_id {
++                            return;
++                        }
++                        this.running = false;
++                        this.error = Some(error.to_string());
++                        cx.emit(QueryViewEvent::ResultsChanged);
++                        cx.notify();
++                    })
++                    .ok();
++                    return;
++                }
++            }
++            // Prefer the transaction-bound connection once `BEGIN` has landed;
++            // otherwise use the live connection if present, or lazily connect using
++            // the stored profile. Lazy-connect covers query tabs restored after
++            // restart: they have a profile but no live connection, so the first Run
++            // establishes one transparently.
++            let manual_connection = this
++                .update(cx, |this, _cx| this.manual_execute_connection())
++                .ok()
++                .flatten();
++            let connection = if let Some(conn) = manual_connection.or(existing_connection) {
+                 Ok(conn)
+             } else {
+                 let Some(profile) = profile else {
+@@ -2590,6 +2660,68 @@ mod tests {
+         });
+     }
+ 
++    // `TransactionSession::new` requires a real `Connection` (no test double
++    // exists for it — see `Connection::connect`), so a live DB is needed to
++    // exercise `is_open()`'s transition from `BEGIN` actually landing. Without
++    // `DATABASE_CLIENT_TEST_PG_URL` this still asserts the no-connection no-op
++    // path, so `cargo test -p database_client --lib` needs no DB to pass.
++    #[gpui::test]
++    async fn manual_mode_allocates_session_on_first_dispatch(cx: &mut TestAppContext) {
++        init_test(cx);
++        let view = open_test_view(cx).await;
++
++        let Ok(url) = std::env::var("DATABASE_CLIENT_TEST_PG_URL") else {
++            view.update(cx, |view, cx| {
++                view.commit_mode = CommitMode::Manual;
++                view.ensure_session_open(cx);
++                assert!(
++                    view.session.is_none(),
++                    "ensure_session_open must stay a no-op without a live connection"
++                );
++            });
++            return;
++        };
++
++        cx.executor().allow_parking();
++        let profile = ConnectionProfile::from_url(&url).expect("valid test DB URL");
++        let password = {
++            use std::str::FromStr as _;
++            tokio_postgres::Config::from_str(&url)
++                .ok()
++                .and_then(|config| {
++                    config
++                        .get_password()
++                        .and_then(|bytes| String::from_utf8(bytes.to_vec()).ok())
++                })
++        };
++        let conn = cx
++            .update(|cx| Connection::connect(profile, password, cx))
++            .await
++            .expect("connect to test DB");
++
++        view.update(cx, |view, cx| {
++            view.commit_mode = CommitMode::Manual;
++            view.connection = Some(conn);
++            view.ensure_session_open(cx);
++            assert!(
++                view.session.is_some(),
++                "Manual mode must allocate a TransactionSession"
++            );
++            // Task 3's fix only flips `is_open()` to true once the async `BEGIN`
++            // completes, so it cannot be asserted synchronously here.
++            assert!(!view.transaction_is_open());
++        });
++
++        cx.run_until_parked();
++
++        view.update(cx, |view, _cx| {
++            assert!(
++                view.transaction_is_open(),
++                "BEGIN must have landed once the executor is parked"
++            );
++        });
++    }
++
+     fn one_column_result() -> QueryResult {
+         QueryResult {
+             columns: vec!["id".into()],

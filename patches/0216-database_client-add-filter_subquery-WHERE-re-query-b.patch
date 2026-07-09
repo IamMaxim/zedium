@@ -1,0 +1,61 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 21:16:12 +0300
+Subject: [PATCH] database_client: add filter_subquery WHERE re-query builder
+
+---
+ crates/database_client/src/sql_paging.rs | 36 ++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/crates/database_client/src/sql_paging.rs b/crates/database_client/src/sql_paging.rs
+index 01314ce930..95ea78d083 100644
+--- a/crates/database_client/src/sql_paging.rs
++++ b/crates/database_client/src/sql_paging.rs
+@@ -230,6 +230,17 @@ pub fn wrap(
+     wrapped
+ }
+ 
++/// Wraps a wrappable statement in a filtering subquery
++/// (`select * from (<body>) zedium_filter where <where_expr>`). Callers must
++/// check [`wrappable`] on the original `sql` first. The output is itself a
++/// plain `SELECT`, so it can be handed to [`wrap`] for page-0/sorted paging.
++/// `where_expr` is raw user SQL (a Postgres error on an invalid expression is
++/// surfaced to the caller); it is never quoted here.
++pub fn filter_subquery(sql: &str, where_expr: &str) -> String {
++    let body = statement_body(sql);
++    format!("select * from (\n{body}\n) zedium_filter where {where_expr}")
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -429,4 +440,29 @@ mod tests {
+         assert_eq!(quote_ident("order"), "\"order\"");
+         assert_eq!(quote_ident("we\"ird"), "\"we\"\"ird\"");
+     }
++
++    // --- filter_subquery ---
++
++    #[test]
++    fn filter_subquery_wraps_body_and_strips_trailing_semicolon() {
++        assert_eq!(
++            filter_subquery("select * from users;  \n", "id > 10"),
++            "select * from (\nselect * from users\n) zedium_filter where id > 10"
++        );
++    }
++
++    #[test]
++    fn filter_subquery_output_is_itself_wrappable_and_pages() {
++        let filtered = filter_subquery("select id, name from users", "name is not null");
++        assert!(
++            wrappable(&filtered),
++            "filtered subquery must page like any select"
++        );
++        let paged = wrap(&filtered, Some((1, SortDirection::Descending)), 501, 0);
++        assert_eq!(
++            paged,
++            "select * from (\nselect * from (\nselect id, name from users\n) \
++zedium_filter where name is not null\n) zedium_page order by 1 desc limit 501 offset 0"
++        );
++    }
+ }

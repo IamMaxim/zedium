@@ -1,0 +1,492 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 19:00:35 +0300
+Subject: [PATCH] database_client: inline cell-edit overlay +
+ modified/insert/delete accents
+
+---
+ crates/database_client/src/results_grid.rs | 298 +++++++++++++++++++--
+ 1 file changed, 274 insertions(+), 24 deletions(-)
+
+diff --git a/crates/database_client/src/results_grid.rs b/crates/database_client/src/results_grid.rs
+index 874d18a60a..78232bc4a4 100644
+--- a/crates/database_client/src/results_grid.rs
++++ b/crates/database_client/src/results_grid.rs
+@@ -3,6 +3,7 @@
+ 
+ use std::collections::{HashMap, HashSet};
+ 
++use editor::Editor;
+ use gpui::{
+     AbsoluteLength, App, ClickEvent, ClipboardItem, Context, DismissEvent, Entity, EventEmitter,
+     Focusable as _, FontWeight, KeyBinding, MouseButton, MouseDownEvent, Pixels, Point, Render,
+@@ -25,7 +26,11 @@ actions!(
+     database_client,
+     [
+         /// Copies the selected results-grid cell's raw value to the clipboard.
+-        CopyCellValue
++        CopyCellValue,
++        /// Commits the in-progress inline cell edit.
++        CommitCellEdit,
++        /// Cancels the in-progress inline cell edit.
++        CancelCellEdit
+     ]
+ );
+ 
+@@ -33,6 +38,8 @@ pub(crate) fn register_keybindings(cx: &mut App) {
+     cx.bind_keys([
+         KeyBinding::new("cmd-c", CopyCellValue, Some("DatabaseResultsGrid")),
+         KeyBinding::new("ctrl-c", CopyCellValue, Some("DatabaseResultsGrid")),
++        KeyBinding::new("enter", CommitCellEdit, Some("DatabaseResultsGrid")),
++        KeyBinding::new("escape", CancelCellEdit, Some("DatabaseResultsGrid")),
+     ]);
+ }
+ 
+@@ -143,9 +150,6 @@ pub enum ResultsGridEvent {
+ /// *original* result rows; the value is `None` for a staged SQL NULL and
+ /// `Some(text)` (incl. `Some("")`) for a concrete value. `inserts` holds new
+ /// rows (one `Option` per data column). `deletes` are original-row indices.
+-///
+-/// Not yet consumed by rendering/UI (later tasks of the editable-grid plan);
+-/// its methods carry a scoped `#[allow(dead_code)]` until then.
+ #[derive(Debug, Default, Clone)]
+ pub struct PendingChanges {
+     pub updates: HashMap<(usize, usize), Option<String>>,
+@@ -153,7 +157,6 @@ pub struct PendingChanges {
+     pub deletes: HashSet<usize>,
+ }
+ 
+-#[allow(dead_code)] // Wired up by a later task of the editable-grid plan.
+ impl PendingChanges {
+     pub fn is_empty(&self) -> bool {
+         self.updates.is_empty() && self.inserts.is_empty() && self.deletes.is_empty()
+@@ -204,26 +207,29 @@ pub struct ResultsGrid {
+     sortable: bool,
+     sort: Option<ColumnSort>,
+     context_menu: Option<(Entity<ContextMenu>, Point<Pixels>, Subscription)>,
+-    /// Uncommitted edits staged against `result`. Not yet surfaced in
+-    /// rendering (later tasks of the editable-grid plan).
+-    #[allow(dead_code)]
++    /// Uncommitted edits staged against `result`.
+     pending: PendingChanges,
+     /// `Some` when `result`'s rows map to a single base table with a primary
+     /// key, i.e. edits can be reconciled to `UPDATE`/`DELETE`/`INSERT`.
+-    /// `None` means read-only (joins, aggregates, views, …). Not yet
+-    /// consumed by rendering (later tasks of the editable-grid plan).
+-    #[allow(dead_code)]
++    /// `None` means read-only (joins, aggregates, views, …).
+     editability: Option<Editability>,
+     /// User-facing override that disables editing even when `editability`
+-    /// permits it (e.g. a read-only connection). Not yet consumed by
+-    /// rendering (later tasks of the editable-grid plan).
+-    #[allow(dead_code)]
++    /// permits it (e.g. a read-only connection).
+     read_only: bool,
+     /// Row count of `result` at the time it was last (re)built, used to
+-    /// distinguish original rows from staged inserts. Not yet consumed by
+-    /// rendering (later tasks of the editable-grid plan).
+-    #[allow(dead_code)]
++    /// distinguish original rows (< this) from staged inserts (>= this).
+     original_row_count: usize,
++    /// The cell currently open for inline editing: `(row, data-column,
++    /// overlay editor)`. `row` indexes into the rendered row list (originals
++    /// followed by pending inserts), matching `original_row_count`'s split.
++    editing_cell: Option<(usize, usize, Entity<Editor>)>,
++    /// Test-only: the last overlay editor built by [`Self::begin_cell_edit`],
++    /// kept alive so [`Self::begin_cell_edit_at`] can start a further edit
++    /// session without a live `Window` — plain `Entity::update` (used by
++    /// `grid.update(cx, ...)` in tests) never provides one; only
++    /// `update_in`/the window-construction closure do.
++    #[cfg(test)]
++    last_editor_for_tests: Option<Entity<Editor>>,
+ }
+ 
+ impl EventEmitter<ResultsGridEvent> for ResultsGrid {}
+@@ -243,6 +249,9 @@ impl ResultsGrid {
+             editability: None,
+             read_only: false,
+             original_row_count: 0,
++            editing_cell: None,
++            #[cfg(test)]
++            last_editor_for_tests: None,
+         }
+     }
+ 
+@@ -293,6 +302,7 @@ impl ResultsGrid {
+                         // A different (or first) column list invalidates any
+                         // staged edits — they were keyed against the old shape.
+                         self.pending.clear();
++                        self.editing_cell = None;
+                         self.selected_cell = None;
+                         let data_widths = estimate_column_widths(
+                             &new_result.columns,
+@@ -324,6 +334,7 @@ impl ResultsGrid {
+             }
+             _ => {
+                 self.pending.clear();
++                self.editing_cell = None;
+                 self.selected_cell = None;
+                 self.numeric_columns.clear();
+                 self.columns_state = None;
+@@ -361,11 +372,120 @@ impl ResultsGrid {
+         cx.notify();
+     }
+ 
+-    #[allow(dead_code)] // Wired up by a later task of the editable-grid plan.
+     fn is_editable(&self) -> bool {
+         self.editability.is_some() && !self.read_only
+     }
+ 
++    /// The text currently displayed for `(row, col)`: a staged update takes
++    /// priority over the original/inserted value so re-opening an edit (or
++    /// building the overlay's seed text) reflects prior edits in this
++    /// session, not the original result.
++    fn cell_text(&self, row: usize, col: usize) -> Option<String> {
++        if let Some(staged) = self.pending.updates.get(&(row, col)) {
++            return staged.clone();
++        }
++        let row_values = if row < self.original_row_count {
++            self.result.as_ref()?.rows.get(row)?
++        } else {
++            self.pending.inserts.get(row - self.original_row_count)?
++        };
++        row_values.get(col)?.clone()
++    }
++
++    /// Stages `value` for `(row, col)`, routing to `pending.updates` for an
++    /// original row or `pending.inserts` for a row appended past
++    /// `original_row_count`.
++    fn stage_cell(&mut self, row: usize, col: usize, value: Option<String>) {
++        if row < self.original_row_count {
++            self.pending.stage_update(row, col, value);
++        } else {
++            self.pending
++                .set_insert_cell(row - self.original_row_count, col, value);
++        }
++    }
++
++    /// Opens the inline-edit overlay for `(row, col)`, seeded with the
++    /// current cell text (empty for NULL). No-ops when the grid isn't
++    /// editable. Live keystroke behavior of the overlay editor is verified
++    /// by manual smoke, not this unit-testable state transition.
++    fn begin_cell_edit(
++        &mut self,
++        row: usize,
++        col: usize,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) {
++        if !self.is_editable() {
++            return;
++        }
++        let current_text = self.cell_text(row, col);
++        let editor = cx.new(|cx| {
++            let mut editor = Editor::single_line(window, cx);
++            if let Some(text) = current_text.as_deref() {
++                editor.set_text(text, window, cx);
++            }
++            editor
++        });
++        window.focus(&editor.focus_handle(cx), cx);
++        #[cfg(test)]
++        {
++            self.last_editor_for_tests = Some(editor.clone());
++        }
++        self.editing_cell = Some((row, col, editor));
++        cx.notify();
++    }
++
++    /// Test-only: opens the overlay for `(row, col)` by reusing the editor
++    /// entity from the most recent [`Self::begin_cell_edit`] call, since a
++    /// plain `Context<Self>` (as given to `Entity::update` in tests) never
++    /// carries a `Window`. See `last_editor_for_tests` for why.
++    #[cfg(test)]
++    fn begin_cell_edit_at(&mut self, row: usize, col: usize, cx: &mut Context<Self>) {
++        if !self.is_editable() {
++            return;
++        }
++        let Some(editor) = self.last_editor_for_tests.clone() else {
++            return;
++        };
++        self.editing_cell = Some((row, col, editor));
++        cx.notify();
++    }
++
++    /// Reads the overlay editor's current text and stages it, closing the
++    /// overlay.
++    fn commit_cell_edit(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
++        let Some((_, _, editor)) = &self.editing_cell else {
++            return;
++        };
++        let text = editor.read(cx).text(cx);
++        self.commit_cell_edit_with(text, cx);
++    }
++
++    /// Stages `text` for the cell under edit and closes the overlay.
++    fn commit_cell_edit_with(&mut self, text: String, cx: &mut Context<Self>) {
++        let Some((row, col, _)) = self.editing_cell.take() else {
++            return;
++        };
++        self.stage_cell(row, col, Some(text));
++        cx.notify();
++    }
++
++    /// Stages a SQL NULL for the cell under edit and closes the overlay.
++    #[allow(dead_code)] // Wired to a "Set to NULL" trigger by a later task of the editable-grid plan.
++    fn set_editing_cell_null(&mut self, cx: &mut Context<Self>) {
++        let Some((row, col, _)) = self.editing_cell.take() else {
++            return;
++        };
++        self.stage_cell(row, col, None);
++        cx.notify();
++    }
++
++    /// Closes the overlay without staging anything.
++    fn cancel_cell_edit(&mut self, cx: &mut Context<Self>) {
++        self.editing_cell = None;
++        cx.notify();
++    }
++
+     /// Confirmed sort state to display as a header chevron (set by the owner
+     /// after the sorted page arrives).
+     pub fn set_sort(&mut self, sort: Option<ColumnSort>, cx: &mut Context<Self>) {
+@@ -466,15 +586,21 @@ impl ResultsGrid {
+         cx.notify();
+     }
+ 
++    #[allow(clippy::too_many_arguments)]
+     fn render_cell(
+         &self,
+         row_ix: usize,
+         col_ix: usize,
+         cell: &Option<String>,
++        is_insert_row: bool,
++        is_delete_row: bool,
++        is_modified: bool,
+         row_height: Pixels,
+         cell_padding: Pixels,
+         selected: Option<(usize, usize)>,
+         numeric: &[bool],
++        editable: bool,
++        editing: Option<&Entity<Editor>>,
+         cx: &mut Context<Self>,
+     ) -> AnyElement {
+         let is_selected = selected == Some((row_ix, col_ix));
+@@ -494,9 +620,20 @@ impl ResultsGrid {
+             .when(numeric.get(col_ix).copied().unwrap_or(false), |this| {
+                 this.text_right()
+             })
+-            .when(is_null, |this| {
++            .when(is_null && editing.is_none(), |this| {
+                 this.italic().text_color(cx.theme().colors().text_muted)
+             })
++            .when(is_insert_row, |this| {
++                this.bg(cx.theme().status().created_background)
++            })
++            .when(is_delete_row, |this| {
++                this.line_through().text_color(cx.theme().status().deleted)
++            })
++            .when(is_modified && !is_insert_row, |this| {
++                this.bg(cx.theme().status().modified_background)
++                    .border_1()
++                    .border_color(cx.theme().status().modified)
++            })
+             .when(is_selected, |this| {
+                 this.bg(cx.theme().colors().element_selected)
+                     .border_1()
+@@ -504,8 +641,11 @@ impl ResultsGrid {
+             })
+             .on_mouse_down(
+                 MouseButton::Left,
+-                cx.listener(move |this, _: &MouseDownEvent, window, cx| {
++                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                     this.select_cell(row_ix, col_ix, window, cx);
++                    if editable && event.click_count >= 2 {
++                        this.begin_cell_edit(row_ix, col_ix, window, cx);
++                    }
+                 }),
+             )
+             .on_mouse_down(
+@@ -515,7 +655,12 @@ impl ResultsGrid {
+                     this.deploy_cell_context_menu(row_ix, col_ix, event.position, window, cx);
+                 }),
+             )
+-            .child(text)
++            .when_some(editing, |this, editor| {
++                // The overlay editor's live keystroke behavior (typing,
++                // caret, IME) is covered by manual smoke, not unit tests.
++                this.child(div().size_full().child(editor.clone()))
++            })
++            .when(editing.is_none(), |this| this.child(text))
+             .into_any_element()
+     }
+ }
+@@ -527,7 +672,8 @@ impl Render for ResultsGrid {
+         };
+         let data_cols = result.columns.len();
+         let cols = data_cols + 1;
+-        let row_count = result.rows.len();
++        let original_row_count = self.original_row_count;
++        let row_count = original_row_count + self.pending.inserts.len();
+ 
+         let settings = DatabaseClientSettings::get_global(cx);
+         let font_family = Self::results_font_family(cx);
+@@ -538,9 +684,13 @@ impl Render for ResultsGrid {
+         let header_height = row_height + px(5.);
+ 
+         let text_muted = cx.theme().colors().text_muted;
++        let created_background = cx.theme().status().created_background;
+         let rows = result.rows.clone();
+         let numeric = self.numeric_columns.clone();
+         let selected = self.selected_cell;
++        let editable = self.is_editable();
++        let pending = self.pending.clone();
++        let editing_cell = self.editing_cell.clone();
+ 
+         let mut header_cells: Vec<AnyElement> = Vec::with_capacity(cols);
+         header_cells.push(div().into_any_element()); // gutter header
+@@ -605,7 +755,13 @@ impl Render for ResultsGrid {
+                 cx.processor(move |this, range: std::ops::Range<usize>, _window, cx| {
+                     range
+                         .filter_map(|row_ix| {
+-                            let row = rows.get(row_ix)?;
++                            let is_insert_row = row_ix >= original_row_count;
++                            let row = if is_insert_row {
++                                pending.inserts.get(row_ix - original_row_count)?
++                            } else {
++                                rows.get(row_ix)?
++                            };
++                            let is_delete_row = !is_insert_row && pending.deletes.contains(&row_ix);
+                             let mut cells: Vec<AnyElement> = Vec::with_capacity(cols);
+                             cells.push(
+                                 div()
+@@ -615,6 +771,7 @@ impl Render for ResultsGrid {
+                                     .text_right()
+                                     .text_color(text_muted)
+                                     .overflow_hidden()
++                                    .when(is_insert_row, |this| this.bg(created_background))
+                                     .child(SharedString::from((row_ix + 1).to_string()))
+                                     .into_any_element(),
+                             );
+@@ -624,15 +781,27 @@ impl Render for ResultsGrid {
+                             // Table's rectangular row invariant holds instead
+                             // of panicking.
+                             for col_ix in 0..data_cols {
+-                                let cell = row.get(col_ix).unwrap_or(&None);
++                                let staged = pending.updates.get(&(row_ix, col_ix));
++                                let is_modified = staged.is_some();
++                                let original = row.get(col_ix).unwrap_or(&None);
++                                let cell = staged.unwrap_or(original);
++                                let editing = editing_cell
++                                    .as_ref()
++                                    .filter(|(r, c, _)| *r == row_ix && *c == col_ix)
++                                    .map(|(_, _, editor)| editor);
+                                 cells.push(this.render_cell(
+                                     row_ix,
+                                     col_ix,
+                                     cell,
++                                    is_insert_row,
++                                    is_delete_row,
++                                    is_modified,
+                                     row_height,
+                                     cell_padding,
+                                     selected,
+                                     &numeric,
++                                    editable,
++                                    editing,
+                                     cx,
+                                 ));
+                             }
+@@ -661,6 +830,20 @@ impl Render for ResultsGrid {
+             .on_action(cx.listener(|this, _: &CopyCellValue, _window, cx| {
+                 this.copy_selected_cell(cx);
+             }))
++            .on_action(cx.listener(|this, _: &CommitCellEdit, window, cx| {
++                if this.editing_cell.is_some() {
++                    this.commit_cell_edit(window, cx);
++                } else {
++                    cx.propagate();
++                }
++            }))
++            .on_action(cx.listener(|this, _: &CancelCellEdit, _window, cx| {
++                if this.editing_cell.is_some() {
++                    this.cancel_cell_edit(cx);
++                } else {
++                    cx.propagate();
++                }
++            }))
+             .child(
+                 div()
+                     .relative()
+@@ -1107,4 +1290,71 @@ mod tests {
+         });
+         cx.run_until_parked();
+     }
++
++    #[gpui::test]
++    fn committing_a_cell_edit_stages_an_update(cx: &mut gpui::TestAppContext) {
++        init_test(cx);
++        let (grid, cx) = cx.add_window_view(|window, cx| {
++            let mut grid = ResultsGrid::new(cx);
++            let result = QueryResult {
++                columns: vec!["id".into(), "name".into()],
++                rows: vec![vec![Some("1".into()), Some("al".into())]],
++                command_tag: None,
++                truncated: false,
++            };
++            grid.set_result(Some(result), true, cx);
++            grid.editability = Some(crate::query_view::Editability {
++                schema: "public".into(),
++                table: "users".into(),
++                pk_cols: vec!["id".into()],
++                col_types: Default::default(),
++            });
++            grid.begin_cell_edit(0, 1, window, cx);
++            grid
++        });
++        grid.update(cx, |grid, cx| {
++            grid.commit_cell_edit_with("ann".to_string(), cx);
++            assert_eq!(
++                grid.pending.updates.get(&(0, 1)),
++                Some(&Some("ann".to_string())),
++                "committing seeds an update entry"
++            );
++            assert!(grid.editing_cell.is_none(), "commit closes the overlay");
++        });
++    }
++
++    #[gpui::test]
++    fn set_null_stages_none_and_cancel_leaves_pending_untouched(cx: &mut gpui::TestAppContext) {
++        init_test(cx);
++        let (grid, cx) = cx.add_window_view(|window, cx| {
++            let mut grid = ResultsGrid::new(cx);
++            let result = QueryResult {
++                columns: vec!["id".into(), "name".into()],
++                rows: vec![vec![Some("1".into()), Some("al".into())]],
++                command_tag: None,
++                truncated: false,
++            };
++            grid.set_result(Some(result), true, cx);
++            grid.editability = Some(crate::query_view::Editability {
++                schema: "public".into(),
++                table: "users".into(),
++                pk_cols: vec!["id".into()],
++                col_types: Default::default(),
++            });
++            grid.begin_cell_edit(0, 1, window, cx);
++            grid
++        });
++        grid.update(cx, |grid, cx| {
++            grid.set_editing_cell_null(cx);
++            assert_eq!(grid.pending.updates.get(&(0, 1)), Some(&None));
++        });
++        grid.update(cx, |grid, cx| {
++            grid.begin_cell_edit_at(0, 0, cx); // helper that skips window focus in tests
++            grid.cancel_cell_edit(cx);
++            assert!(
++                !grid.pending.updates.contains_key(&(0, 0)),
++                "cancel stages nothing"
++            );
++        });
++    }
+ }

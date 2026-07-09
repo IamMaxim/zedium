@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 18:22:23 +0300
+Subject: [PATCH] database_client: add connection/edit.rs with null_or_literal
+ (Approach A)
+
+---
+ crates/database_client/src/connection.rs      |  1 +
+ crates/database_client/src/connection/edit.rs | 83 +++++++++++++++++++
+ 2 files changed, 84 insertions(+)
+ create mode 100644 crates/database_client/src/connection/edit.rs
+
+diff --git a/crates/database_client/src/connection.rs b/crates/database_client/src/connection.rs
+index c875fe5d3c..7f29db7c7f 100644
+--- a/crates/database_client/src/connection.rs
++++ b/crates/database_client/src/connection.rs
+@@ -1,5 +1,6 @@
+ pub mod client;
+ pub mod ddl;
++pub mod edit;
+ pub mod introspect;
+ pub mod metadata_cache;
+ pub mod profile;
+diff --git a/crates/database_client/src/connection/edit.rs b/crates/database_client/src/connection/edit.rs
+new file mode 100644
+index 0000000000..03833b7bec
+--- /dev/null
++++ b/crates/database_client/src/connection/edit.rs
+@@ -0,0 +1,83 @@
++//! Approach-A DML generation for the editable results grid. Every value is
++//! emitted as a text literal cast back to its column type
++//! (`'text'::pgtype`) — the text from `simple_query` is a valid input literal
++//! for that type, so this round-trips correctly for all types (arrays, json,
++//! bytea, enums, …). `None` is a real SQL `NULL`; `Some("")` is the empty
++//! string. WHERE clauses are built from primary-key columns only.
++
++use std::collections::HashMap;
++
++use crate::connection::introspect::quote_literal;
++
++/// A staged edit of one existing row: its primary-key identity and the set of
++/// changed columns. `set` values are `None` for a SQL `NULL`, `Some(text)`
++/// (including `Some("")`) for a concrete value.
++#[derive(Debug, Clone, PartialEq, Eq)]
++#[allow(dead_code)]
++pub struct RowEdit {
++    pub pk: Vec<(String, String)>,
++    pub set: Vec<(String, Option<String>)>,
++}
++
++/// A staged new row: one value per column, `None` ⇒ `NULL`.
++#[derive(Debug, Clone, PartialEq, Eq)]
++#[allow(dead_code)]
++pub struct InsertRow {
++    pub values: Vec<(String, Option<String>)>,
++}
++
++/// `None ⇒ "NULL"`; `Some(text) ⇒ quote_literal(text)::pg_type`. The type is
++/// interpolated verbatim (not identifier-quoted) so container/qualified types
++/// like `integer[]` or `timestamp without time zone` cast correctly.
++#[allow(dead_code)]
++pub fn null_or_literal(text: Option<&str>, pg_type: &str) -> String {
++    match text {
++        None => "NULL".to_string(),
++        Some(value) => format!("{}::{}", quote_literal(value), pg_type),
++    }
++}
++
++#[allow(dead_code)]
++fn column_type<'a>(col_types: &'a HashMap<String, String>, col: &str) -> &'a str {
++    col_types.get(col).map(String::as_str).unwrap_or("text")
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn null_or_literal_maps_none_to_bare_null() {
++        assert_eq!(null_or_literal(None, "integer"), "NULL");
++        assert_eq!(null_or_literal(None, "text"), "NULL");
++    }
++
++    #[test]
++    fn null_or_literal_casts_some_including_empty_string() {
++        // empty string is a real value, NOT null.
++        assert_eq!(null_or_literal(Some(""), "text"), "''::text");
++        assert_eq!(null_or_literal(Some("42"), "integer"), "'42'::integer");
++    }
++
++    #[test]
++    fn null_or_literal_escapes_apostrophes_and_keeps_type_verbatim() {
++        assert_eq!(null_or_literal(Some("o'brien"), "text"), "'o''brien'::text");
++        // Container/qualified types pass through unquoted so arrays/timestamps cast.
++        assert_eq!(
++            null_or_literal(Some("{1,2}"), "integer[]"),
++            "'{1,2}'::integer[]"
++        );
++        assert_eq!(
++            null_or_literal(Some("2020-01-01 00:00:00"), "timestamp without time zone"),
++            "'2020-01-01 00:00:00'::timestamp without time zone"
++        );
++        assert_eq!(
++            null_or_literal(Some("{\"a\":1}"), "jsonb"),
++            "'{\"a\":1}'::jsonb"
++        );
++        assert_eq!(
++            null_or_literal(Some("\\x00ff"), "bytea"),
++            "'\\x00ff'::bytea"
++        );
++    }
++}

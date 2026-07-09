@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 15:47:31 +0300
+Subject: [PATCH] database_client: introspect foreign keys via pg_constraint +
+ pg_get_constraintdef
+
+---
+ .../src/connection/introspect.rs              | 57 +++++++++++++++++++
+ 1 file changed, 57 insertions(+)
+
+diff --git a/crates/database_client/src/connection/introspect.rs b/crates/database_client/src/connection/introspect.rs
+index 06ddfd2839..821f1abad4 100644
+--- a/crates/database_client/src/connection/introspect.rs
++++ b/crates/database_client/src/connection/introspect.rs
+@@ -40,6 +40,13 @@ pub struct IndexInfo {
+     pub definition: String,
+ }
+ 
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ForeignKeyInfo {
++    pub name: String,
++    pub definition: String,
++    pub referenced_table: String,
++}
++
+ fn col(r: &QueryResult, row: &[Option<String>], name: &str) -> String {
+     r.columns
+         .iter()
+@@ -116,6 +123,17 @@ pub(crate) fn parse_indexes(r: &QueryResult) -> Vec<IndexInfo> {
+         .collect()
+ }
+ 
++pub(crate) fn parse_foreign_keys(r: &QueryResult) -> Vec<ForeignKeyInfo> {
++    r.rows
++        .iter()
++        .map(|row| ForeignKeyInfo {
++            name: col(r, row, "fk_name"),
++            definition: col(r, row, "definition"),
++            referenced_table: col(r, row, "referenced_table"),
++        })
++        .collect()
++}
++
+ pub(crate) fn quote_literal(s: &str) -> String {
+     format!("'{}'", s.replace('\'', "''"))
+ }
+@@ -218,6 +236,29 @@ impl Connection {
+         let task = self.execute(sql, 10_000, cx);
+         cx.background_spawn(async move { Ok(parse_indexes(&task.await?)) })
+     }
++
++    pub fn list_foreign_keys(
++        &self,
++        schema: String,
++        table: String,
++        cx: &App,
++    ) -> Task<Result<Vec<ForeignKeyInfo>>> {
++        let sql = format!(
++            "select con.conname as fk_name, \
++                    pg_get_constraintdef(con.oid) as definition, \
++                    ref.relname as referenced_table \
++             from pg_constraint con \
++             join pg_class rel on rel.oid = con.conrelid \
++             join pg_namespace n on n.oid = rel.relnamespace \
++             join pg_class ref on ref.oid = con.confrelid \
++             where con.contype = 'f' and n.nspname = {} and rel.relname = {} \
++             order by con.conname",
++            quote_literal(&schema),
++            quote_literal(&table)
++        );
++        let task = self.execute(sql, 10_000, cx);
++        cx.background_spawn(async move { Ok(parse_foreign_keys(&task.await?)) })
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -478,4 +519,20 @@ mod tests {
+         assert!(!indexes[1].is_unique);
+         assert!(!indexes[1].is_primary);
+     }
++
++    #[test]
++    fn parses_foreign_keys() {
++        let r = qr(
++            &["fk_name", "definition", "referenced_table"],
++            vec![vec![
++                Some("orders_user_id_fkey"),
++                Some("FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"),
++                Some("users"),
++            ]],
++        );
++        let fks = parse_foreign_keys(&r);
++        assert_eq!(fks[0].name, "orders_user_id_fkey");
++        assert_eq!(fks[0].referenced_table, "users");
++        assert!(fks[0].definition.contains("REFERENCES users(id)"));
++    }
+ }

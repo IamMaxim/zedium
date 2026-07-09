@@ -1,0 +1,245 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 16:49:08 +0300
+Subject: [PATCH] database_client: reconstruct CREATE TABLE from introspected
+ metadata
+
+---
+ crates/database_client/src/connection/ddl.rs | 217 ++++++++++++++++++-
+ 1 file changed, 216 insertions(+), 1 deletion(-)
+
+diff --git a/crates/database_client/src/connection/ddl.rs b/crates/database_client/src/connection/ddl.rs
+index e481e13eab..51e8f58c5d 100644
+--- a/crates/database_client/src/connection/ddl.rs
++++ b/crates/database_client/src/connection/ddl.rs
+@@ -1,7 +1,85 @@
+ use crate::connection::client::Connection;
+-use crate::connection::introspect::{quote_ident, quote_literal};
++use crate::connection::introspect::{
++    ColumnInfo, ConstraintInfo, IndexInfo, quote_ident, quote_literal,
++};
+ use anyhow::{Context as _, Result};
+ use gpui::{App, AppContext as _, Task};
++use std::collections::HashSet;
++
++/// Reconstructs a `CREATE TABLE` statement (plus trailing `CREATE INDEX` and
++/// `COMMENT ON` lines) from introspected metadata. Postgres has no
++/// `pg_get_tabledef`, so this is assembled by hand and re-parses on the server
++/// (see the live round-trip test).
++///
++/// Column NOT NULL / DEFAULT clauses are not represented in `ColumnInfo` and are
++/// therefore omitted; PK/unique/check come from `constraints`. Indexes backing a
++/// constraint (primary, or same-named as a constraint) are skipped to avoid
++/// emitting a redundant `CREATE INDEX`.
++// Not yet called from `object_ddl`'s `Table` branch (wired in Task 3); allowed
++// dead code until then.
++#[allow(dead_code)]
++pub fn reconstruct_create_table(
++    schema: &str,
++    table: &str,
++    columns: &[ColumnInfo],
++    constraints: &[ConstraintInfo],
++    indexes: &[IndexInfo],
++    comments: &[(String, String)],
++) -> String {
++    let qualified = format!("{}.{}", quote_ident(schema), quote_ident(table));
++
++    let mut lines: Vec<String> = Vec::new();
++    for column in columns {
++        lines.push(format!(
++            "    {} {}",
++            quote_ident(&column.name),
++            column.data_type
++        ));
++    }
++    for constraint in constraints {
++        lines.push(format!(
++            "    CONSTRAINT {} {}",
++            quote_ident(&constraint.name),
++            constraint.definition
++        ));
++    }
++
++    let mut ddl = format!("CREATE TABLE {qualified} (\n{}\n);", lines.join(",\n"));
++
++    let constraint_names: HashSet<&str> = constraints
++        .iter()
++        .map(|constraint| constraint.name.as_str())
++        .collect();
++    for index in indexes {
++        if index.is_primary || constraint_names.contains(index.name.as_str()) {
++            continue;
++        }
++        ddl.push('\n');
++        let definition = index.definition.trim_end();
++        ddl.push_str(definition);
++        if !definition.ends_with(';') {
++            ddl.push(';');
++        }
++    }
++
++    for (column_name, body) in comments {
++        ddl.push('\n');
++        if column_name.is_empty() {
++            ddl.push_str(&format!(
++                "COMMENT ON TABLE {qualified} IS {};",
++                quote_literal(body)
++            ));
++        } else {
++            ddl.push_str(&format!(
++                "COMMENT ON COLUMN {qualified}.{} IS {};",
++                quote_ident(column_name),
++                quote_literal(body)
++            ));
++        }
++    }
++
++    ddl
++}
+ 
+ /// Which server object a DDL request targets. Tables have no `pg_get_*def`
+ /// function, so they are reconstructed (see `reconstruct_create_table`); the
+@@ -103,6 +181,143 @@ impl Connection {
+     }
+ }
+ 
++#[cfg(test)]
++mod reconstruct_tests {
++    use super::*;
++    use crate::connection::introspect::{ColumnInfo, ConstraintInfo, IndexInfo};
++
++    fn column(name: &str, data_type: &str, pk: bool) -> ColumnInfo {
++        ColumnInfo {
++            name: name.into(),
++            data_type: data_type.into(),
++            is_primary_key: pk,
++        }
++    }
++    fn constraint(name: &str, kind: &str, definition: &str) -> ConstraintInfo {
++        ConstraintInfo {
++            name: name.into(),
++            kind: kind.into(),
++            definition: definition.into(),
++        }
++    }
++    fn index(name: &str, is_unique: bool, is_primary: bool, definition: &str) -> IndexInfo {
++        IndexInfo {
++            name: name.into(),
++            is_unique,
++            is_primary,
++            definition: definition.into(),
++        }
++    }
++
++    #[test]
++    fn columns_types_and_constraints_render() {
++        let ddl = reconstruct_create_table(
++            "public",
++            "users",
++            &[
++                column("id", "integer", true),
++                column("email", "text", false),
++                column("age", "integer", false),
++            ],
++            &[
++                constraint("users_pkey", "PRIMARY KEY", "PRIMARY KEY (id)"),
++                constraint("users_email_key", "UNIQUE", "UNIQUE (email)"),
++                constraint("users_age_check", "CHECK", "CHECK ((age > 0))"),
++            ],
++            &[],
++            &[],
++        );
++        assert_eq!(
++            ddl,
++            "CREATE TABLE \"public\".\"users\" (\n\
++             \x20   \"id\" integer,\n\
++             \x20   \"email\" text,\n\
++             \x20   \"age\" integer,\n\
++             \x20   CONSTRAINT \"users_pkey\" PRIMARY KEY (id),\n\
++             \x20   CONSTRAINT \"users_email_key\" UNIQUE (email),\n\
++             \x20   CONSTRAINT \"users_age_check\" CHECK ((age > 0))\n\
++             );"
++        );
++    }
++
++    #[test]
++    fn trailing_indexes_skip_primary_and_constraint_backed() {
++        let ddl = reconstruct_create_table(
++            "public",
++            "users",
++            &[column("id", "integer", true)],
++            &[constraint("users_email_key", "UNIQUE", "UNIQUE (email)")],
++            &[
++                // Primary index — covered by the PK constraint; skipped.
++                index(
++                    "users_pkey",
++                    true,
++                    true,
++                    "CREATE UNIQUE INDEX users_pkey ON public.users USING btree (id)",
++                ),
++                // Backs the unique constraint (same name); skipped.
++                index(
++                    "users_email_key",
++                    true,
++                    false,
++                    "CREATE UNIQUE INDEX users_email_key ON public.users USING btree (email)",
++                ),
++                // A plain secondary index — emitted.
++                index(
++                    "users_email_lower_idx",
++                    false,
++                    false,
++                    "CREATE INDEX users_email_lower_idx ON public.users USING btree (lower(email))",
++                ),
++            ],
++            &[],
++        );
++        assert!(ddl.contains(
++            "\nCREATE INDEX users_email_lower_idx ON public.users USING btree (lower(email));"
++        ));
++        assert!(!ddl.contains("users_pkey ON"));
++        assert!(!ddl.contains("users_email_key ON"));
++    }
++
++    #[test]
++    fn table_and_column_comments_render() {
++        let ddl = reconstruct_create_table(
++            "public",
++            "users",
++            &[column("id", "integer", true)],
++            &[],
++            &[],
++            &[
++                (String::new(), "app users".into()),
++                ("id".into(), "primary key it's".into()),
++            ],
++        );
++        assert!(ddl.contains("\nCOMMENT ON TABLE \"public\".\"users\" IS 'app users';"));
++        assert!(
++            ddl.contains("\nCOMMENT ON COLUMN \"public\".\"users\".\"id\" IS 'primary key it''s';")
++        );
++    }
++
++    #[test]
++    fn index_definition_gets_a_semicolon_only_when_missing() {
++        let already = reconstruct_create_table(
++            "public",
++            "t",
++            &[column("id", "integer", false)],
++            &[],
++            &[index(
++                "t_idx",
++                false,
++                false,
++                "CREATE INDEX t_idx ON public.t (id);",
++            )],
++            &[],
++        );
++        assert!(already.contains("CREATE INDEX t_idx ON public.t (id);"));
++        assert!(!already.contains("(id);;"));
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;

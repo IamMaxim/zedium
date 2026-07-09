@@ -1,0 +1,126 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 17:25:20 +0300
+Subject: [PATCH] database_client: rank exact-prefix autocomplete matches first
+
+---
+ .../src/connection/metadata_cache.rs          | 94 ++++++++++++++++++-
+ 1 file changed, 90 insertions(+), 4 deletions(-)
+
+diff --git a/crates/database_client/src/connection/metadata_cache.rs b/crates/database_client/src/connection/metadata_cache.rs
+index a0a13f253c..49650b107b 100644
+--- a/crates/database_client/src/connection/metadata_cache.rs
++++ b/crates/database_client/src/connection/metadata_cache.rs
+@@ -236,10 +236,10 @@ fn matches_prefix(text: &str, prefix: &str) -> bool {
+             .starts_with(&prefix.to_ascii_lowercase())
+ }
+ 
+-/// Context-sensitive suggestion list. Ranking order (best first): in-scope
+-/// columns, then tables/views, then schemas, then keywords. `full_sql` is the
+-/// whole statement text (for alias resolution); `prefix` is the partial word
+-/// under the caret.
++/// Context-sensitive suggestion list. Ranking order (best first): exact-prefix
++/// matches, then in-scope columns, then tables/views, then schemas, then keywords.
++/// `full_sql` is the whole statement text (for alias resolution); `prefix` is the
++/// partial word under the caret.
+ ///
+ /// Wired up in Task 4 of the autocomplete plan.
+ #[allow(dead_code)]
+@@ -329,6 +329,11 @@ pub fn candidates(
+             }
+         }
+     }
++    // Promote exact-prefix matches to the front while preserving kind-based ordering.
++    // When prefix is empty, nothing is "exact" so ordering is unchanged.
++    if !prefix.is_empty() {
++        out.sort_by_key(|c| !c.text.eq_ignore_ascii_case(prefix));
++    }
+     out
+ }
+ 
+@@ -726,4 +731,85 @@ mod tests {
+         assert!(out.iter().any(|c| c.text.eq_ignore_ascii_case("select")));
+         assert!(out.iter().all(|c| matches!(c.kind, CandidateKind::Keyword)));
+     }
++
++    #[test]
++    fn exact_prefix_matches_rank_first() {
++        // Cache with two columns: "id" (exact) and "identifier" (prefix-only)
++        // with prefix "id", the exact match should come first.
++        let cache = MetadataCache {
++            relations: vec![RelationMeta {
++                schema: "public".into(),
++                name: "users".into(),
++                kind: RelationKind::Table,
++                columns: vec![
++                    ColumnMeta {
++                        name: "id".into(),
++                        data_type: "integer".into(),
++                        is_primary_key: false,
++                    },
++                    ColumnMeta {
++                        name: "identifier".into(),
++                        data_type: "text".into(),
++                        is_primary_key: false,
++                    },
++                ],
++            }],
++        };
++        let out = candidates(&cache, &CompletionContext::General, "id", "select ");
++        // Both columns should match the prefix "id", but "id" (exact) should come first.
++        assert_eq!(out[0].text, "id");
++        assert_eq!(out[1].text, "identifier");
++    }
++
++    #[test]
++    fn exact_match_in_lower_priority_kind_ranks_ahead_of_non_exact_higher_priority() {
++        // A cache where a table with exact name "users" and a column "username" (prefix-only)
++        // exist. With prefix "users", the exact-matching table should rank ahead.
++        let cache = MetadataCache {
++            relations: vec![RelationMeta {
++                schema: "public".into(),
++                name: "users".into(),
++                kind: RelationKind::Table,
++                columns: vec![ColumnMeta {
++                    name: "username".into(),
++                    data_type: "text".into(),
++                    is_primary_key: false,
++                }],
++            }],
++        };
++        let out = candidates(&cache, &CompletionContext::General, "users", "select ");
++        // "users" table is exact match, "username" column is prefix-only.
++        // Even though columns rank before tables by kind, exact-prefix should come first overall.
++        let positions: Vec<_> = out.iter().map(|c| c.text.as_str()).collect();
++        let users_pos = positions.iter().position(|&t| t == "users");
++        let username_pos = positions.iter().position(|&t| t == "username");
++        assert!(users_pos.is_some_and(|p| username_pos.is_none_or(|u| p < u)));
++    }
++
++    #[test]
++    fn empty_prefix_does_not_reorder() {
++        // With an empty prefix, all candidates match and should keep their original order
++        // (columns first, then tables, then keywords in General context).
++        let cache = MetadataCache {
++            relations: vec![RelationMeta {
++                schema: "public".into(),
++                name: "users".into(),
++                kind: RelationKind::Table,
++                columns: vec![ColumnMeta {
++                    name: "id".into(),
++                    data_type: "integer".into(),
++                    is_primary_key: false,
++                }],
++            }],
++        };
++        let out = candidates(&cache, &CompletionContext::General, "", "select ");
++        let texts: Vec<_> = out.iter().map(|c| c.text.as_str()).collect();
++        // Columns should come before tables.
++        let id_pos = texts.iter().position(|&t| t == "id").unwrap();
++        let users_pos = texts.iter().position(|&t| t == "users").unwrap();
++        assert!(
++            id_pos < users_pos,
++            "columns should come before tables when no prefix"
++        );
++    }
+ }

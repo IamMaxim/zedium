@@ -1,0 +1,99 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 17:53:56 +0300
+Subject: [PATCH] database_client: bind whole-buffer run to RunScript
+
+---
+ crates/database_client/src/query_view.rs | 29 ++++++++++++++++--------
+ 1 file changed, 19 insertions(+), 10 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index d348d29805..86cc603322 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -39,7 +39,7 @@ use crate::{
+     settings::DatabaseClientSettings,
+ };
+ 
+-actions!(database_client, [RunQuery]);
++actions!(database_client, [RunStatement, RunScript]);
+ 
+ pub(crate) const DEFAULT_EDITOR_RATIO: f32 = 0.3;
+ const MIN_EDITOR_RATIO: f32 = 0.1;
+@@ -60,8 +60,8 @@ struct DraggedQuerySplitHandle {
+ 
+ pub(crate) fn register_keybindings(cx: &mut App) {
+     cx.bind_keys([
+-        KeyBinding::new("cmd-enter", RunQuery, Some("QueryView")),
+-        KeyBinding::new("ctrl-enter", RunQuery, Some("QueryView")),
++        KeyBinding::new("cmd-shift-enter", RunScript, Some("QueryView")),
++        KeyBinding::new("ctrl-shift-enter", RunScript, Some("QueryView")),
+     ]);
+ }
+ 
+@@ -287,8 +287,9 @@ impl QueryView {
+         workspace.add_item_to_active_pane(Box::new(view), None, true, window, cx);
+     }
+ 
+-    fn run(&mut self, _: &RunQuery, _window: &mut Window, cx: &mut Context<Self>) {
+-        let sql = self.editor.read(cx).text(cx);
++    /// Shared run entry: guards blank SQL and the missing-connection case, resets a
++    /// sort tied to a now-stale result, records `last_sql`, and dispatches page 0.
++    fn run_sql(&mut self, sql: String, cx: &mut Context<Self>) {
+         if sql.trim().is_empty() {
+             return;
+         }
+@@ -308,6 +309,12 @@ impl QueryView {
+         self.dispatch_query(sql, 0, QueryIntent::Run, cx);
+     }
+ 
++    /// Runs the entire editor buffer as one batch (today's whole-buffer behavior).
++    fn run_script(&mut self, _: &RunScript, _window: &mut Window, cx: &mut Context<Self>) {
++        let sql = self.editor.read(cx).text(cx);
++        self.run_sql(sql, cx);
++    }
++
+     fn load_more(&mut self, cx: &mut Context<Self>) {
+         if self.running || !self.has_more {
+             return;
+@@ -845,9 +852,9 @@ impl Render for QueryView {
+             .icon_size(toolbar_icon_size)
+             .icon_color(Color::Success)
+             .disabled(self.running)
+-            .tooltip(Tooltip::text("Run Query (⌘↵)"))
++            .tooltip(Tooltip::text("Run Script (⌘⇧↵)"))
+             .on_click(cx.listener(|this, _, window, cx| {
+-                this.run(&RunQuery, window, cx);
++                this.run_script(&RunScript, window, cx);
+             }));
+ 
+         let toolbar_content = h_flex()
+@@ -1019,7 +1026,7 @@ impl Render for QueryView {
+         div()
+             .key_context("QueryView")
+             .track_focus(&self.focus_handle(cx))
+-            .on_action(cx.listener(Self::run))
++            .on_action(cx.listener(Self::run_script))
+             .size_full()
+             .flex()
+             .flex_col()
+@@ -1353,7 +1360,7 @@ mod tests {
+     }
+ 
+     #[gpui::test]
+-    async fn run_with_empty_sql_is_a_no_op(cx: &mut TestAppContext) {
++    async fn run_script_with_empty_sql_is_a_no_op(cx: &mut TestAppContext) {
+         init_test(cx);
+         let fs = fs::FakeFs::new(cx.executor());
+         let project = project::Project::test(fs, [], cx).await;
+@@ -1378,7 +1385,9 @@ mod tests {
+                 .expect("QueryView tab should exist")
+         });
+ 
+-        view.update_in(cx, |view, window, cx| view.run(&RunQuery, window, cx));
++        view.update_in(cx, |view, window, cx| {
++            view.run_script(&RunScript, window, cx)
++        });
+ 
+         // The guard must bail synchronously: no generation bump, no spinner,
+         // no lazy-connect attempt, no error.

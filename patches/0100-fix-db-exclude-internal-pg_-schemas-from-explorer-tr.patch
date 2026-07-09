@@ -1,0 +1,298 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Tue, 30 Jun 2026 20:05:35 +0300
+Subject: [PATCH] fix(db): exclude internal pg_* schemas from explorer tree
+
+The schema explorer leaked `pg_toast` (and other `pg_*` internal
+schemas) as non-expandable dead-end nodes because the schema filter
+only excluded `pg_catalog` and `information_schema`. Switch to a
+`not like 'pg\_%'` filter so all internal schemas are excluded, leaving
+only user schemas (public, app, ...) that actually expand.
+
+Add live introspection tests (schemas/relations/columns) and a live
+panel test that drives lazy expansion connection -> schema -> relation
+-> columns against a real Postgres, plus the test-support dev-deps and
+gpui_tokio/allow_parking setup the existing connect_and_select test was
+missing.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GbHBSdw2MBBgxKxLnVCbf6
+---
+ Cargo.lock                                    |   1 +
+ crates/database_client/Cargo.toml             |   4 +
+ .../database_client/src/connection/client.rs  |   2 +
+ .../src/connection/introspect.rs              |  69 ++++++++-
+ crates/database_client/src/panel.rs           | 138 ++++++++++++++++++
+ 5 files changed, 213 insertions(+), 1 deletion(-)
+
+diff --git a/Cargo.lock b/Cargo.lock
+index c0f136430c..e061529963 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -3755,6 +3755,7 @@ dependencies = [
+  "anyhow",
+  "db",
+  "editor",
++ "fs",
+  "futures 0.3.32",
+  "gpui",
+  "gpui_tokio",
+diff --git a/crates/database_client/Cargo.toml b/crates/database_client/Cargo.toml
+index 9303062449..b564819821 100644
+--- a/crates/database_client/Cargo.toml
++++ b/crates/database_client/Cargo.toml
+@@ -43,6 +43,10 @@ zed_actions.workspace = true
+ [dev-dependencies]
+ db = { workspace = true, features = ["test-support"] }
+ gpui = { workspace = true, features = ["test-support"] }
++project = { workspace = true, features = ["test-support"] }
++workspace = { workspace = true, features = ["test-support"] }
++settings = { workspace = true, features = ["test-support"] }
++fs = { workspace = true, features = ["test-support"] }
+ tempfile.workspace = true
+ 
+ [package.metadata.cargo-machete]
+diff --git a/crates/database_client/src/connection/client.rs b/crates/database_client/src/connection/client.rs
+index a02ae0ceff..14e3febad2 100644
+--- a/crates/database_client/src/connection/client.rs
++++ b/crates/database_client/src/connection/client.rs
+@@ -155,6 +155,8 @@ mod tests {
+         let Ok(url) = std::env::var("DATABASE_CLIENT_TEST_PG_URL") else {
+             return;
+         };
++        cx.executor().allow_parking();
++        cx.update(|cx| gpui_tokio::init(cx));
+         let profile = crate::connection::profile::ConnectionProfile::from_url(&url).unwrap();
+         let password = profile_password_from_url(&url);
+         let conn = cx
+diff --git a/crates/database_client/src/connection/introspect.rs b/crates/database_client/src/connection/introspect.rs
+index b2c878a1bc..e53e190c7a 100644
+--- a/crates/database_client/src/connection/introspect.rs
++++ b/crates/database_client/src/connection/introspect.rs
+@@ -81,7 +81,7 @@ pub(crate) fn quote_ident(s: &str) -> String {
+ impl Connection {
+     pub fn list_schemas(&self, cx: &App) -> Task<Result<Vec<SchemaInfo>>> {
+         let sql = "select schema_name from information_schema.schemata \
+-                   where schema_name not in ('pg_catalog','information_schema') \
++                   where schema_name not like 'pg\\_%' and schema_name <> 'information_schema' \
+                    order by schema_name"
+             .to_string();
+         let task = self.execute(sql, 10_000, cx);
+@@ -175,4 +175,71 @@ mod tests {
+         assert_eq!(quote_ident("order"), "\"order\"");
+         assert_eq!(quote_ident("we\"ird"), "\"we\"\"ird\"");
+     }
++
++    // Live introspection tests against a real Postgres. Run with:
++    // DATABASE_CLIENT_TEST_PG_URL=postgres://postgres:secret@localhost:55432/testdb?sslmode=disable \
++    //   cargo test -p database_client --lib -- --ignored live_
++    #[cfg(test)]
++    async fn live_connection(cx: &mut gpui::TestAppContext) -> Option<Connection> {
++        use std::str::FromStr as _;
++        let url = std::env::var("DATABASE_CLIENT_TEST_PG_URL").ok()?;
++        cx.executor().allow_parking();
++        cx.update(|cx| gpui_tokio::init(cx));
++        let profile = crate::connection::profile::ConnectionProfile::from_url(&url).unwrap();
++        let password = tokio_postgres::Config::from_str(&url)
++            .ok()
++            .and_then(|cfg| cfg.get_password().and_then(|p| String::from_utf8(p.to_vec()).ok()));
++        Some(
++            cx.update(|cx| Connection::connect(profile, password, cx))
++                .await
++                .unwrap(),
++        )
++    }
++
++    #[gpui::test]
++    #[ignore]
++    async fn live_list_schemas(cx: &mut gpui::TestAppContext) {
++        let Some(conn) = live_connection(cx).await else {
++            return;
++        };
++        let schemas = cx.update(|cx| conn.list_schemas(cx)).await.unwrap();
++        let names: Vec<_> = schemas.iter().map(|s| s.name.as_str()).collect();
++        assert!(names.contains(&"public"), "expected public schema, got {names:?}");
++        assert!(names.contains(&"app"), "expected app schema, got {names:?}");
++        assert!(
++            !names.iter().any(|n| n.starts_with("pg_")),
++            "internal pg_* schemas should be filtered out, got {names:?}"
++        );
++    }
++
++    #[gpui::test]
++    #[ignore]
++    async fn live_list_relations(cx: &mut gpui::TestAppContext) {
++        let Some(conn) = live_connection(cx).await else {
++            return;
++        };
++        let relations = cx
++            .update(|cx| conn.list_relations("public".to_string(), cx))
++            .await
++            .unwrap();
++        let by_name: std::collections::HashMap<_, _> =
++            relations.iter().map(|r| (r.name.as_str(), r.kind)).collect();
++        assert_eq!(by_name.get("users"), Some(&RelationKind::Table));
++        assert_eq!(by_name.get("orders"), Some(&RelationKind::Table));
++        assert_eq!(by_name.get("user_emails"), Some(&RelationKind::View));
++    }
++
++    #[gpui::test]
++    #[ignore]
++    async fn live_list_columns(cx: &mut gpui::TestAppContext) {
++        let Some(conn) = live_connection(cx).await else {
++            return;
++        };
++        let columns = cx
++            .update(|cx| conn.list_columns("public".to_string(), "users".to_string(), cx))
++            .await
++            .unwrap();
++        let names: Vec<_> = columns.iter().map(|c| c.name.as_str()).collect();
++        assert_eq!(names, vec!["id", "name", "email"]);
++    }
+ }
+diff --git a/crates/database_client/src/panel.rs b/crates/database_client/src/panel.rs
+index ad9c8951b3..cb6e8d094d 100644
+--- a/crates/database_client/src/panel.rs
++++ b/crates/database_client/src/panel.rs
+@@ -614,3 +614,141 @@ impl Render for DatabasePanel {
+             }))
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::connection::profile::{ConnectionProfile, SslMode};
++    use gpui::TestAppContext;
++    use std::time::Duration;
++
++    fn init_test(cx: &mut TestAppContext) {
++        cx.update(|cx| {
++            let settings_store = settings::SettingsStore::test(cx);
++            cx.set_global(settings_store);
++            cx.set_global(db::AppDatabase::test_new());
++            theme_settings::init(theme::LoadThemes::JustBase, cx);
++            gpui_tokio::init(cx);
++        });
++    }
++
++    /// Build a panel backed by a single injected profile, bypassing on-disk profile loading.
++    async fn panel_with_profile<'a>(
++        profile: ConnectionProfile,
++        cx: &'a mut TestAppContext,
++    ) -> (Entity<DatabasePanel>, &'a mut gpui::VisualTestContext) {
++        let fs = fs::FakeFs::new(cx.executor());
++        let project = project::Project::test(fs, [], cx).await;
++        let (workspace, cx) =
++            cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
++        let panel = workspace.update_in(cx, |workspace, window, cx| {
++            DatabasePanel::new(workspace, window, cx)
++        });
++        panel.update(cx, |panel, cx| {
++            panel.profiles = vec![profile];
++            panel.tree = DatabasePanel::build_tree(&panel.profiles);
++            panel.connections.clear();
++            cx.notify();
++        });
++        (panel, cx)
++    }
++
++    async fn wait_until(
++        panel: &Entity<DatabasePanel>,
++        cx: &mut gpui::VisualTestContext,
++        description: &str,
++        predicate: impl Fn(&DatabasePanel) -> bool,
++    ) {
++        for _ in 0..200 {
++            cx.run_until_parked();
++            if panel.read_with(cx, |panel, _| predicate(panel)) {
++                return;
++            }
++            cx.background_executor.timer(Duration::from_millis(25)).await;
++        }
++        let labels = panel.read_with(cx, |panel, _| {
++            panel
++                .tree
++                .visible_nodes()
++                .iter()
++                .map(|n| n.label.clone())
++                .collect::<Vec<_>>()
++        });
++        let errors = panel.read_with(cx, |panel, _| panel.errors.clone());
++        panic!("timed out waiting for {description}; visible={labels:?} errors={errors:?}");
++    }
++
++    fn labels(panel: &Entity<DatabasePanel>, cx: &mut gpui::VisualTestContext) -> Vec<String> {
++        panel.read_with(cx, |panel, _| {
++            panel
++                .tree
++                .visible_nodes()
++                .iter()
++                .map(|n| n.label.clone())
++                .collect()
++        })
++    }
++
++    // Drives the real panel expand orchestration against a live Postgres. Run with:
++    // DATABASE_CLIENT_TEST_PG_URL=postgres://postgres@localhost:55432/testdb?sslmode=disable \
++    //   cargo test -p database_client --lib -- --ignored live_panel
++    #[gpui::test]
++    #[ignore]
++    async fn live_panel_expands_connection_schema_relation_columns(cx: &mut TestAppContext) {
++        let Ok(url) = std::env::var("DATABASE_CLIENT_TEST_PG_URL") else {
++            return;
++        };
++        cx.executor().allow_parking();
++        init_test(cx);
++
++        let mut profile = ConnectionProfile::from_url(&url).expect("valid test url");
++        profile.id = "p1".into();
++        profile.ssl_mode = SslMode::Disable;
++
++        let (panel, cx) = panel_with_profile(profile, cx).await;
++
++        // Expand connection -> schemas load.
++        panel.update(cx, |panel, cx| panel.toggle_node("p1".into(), cx));
++        wait_until(&panel, cx, "schemas to load", |panel| {
++            panel.tree.schemas_loaded("p1")
++        })
++        .await;
++        let schema_labels = labels(&panel, cx);
++        assert!(
++            schema_labels.contains(&"public".to_string()),
++            "expected public schema, got {schema_labels:?}"
++        );
++        assert!(
++            !schema_labels.iter().any(|l| l.starts_with("pg_")),
++            "internal pg_* schemas should not appear, got {schema_labels:?}"
++        );
++
++        // Expand the public schema -> relations load.
++        panel.update(cx, |panel, cx| {
++            panel.toggle_node("p1/public".into(), cx)
++        });
++        wait_until(&panel, cx, "relations to load", |panel| {
++            panel.tree.relations_loaded("p1/public")
++        })
++        .await;
++        let relation_labels = labels(&panel, cx);
++        assert!(
++            relation_labels.contains(&"users".to_string()),
++            "expected users table under public, got {relation_labels:?}"
++        );
++
++        // Expand the users relation -> columns load.
++        panel.update(cx, |panel, cx| {
++            panel.toggle_node("p1/public/users".into(), cx)
++        });
++        wait_until(&panel, cx, "columns to load", |panel| {
++            panel.tree.columns_loaded("p1/public/users")
++        })
++        .await;
++        let column_labels = labels(&panel, cx);
++        assert!(
++            column_labels.iter().any(|l| l.starts_with("id:")),
++            "expected id column under users, got {column_labels:?}"
++        );
++    }
++}

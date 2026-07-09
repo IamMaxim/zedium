@@ -1,0 +1,228 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Wed, 1 Jul 2026 22:00:58 +0300
+Subject: [PATCH] acp_thread: key assistant-chunk coalescing on subagent
+ provenance
+
+Interleaved parent/subagent (and subagent-A/subagent-B) thought and message
+chunks were merged into one assistant entry because coalescing keyed only on
+(is_thought, indented), ignoring the subagent provenance in chunk meta. Classify
+the incoming chunk up front and only coalesce into the previous assistant entry
+when it belongs to the same agent (same parent tool call, or both parent
+session); otherwise start a fresh entry and classify it.
+
+Test: interleaved_subagent_and_parent_thoughts_are_not_coalesced.
+
+Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+---
+ crates/acp_thread/src/acp_thread.rs | 177 +++++++++++++++++++++++++---
+ 1 file changed, 161 insertions(+), 16 deletions(-)
+
+diff --git a/crates/acp_thread/src/acp_thread.rs b/crates/acp_thread/src/acp_thread.rs
+index f609224587..433d821c0e 100644
+--- a/crates/acp_thread/src/acp_thread.rs
++++ b/crates/acp_thread/src/acp_thread.rs
+@@ -2254,26 +2254,52 @@ impl AcpThread {
+     ) {
+         let path_style = self.project.read(cx).path_style(cx);
+ 
++        // Resolve the incoming chunk's subagent provenance before deciding whether
++        // to coalesce it into the previous assistant entry. qwen interleaves the
++        // parent agent's thoughts/messages with those of concurrently-running
++        // subagents; merging chunks across that boundary would splice unrelated
++        // text into one block and lose per-subagent attribution, so coalescing is
++        // only allowed when the previous entry belongs to the same agent (same
++        // parent tool call, or both are the parent session).
++        let classification = self
++            .connection
++            .subagent_grouping()
++            .map(|grouping| grouping.classify(meta.as_ref()));
++        let incoming_parent = match &classification {
++            Some(SubagentClassification::Member { parent, .. }) => Some(parent.clone()),
++            _ => None,
++        };
++        let can_coalesce = match self.entries.last() {
++            Some(AgentThreadEntry::AssistantMessage(AssistantMessage {
++                indented: existing_indented,
++                ..
++            })) if *existing_indented == indented => {
++                let last_ix = self.entries.len() - 1;
++                self.subagent_index
++                    .entry_membership_of(last_ix)
++                    .map(|membership| membership.parent.clone())
++                    == incoming_parent
++            }
++            _ => false,
++        };
++
+         // For text chunks going to an existing Markdown block, buffer for smooth
+         // streaming instead of appending all at once which may feel more choppy.
+-        if let acp::ContentBlock::Text(text_content) = &chunk {
+-            if let Some(markdown) = self.streaming_markdown_target(is_thought, indented) {
+-                let entries_len = self.entries.len();
+-                cx.emit(AcpThreadEvent::EntryUpdated(entries_len - 1));
+-                self.buffer_streaming_text(&markdown, text_content.text.clone(), cx);
+-                return;
+-            }
++        if can_coalesce
++            && let acp::ContentBlock::Text(text_content) = &chunk
++            && let Some(markdown) = self.streaming_markdown_target(is_thought, indented)
++        {
++            let entries_len = self.entries.len();
++            cx.emit(AcpThreadEvent::EntryUpdated(entries_len - 1));
++            self.buffer_streaming_text(&markdown, text_content.text.clone(), cx);
++            return;
+         }
+ 
+         let language_registry = self.project.read(cx).languages().clone();
+         let entries_len = self.entries.len();
+-        if let Some(last_entry) = self.entries.last_mut()
+-            && let AgentThreadEntry::AssistantMessage(AssistantMessage {
+-                chunks,
+-                indented: existing_indented,
+-                is_subagent_output: _,
+-            }) = last_entry
+-            && *existing_indented == indented
++        if can_coalesce
++            && let Some(AgentThreadEntry::AssistantMessage(AssistantMessage { chunks, .. })) =
++                self.entries.last_mut()
+         {
+             let idx = entries_len - 1;
+             Self::flush_streaming_text(&mut self.streaming_text_buffer, cx);
+@@ -2309,8 +2335,7 @@ impl AcpThread {
+                 }),
+                 cx,
+             );
+-            if let Some(grouping) = self.connection.subagent_grouping() {
+-                let classification = grouping.classify(meta.as_ref());
++            if let Some(classification) = classification {
+                 self.subagent_index.apply_entry(entry_ix, classification);
+             }
+         }
+@@ -6371,6 +6396,126 @@ mod tests {
+         });
+     }
+ 
++    /// Interleaved parent/subagent chunks (as qwen streams while several
++    /// subagents run) must not be coalesced into a single assistant entry:
++    /// each provenance change starts a fresh entry, so text is never merged
++    /// across agents and per-subagent membership is preserved.
++    #[gpui::test]
++    async fn interleaved_subagent_and_parent_thoughts_are_not_coalesced(
++        cx: &mut TestAppContext,
++    ) {
++        init_test(cx);
++
++        let fs = FakeFs::new(cx.executor());
++        let project = Project::test(fs, [], cx).await;
++        let qwen_connection = Rc::new(
++            FakeAgentConnection::new().with_subagent_grouping(Rc::new(QwenSubagentGrouping)),
++        );
++        let thread = cx
++            .update(|cx| {
++                qwen_connection.new_session(project, PathList::new(&[Path::new(path!("/test"))]), cx)
++            })
++            .await
++            .unwrap();
++
++        thread.update(cx, |thread, cx| {
++            let root_a = acp::ToolCallId::new("call_root_a");
++            let root_b = acp::ToolCallId::new("call_root_b");
++            for root in [&root_a, &root_b] {
++                thread
++                    .upsert_tool_call(
++                        acp::ToolCall::new(root.clone(), "Explore").meta(acp::Meta::from_iter([(
++                            "toolName".to_string(),
++                            serde_json::json!("agent"),
++                        )])),
++                        cx,
++                    )
++                    .unwrap();
++            }
++
++            let subagent_meta = |parent: &str| {
++                acp::Meta::from_iter([
++                    ("provenance".to_string(), serde_json::json!("subagent")),
++                    (
++                        "parentToolCallId".to_string(),
++                        serde_json::json!(parent),
++                    ),
++                    ("subagentType".to_string(), serde_json::json!("Explore")),
++                ])
++            };
++            let thought = |text: &str, meta: Option<acp::Meta>| {
++                let chunk =
++                    acp::ContentChunk::new(acp::ContentBlock::Text(acp::TextContent::new(text)));
++                acp::SessionUpdate::AgentThoughtChunk(match meta {
++                    Some(meta) => chunk.meta(meta),
++                    None => chunk,
++                })
++            };
++
++            // Parent thinks, subagent A thinks (twice), parent thinks again,
++            // then subagent B thinks — all as adjacent thought chunks.
++            for update in [
++                thought("parent-1", None),
++                thought("suba-1", Some(subagent_meta("call_root_a"))),
++                thought("suba-2", Some(subagent_meta("call_root_a"))),
++                thought("parent-2", None),
++                thought("subb-1", Some(subagent_meta("call_root_b"))),
++            ] {
++                thread.handle_session_update(update, cx).unwrap();
++            }
++
++            let entries = thread.entries();
++            let assistant_ixs: Vec<usize> = entries
++                .iter()
++                .enumerate()
++                .filter(|(_, e)| matches!(e, AgentThreadEntry::AssistantMessage(_)))
++                .map(|(ix, _)| ix)
++                .collect();
++            assert_eq!(
++                assistant_ixs.len(),
++                4,
++                "parent/subagent-A/parent/subagent-B thoughts must land in four separate entries"
++            );
++
++            let index = thread.subagent_index();
++            let text_of = |ix: usize| match &entries[ix] {
++                AgentThreadEntry::AssistantMessage(message) => message.to_markdown(cx),
++                other => panic!("expected assistant message, got {other:?}"),
++            };
++
++            // Entry 0: parent thought, no membership, only its own text.
++            assert!(!index.is_text_member(assistant_ixs[0]));
++            assert!(text_of(assistant_ixs[0]).contains("parent-1"));
++            assert!(!text_of(assistant_ixs[0]).contains("suba"));
++
++            // Entry 1: subagent A, both of A's adjacent chunks coalesced here.
++            assert!(index.is_text_member(assistant_ixs[1]));
++            assert_eq!(
++                index
++                    .entry_membership_of(assistant_ixs[1])
++                    .map(|m| m.parent.clone()),
++                Some(root_a.clone())
++            );
++            let a_text = text_of(assistant_ixs[1]);
++            assert!(a_text.contains("suba-1") && a_text.contains("suba-2"));
++            assert!(!a_text.contains("parent"));
++
++            // Entry 2: parent again — separate from entry 0 (non-adjacent).
++            assert!(!index.is_text_member(assistant_ixs[2]));
++            assert!(text_of(assistant_ixs[2]).contains("parent-2"));
++
++            // Entry 3: subagent B, attributed to root B, not root A.
++            assert!(index.is_text_member(assistant_ixs[3]));
++            assert_eq!(
++                index
++                    .entry_membership_of(assistant_ixs[3])
++                    .map(|m| m.parent.clone()),
++                Some(root_b.clone())
++            );
++            assert!(text_of(assistant_ixs[3]).contains("subb-1"));
++        });
++    }
++
+     /// Tests that restoring a checkpoint properly cleans up terminals that were
+     /// created after that checkpoint, and cancels any in-progress generation.
+     ///

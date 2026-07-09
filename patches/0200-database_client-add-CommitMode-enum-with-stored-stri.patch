@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 19:42:07 +0300
+Subject: [PATCH] database_client: add CommitMode enum with stored-string
+ mapping
+
+---
+ crates/database_client/src/connection.rs      |  1 +
+ .../database_client/src/connection/session.rs | 45 +++++++++++++++++++
+ 2 files changed, 46 insertions(+)
+ create mode 100644 crates/database_client/src/connection/session.rs
+
+diff --git a/crates/database_client/src/connection.rs b/crates/database_client/src/connection.rs
+index 7f29db7c7f..1ce4fc41a2 100644
+--- a/crates/database_client/src/connection.rs
++++ b/crates/database_client/src/connection.rs
+@@ -4,4 +4,5 @@ pub mod edit;
+ pub mod introspect;
+ pub mod metadata_cache;
+ pub mod profile;
++pub mod session;
+ pub mod store;
+diff --git a/crates/database_client/src/connection/session.rs b/crates/database_client/src/connection/session.rs
+new file mode 100644
+index 0000000000..c4e1ef1c94
+--- /dev/null
++++ b/crates/database_client/src/connection/session.rs
+@@ -0,0 +1,45 @@
++#[allow(dead_code)]
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum CommitMode {
++    Auto,
++    Manual,
++}
++
++#[allow(dead_code)]
++impl CommitMode {
++    pub fn as_stored_str(self) -> &'static str {
++        match self {
++            CommitMode::Auto => "auto",
++            CommitMode::Manual => "manual",
++        }
++    }
++
++    /// Unknown/legacy/NULL values load as the safe default (`Auto`).
++    pub fn from_stored_str(value: &str) -> CommitMode {
++        match value {
++            "manual" => CommitMode::Manual,
++            _ => CommitMode::Auto,
++        }
++    }
++}
++
++#[cfg(test)]
++mod unit {
++    use super::*;
++
++    #[test]
++    fn commit_mode_round_trips_stored_string() {
++        assert_eq!(CommitMode::Auto.as_stored_str(), "auto");
++        assert_eq!(CommitMode::Manual.as_stored_str(), "manual");
++        assert_eq!(CommitMode::from_stored_str("auto"), CommitMode::Auto);
++        assert_eq!(CommitMode::from_stored_str("manual"), CommitMode::Manual);
++    }
++
++    #[test]
++    fn commit_mode_unknown_string_falls_back_to_auto() {
++        // NULL/legacy/garbage persisted values load as the safe default.
++        assert_eq!(CommitMode::from_stored_str(""), CommitMode::Auto);
++        assert_eq!(CommitMode::from_stored_str("MANUAL"), CommitMode::Auto);
++        assert_eq!(CommitMode::from_stored_str("committed"), CommitMode::Auto);
++    }
++}

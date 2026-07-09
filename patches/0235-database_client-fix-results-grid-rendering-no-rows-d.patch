@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sun, 5 Jul 2026 01:16:56 +0300
+Subject: [PATCH] database_client: fix results grid rendering no rows (definite
+ height for grid in value-viewer row)
+
+The value-viewer split wrapped the results area in an h_flex row. There
+.flex_1() governs width, not height, so the grid lost a definite-height
+ancestor. ui::Table's uniform_list uses ListSizingBehavior::Auto (fills
+its flex parent rather than measuring content), so with an indefinite
+height it collapsed to the header's min-content: the header rendered but
+zero data rows laid out. Give the grid-bearing results_area branches
+.h_full() (mirroring the value-viewer panel, which already had it) plus
+.min_w_0() so the split shrinks correctly.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018Rpitr6Ztn5nr3BMaHvESX
+---
+ crates/database_client/src/query_view.rs | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index ef20ad9b3d..496bf7be26 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -1964,12 +1964,15 @@ impl Render for QueryView {
+                 v_flex()
+                     .flex_1()
+                     .w_full()
++                    .h_full()
++                    .min_w_0()
+                     .min_h_0()
+                     .child(banner)
+                     .child(
+                         div()
+                             .flex_1()
+                             .w_full()
++                            .min_h_0()
+                             .overflow_hidden()
+                             .child(self.results_grid.clone()),
+                     )
+@@ -1999,6 +2002,9 @@ impl Render for QueryView {
+                 div()
+                     .flex_1()
+                     .w_full()
++                    .h_full()
++                    .min_w_0()
++                    .min_h_0()
+                     .overflow_hidden()
+                     .child(self.results_grid.clone())
+                     .into_any_element()

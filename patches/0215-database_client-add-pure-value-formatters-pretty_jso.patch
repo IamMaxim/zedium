@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 21:13:22 +0300
+Subject: [PATCH] database_client: add pure value formatters pretty_json and
+ hex_dump
+
+---
+ crates/database_client/src/database_client.rs |  1 +
+ crates/database_client/src/value_viewer.rs    | 98 +++++++++++++++++++
+ 2 files changed, 99 insertions(+)
+ create mode 100644 crates/database_client/src/value_viewer.rs
+
+diff --git a/crates/database_client/src/database_client.rs b/crates/database_client/src/database_client.rs
+index 8b19fa35a7..4e655e3ba6 100644
+--- a/crates/database_client/src/database_client.rs
++++ b/crates/database_client/src/database_client.rs
+@@ -16,6 +16,7 @@ pub mod settings;
+ pub mod sql_paging;
+ mod sql_statements;
+ mod tree;
++pub mod value_viewer;
+ 
+ pub use connection::client::DEFAULT_RESULT_LIMIT;
+ pub use ddl_view::DdlView;
+diff --git a/crates/database_client/src/value_viewer.rs b/crates/database_client/src/value_viewer.rs
+new file mode 100644
+index 0000000000..1e99503bfe
+--- /dev/null
++++ b/crates/database_client/src/value_viewer.rs
+@@ -0,0 +1,98 @@
++//! Full-cell value viewer: a read-only pane showing the complete selected cell
++//! value (plain text, pretty-printed JSON, or a hex dump for bytea) with a Copy
++//! button. Editing stays in-grid; this pane never mutates data.
++
++/// Pretty-prints `s` when it is a valid JSON object or array. Returns `None`
++/// for invalid JSON and for bare scalars (numbers/strings/bools/null), where
++/// re-indenting adds nothing over the raw cell text.
++pub fn pretty_json(s: &str) -> Option<String> {
++    let value: serde_json::Value = serde_json::from_str(s).ok()?;
++    if !value.is_object() && !value.is_array() {
++        return None;
++    }
++    serde_json::to_string_pretty(&value).ok()
++}
++
++/// Decodes Postgres bytea text (`\xDEADBEEF`, or bare hex) and renders a
++/// classic 16-bytes-per-line hex dump: `offset  hex...  |ascii|`. Non-hex or
++/// truncated input decodes what it can and never panics.
++pub fn hex_dump(bytea_text: &str) -> String {
++    let hex = bytea_text.strip_prefix(r"\x").unwrap_or(bytea_text);
++    let digits: Vec<u8> = hex
++        .bytes()
++        .filter_map(|byte| (byte as char).to_digit(16).map(|digit| digit as u8))
++        .collect();
++    let bytes: Vec<u8> = digits
++        .chunks_exact(2)
++        .map(|pair| (pair[0] << 4) | pair[1])
++        .collect();
++
++    let mut out = String::new();
++    for (line_index, chunk) in bytes.chunks(16).enumerate() {
++        let offset = line_index * 16;
++        out.push_str(&format!("{offset:08x}  "));
++        for byte in chunk {
++            out.push_str(&format!("{byte:02x} "));
++        }
++        for _ in chunk.len()..16 {
++            out.push_str("   ");
++        }
++        out.push_str(" |");
++        for byte in chunk {
++            let printable = if byte.is_ascii_graphic() || *byte == b' ' {
++                *byte as char
++            } else {
++                '.'
++            };
++            out.push(printable);
++        }
++        out.push_str("|\n");
++    }
++    out
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn pretty_json_indents_valid_object_and_array() {
++        let pretty = pretty_json(r#"{"b":1,"a":[2,3]}"#).expect("valid json must format");
++        assert!(pretty.contains('\n'), "output must be multi-line: {pretty}");
++        assert!(pretty.contains("  "), "output must be indented: {pretty}");
++        // Round-trips to the same value.
++        let reparsed: serde_json::Value = serde_json::from_str(&pretty).expect("re-parses");
++        assert_eq!(reparsed, serde_json::json!({"b": 1, "a": [2, 3]}));
++        assert!(pretty_json("[1, 2, 3]").is_some());
++    }
++
++    #[test]
++    fn pretty_json_returns_none_for_invalid_or_bare_scalar_text() {
++        assert_eq!(pretty_json("not json"), None);
++        assert_eq!(pretty_json("{unterminated"), None);
++        assert_eq!(pretty_json(""), None);
++        // A bare number/string is technically valid JSON but adds nothing to
++        // pretty-print; we only format objects and arrays.
++        assert_eq!(pretty_json("42"), None);
++        assert_eq!(pretty_json("\"plain\""), None);
++    }
++
++    #[test]
++    fn hex_dump_formats_pg_bytea_hex_with_offsets_and_ascii() {
++        // Postgres text protocol renders bytea as `\x` + hex digits.
++        let dump = hex_dump(r"\x48656c6c6f21");
++        assert!(dump.contains("48 65 6c 6c 6f 21"), "hex bytes: {dump}");
++        assert!(dump.contains("Hello!"), "ascii gutter: {dump}");
++        assert!(dump.starts_with("00000000"), "offset column: {dump}");
++    }
++
++    #[test]
++    fn hex_dump_handles_non_prefixed_and_odd_input_without_panicking() {
++        // No `\x` prefix: treat the whole string as hex digits.
++        assert!(hex_dump("deadbeef").contains("de ad be ef"));
++        // Odd digit count / stray non-hex chars must not panic; unusable input
++        // yields an empty dump rather than a crash.
++        let _ = hex_dump(r"\xdeadbee");
++        let _ = hex_dump("zz");
++    }
++}

@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 18:30:35 +0300
+Subject: [PATCH] database_client: add generate_insert (literal casts, NULL
+ support)
+
+---
+ crates/database_client/src/connection/edit.rs | 60 +++++++++++++++++++
+ 1 file changed, 60 insertions(+)
+
+diff --git a/crates/database_client/src/connection/edit.rs b/crates/database_client/src/connection/edit.rs
+index 63a1f059c1..79c27120d8 100644
+--- a/crates/database_client/src/connection/edit.rs
++++ b/crates/database_client/src/connection/edit.rs
+@@ -88,6 +88,36 @@ pub fn generate_update(
+     )
+ }
+ 
++/// Approach-A `INSERT` for a staged [`InsertRow`]: one column list and one
++/// value list, in the same order as `row.values`.
++#[allow(dead_code)]
++pub fn generate_insert(
++    schema: &str,
++    table: &str,
++    row: &InsertRow,
++    col_types: &HashMap<String, String>,
++) -> String {
++    let columns = row
++        .values
++        .iter()
++        .map(|(col, _)| quote_ident(col))
++        .collect::<Vec<_>>()
++        .join(", ");
++    let values = row
++        .values
++        .iter()
++        .map(|(col, value)| null_or_literal(value.as_deref(), column_type(col_types, col)))
++        .collect::<Vec<_>>()
++        .join(", ");
++    format!(
++        "INSERT INTO {}.{} ({}) VALUES ({})",
++        quote_ident(schema),
++        quote_ident(table),
++        columns,
++        values
++    )
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -174,4 +204,34 @@ mod tests {
+              WHERE \"id\" = '7'::integer AND \"tenant\" = 't-1'::uuid"
+         );
+     }
++
++    #[test]
++    fn insert_lists_columns_and_casts_values() {
++        let row = InsertRow {
++            values: vec![
++                ("id".into(), Some("9".into())),
++                ("name".into(), Some("kai".into())),
++            ],
++        };
++        assert_eq!(
++            generate_insert("app", "users", &row, &types()),
++            "INSERT INTO \"app\".\"users\" (\"id\", \"name\") VALUES ('9'::integer, 'kai'::text)"
++        );
++    }
++
++    #[test]
++    fn insert_emits_null_for_none_and_empty_for_some_empty() {
++        let row = InsertRow {
++            values: vec![
++                ("id".into(), Some("9".into())),
++                ("name".into(), None),
++                ("note".into(), Some("".into())),
++            ],
++        };
++        assert_eq!(
++            generate_insert("app", "users", &row, &types()),
++            "INSERT INTO \"app\".\"users\" (\"id\", \"name\", \"note\") \
++             VALUES ('9'::integer, NULL, ''::text)"
++        );
++    }
+ }

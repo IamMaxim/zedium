@@ -1,0 +1,284 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 18:37:05 +0300
+Subject: [PATCH] database_client: add detect_editability (single base table +
+ PK)
+
+---
+ crates/database_client/src/query_view.rs | 251 +++++++++++++++++++++++
+ 1 file changed, 251 insertions(+)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index 97915e378b..cc0b961fc1 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -1,4 +1,5 @@
+ use std::cell::RefCell;
++use std::collections::HashMap;
+ use std::rc::Rc;
+ use std::time::Instant;
+ 
+@@ -32,6 +33,7 @@ use workspace::{
+ use crate::{
+     connection::{
+         client::{Connection, QueryResult, truncate_rows},
++        introspect::RelationKind,
+         metadata_cache::{Candidate, MetadataCache, candidates, classify_context},
+         profile::ConnectionProfile,
+         store,
+@@ -1206,6 +1208,255 @@ pub(crate) fn format_duration(ms: u128) -> String {
+     }
+ }
+ 
++/// Names the base table (with primary key) a query result maps to, so the
++/// results grid can offer inline edits. `None` means read-only.
++///
++/// Populated by [`detect_editability`]; not yet wired into a caller (Task 6+
++/// of the editable-grid plan), hence the crate-level `#[allow(dead_code)]`.
++#[allow(dead_code)]
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct Editability {
++    pub schema: String,
++    pub table: String,
++    pub pk_cols: Vec<String>,
++    pub col_types: HashMap<String, String>,
++}
++
++/// Rejects anything but a plain `SELECT … FROM <one relation> [WHERE …]`,
++/// returning the (optional schema, table) named in the single FROM item.
++fn single_relation(sql: &str) -> Option<(Option<String>, String)> {
++    let lowered = sql.trim().to_ascii_lowercase();
++    let body = lowered.split(';').next().unwrap_or(&lowered).trim();
++    if !body.starts_with("select") {
++        return None;
++    }
++    for disqualifier in [
++        " join ",
++        " group by ",
++        " having ",
++        " union ",
++        " intersect ",
++        " except ",
++        " distinct ",
++    ] {
++        if body.contains(disqualifier) {
++            return None;
++        }
++    }
++    let from_at = body.find(" from ")?;
++    let after = &body[from_at + " from ".len()..];
++    // The FROM item ends at the first following clause keyword.
++    let end = [
++        " where ",
++        " order by ",
++        " limit ",
++        " offset ",
++        " group by ",
++        " fetch ",
++        " for ",
++    ]
++    .iter()
++    .filter_map(|kw| after.find(kw))
++    .min()
++    .unwrap_or(after.len());
++    let from_item = after.get(..end)?.trim();
++    // Reject subqueries and multi-relation FROM lists.
++    if from_item.is_empty()
++        || from_item.starts_with('(')
++        || from_item.contains(',')
++        || from_item.contains(' ')
++    {
++        return None;
++    }
++    // Map the FROM token back to the original-case slice so identifiers keep
++    // their case for the metadata lookup (which is case-insensitive anyway).
++    let mut parts = from_item.split('.');
++    let first = strip_ident(parts.next()?);
++    match parts.next() {
++        Some(second) => Some((Some(first), strip_ident(second))),
++        None => Some((None, first)),
++    }
++}
++
++fn strip_ident(token: &str) -> String {
++    token.trim().trim_matches('"').to_string()
++}
++
++/// Decides whether `sql`'s result maps to exactly one base table with a
++/// primary key present in `result_columns`. Returns `None` (read-only) for
++/// joins, aggregates, set operations, views/matviews, unknown relations, or
++/// tables whose PK columns weren't projected (no safe `WHERE` to build).
++#[allow(dead_code)] // Wired up by a later task of the editable-grid plan.
++pub fn detect_editability(
++    sql: &str,
++    meta: &MetadataCache,
++    result_columns: &[String],
++) -> Option<Editability> {
++    let (schema, table) = single_relation(sql)?;
++    let relation = meta.relations.iter().find(|relation| {
++        matches!(relation.kind, RelationKind::Table)
++            && relation.name.eq_ignore_ascii_case(&table)
++            && schema
++                .as_ref()
++                .is_none_or(|schema| relation.schema.eq_ignore_ascii_case(schema))
++    })?;
++
++    let pk_cols: Vec<String> = relation
++        .columns
++        .iter()
++        .filter(|column| column.is_primary_key)
++        .map(|column| column.name.clone())
++        .collect();
++    if pk_cols.is_empty() {
++        return None;
++    }
++    // Every PK column must be projected so a WHERE can be built.
++    if !pk_cols
++        .iter()
++        .all(|pk| result_columns.iter().any(|column| column == pk))
++    {
++        return None;
++    }
++
++    let col_types = relation
++        .columns
++        .iter()
++        .map(|column| (column.name.clone(), column.data_type.clone()))
++        .collect();
++    Some(Editability {
++        schema: relation.schema.clone(),
++        table: relation.name.clone(),
++        pk_cols,
++        col_types,
++    })
++}
++
++#[cfg(test)]
++mod editability_tests {
++    use super::*;
++    use crate::connection::introspect::RelationKind;
++    use crate::connection::metadata_cache::{ColumnMeta, MetadataCache, RelationMeta};
++
++    fn col(name: &str, ty: &str, pk: bool) -> ColumnMeta {
++        ColumnMeta {
++            name: name.into(),
++            data_type: ty.into(),
++            is_primary_key: pk,
++        }
++    }
++
++    fn meta() -> MetadataCache {
++        MetadataCache {
++            relations: vec![
++                RelationMeta {
++                    schema: "public".into(),
++                    name: "users".into(),
++                    kind: RelationKind::Table,
++                    columns: vec![col("id", "integer", true), col("name", "text", false)],
++                },
++                RelationMeta {
++                    schema: "public".into(),
++                    name: "user_emails".into(),
++                    kind: RelationKind::View,
++                    columns: vec![col("id", "integer", true)],
++                },
++                RelationMeta {
++                    schema: "public".into(),
++                    name: "logs".into(),
++                    kind: RelationKind::Table,
++                    columns: vec![col("msg", "text", false)],
++                },
++            ],
++        }
++    }
++
++    #[test]
++    fn plain_select_over_pk_table_is_editable() {
++        let e = detect_editability(
++            "select id, name from public.users",
++            &meta(),
++            &["id".into(), "name".into()],
++        )
++        .expect("single PK'd base table is editable");
++        assert_eq!(e.schema, "public");
++        assert_eq!(e.table, "users");
++        assert_eq!(e.pk_cols, vec!["id".to_string()]);
++        assert_eq!(e.col_types.get("name").map(String::as_str), Some("text"));
++    }
++
++    #[test]
++    fn bare_and_starred_and_where_still_editable() {
++        assert!(
++            detect_editability(
++                "select * from users",
++                &meta(),
++                &["id".into(), "name".into()]
++            )
++            .is_some()
++        );
++        assert!(
++            detect_editability(
++                "SELECT * FROM users WHERE id > 1",
++                &meta(),
++                &["id".into(), "name".into()]
++            )
++            .is_some()
++        );
++    }
++
++    #[test]
++    fn missing_pk_column_in_result_is_read_only() {
++        // PK not projected → no safe WHERE.
++        assert!(detect_editability("select name from users", &meta(), &["name".into()]).is_none());
++    }
++
++    #[test]
++    fn table_without_pk_is_read_only() {
++        assert!(detect_editability("select msg from logs", &meta(), &["msg".into()]).is_none());
++    }
++
++    #[test]
++    fn view_join_aggregate_and_multi_relation_are_read_only() {
++        assert!(
++            detect_editability("select id from user_emails", &meta(), &["id".into()]).is_none()
++        );
++        assert!(
++            detect_editability(
++                "select u.id from users u join logs l on true",
++                &meta(),
++                &["id".into()]
++            )
++            .is_none()
++        );
++        assert!(
++            detect_editability("select count(*) from users", &meta(), &["count".into()]).is_none()
++        );
++        assert!(
++            detect_editability("select id from users group by id", &meta(), &["id".into()])
++                .is_none()
++        );
++        assert!(
++            detect_editability(
++                "select id from users union select id from users",
++                &meta(),
++                &["id".into()]
++            )
++            .is_none()
++        );
++        assert!(
++            detect_editability("select id from users, logs", &meta(), &["id".into()]).is_none()
++        );
++        assert!(
++            detect_editability("select id from (select 1 id) s", &meta(), &["id".into()]).is_none()
++        );
++    }
++
++    #[test]
++    fn unknown_relation_is_read_only() {
++        assert!(detect_editability("select id from nope", &meta(), &["id".into()]).is_none());
++    }
++}
++
+ #[cfg(test)]
+ mod unit {
+     use super::*;

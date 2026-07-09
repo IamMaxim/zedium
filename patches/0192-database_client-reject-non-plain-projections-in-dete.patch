@@ -1,0 +1,128 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 18:42:40 +0300
+Subject: [PATCH] database_client: reject non-plain projections in
+ detect_editability (data-safety)
+
+---
+ crates/database_client/src/query_view.rs | 88 +++++++++++++++++++++++-
+ 1 file changed, 86 insertions(+), 2 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index cc0b961fc1..7c4ad9e902 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -1244,7 +1244,20 @@ fn single_relation(sql: &str) -> Option<(Option<String>, String)> {
+         }
+     }
+     let from_at = body.find(" from ")?;
+-    let after = &body[from_at + " from ".len()..];
++    // The projection (SELECT list) must be `*` or a plain comma-separated
++    // list of (optionally-qualified, optionally-aliased) bare identifiers.
++    // Any parenthesized expression (aggregate, function call, `DISTINCT(…)`,
++    // …) means the projected values are no longer guaranteed to be the raw
++    // column values, so an edit built from them could silently target the
++    // wrong row. Reject rather than risk that.
++    let select_list = body.get("select".len()..from_at)?.trim();
++    let select_list = strip_leading_keyword(select_list, "distinct")
++        .or_else(|| strip_leading_keyword(select_list, "all"))
++        .unwrap_or(select_list);
++    if select_list.is_empty() || select_list.contains('(') {
++        return None;
++    }
++    let after = body.get(from_at + " from ".len()..)?;
+     // The FROM item ends at the first following clause keyword.
+     let end = [
+         " where ",
+@@ -1272,12 +1285,31 @@ fn single_relation(sql: &str) -> Option<(Option<String>, String)> {
+     // their case for the metadata lookup (which is case-insensitive anyway).
+     let mut parts = from_item.split('.');
+     let first = strip_ident(parts.next()?);
+-    match parts.next() {
++    let second = parts.next();
++    // Three-plus-part names (`catalog.schema.table`) would silently drop a
++    // segment under a naive 2-`next()` parse and could coincidentally match
++    // an unrelated relation; reject them instead.
++    if parts.next().is_some() {
++        return None;
++    }
++    match second {
+         Some(second) => Some((Some(first), strip_ident(second))),
+         None => Some((None, first)),
+     }
+ }
+ 
++/// Strips a leading `keyword` from `text` only when it stands alone as a
++/// whole word (followed by whitespace, `(`, or end-of-string), so e.g.
++/// `"all"` doesn't match inside a column named `allowance`.
++fn strip_leading_keyword<'a>(text: &'a str, keyword: &str) -> Option<&'a str> {
++    let rest = text.strip_prefix(keyword)?;
++    match rest.chars().next() {
++        None | Some('(') => Some(rest.trim()),
++        Some(next) if next.is_whitespace() => Some(rest.trim()),
++        _ => None,
++    }
++}
++
+ fn strip_ident(token: &str) -> String {
+     token.trim().trim_matches('"').to_string()
+ }
+@@ -1455,6 +1487,58 @@ mod editability_tests {
+     fn unknown_relation_is_read_only() {
+         assert!(detect_editability("select id from nope", &meta(), &["id".into()]).is_none());
+     }
++
++    #[test]
++    fn ungrouped_aggregate_aliased_to_pk_name_is_read_only() {
++        // Regression test: an aggregate/function aliased to the PK's name
++        // must never be mistaken for the raw PK column, or an edit would
++        // build an `UPDATE … WHERE id = <aggregate value>` against an
++        // unrelated row.
++        assert!(
++            detect_editability("SELECT COUNT(*) AS id FROM users", &meta(), &["id".into()])
++                .is_none()
++        );
++        assert!(
++            detect_editability("SELECT MAX(id) AS id FROM users", &meta(), &["id".into()])
++                .is_none()
++        );
++        assert!(
++            detect_editability(
++                "SELECT DISTINCT(id), name FROM users",
++                &meta(),
++                &["id".into(), "name".into()]
++            )
++            .is_none()
++        );
++    }
++
++    #[test]
++    fn plain_projection_regression_guard() {
++        assert!(
++            detect_editability(
++                "SELECT id, name FROM users",
++                &meta(),
++                &["id".into(), "name".into()]
++            )
++            .is_some()
++        );
++        assert!(
++            detect_editability(
++                "SELECT * FROM users",
++                &meta(),
++                &["id".into(), "name".into()]
++            )
++            .is_some()
++        );
++    }
++
++    #[test]
++    fn three_part_relation_name_is_read_only() {
++        assert!(
++            detect_editability("select id from mydb.public.users", &meta(), &["id".into()])
++                .is_none()
++        );
++    }
+ }
+ 
+ #[cfg(test)]

@@ -1,0 +1,110 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 20:18:55 +0300
+Subject: [PATCH] database_client: flip commit mode only after commit/rollback
+ succeeds
+
+---
+ crates/database_client/src/query_view.rs | 74 +++++++++++++++++++++---
+ 1 file changed, 66 insertions(+), 8 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index 73f702101b..05155b9c67 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -476,14 +476,54 @@ impl QueryView {
+         self.set_commit_mode(mode, cx);
+     }
+ 
++    /// The mode flip must only happen once the async COMMIT actually
++    /// succeeds: `TransactionSession.conn` is a clone of the tab's shared
++    /// connection, so dropping the session on a failed COMMIT would silently
++    /// leave the physical connection sitting in an open/aborted transaction
++    /// that a later Auto-mode query would then reuse.
+     fn resolve_commit_mode_switch_with_commit(&mut self, cx: &mut Context<Self>) {
+-        self.commit_transaction(cx);
+-        self.finish_pending_commit_mode_switch(cx);
++        self.resolve_pending_commit_mode_switch(true, cx);
+     }
+ 
++    /// Same success-gating as commit: a failed ROLLBACK usually means a dead
++    /// connection, so it must surface the error and keep Manual rather than
++    /// silently flipping to Auto over a connection that may still be mid-transaction.
+     fn resolve_commit_mode_switch_with_rollback(&mut self, cx: &mut Context<Self>) {
+-        self.rollback_transaction(cx);
+-        self.finish_pending_commit_mode_switch(cx);
++        self.resolve_pending_commit_mode_switch(false, cx);
++    }
++
++    fn resolve_pending_commit_mode_switch(&mut self, commit: bool, cx: &mut Context<Self>) {
++        let Some(session) = self.session.as_mut() else {
++            self.finish_pending_commit_mode_switch(cx);
++            return;
++        };
++        if !session.is_open() {
++            self.finish_pending_commit_mode_switch(cx);
++            return;
++        }
++        let task = if commit {
++            session.commit(cx)
++        } else {
++            session.rollback(cx)
++        };
++        cx.spawn(async move |this, cx| {
++            let result = task.await;
++            this.update(cx, |this, cx| match result {
++                Ok(()) => {
++                    this.finish_pending_commit_mode_switch(cx);
++                }
++                Err(error) => {
++                    // Keep Manual and the prompt visible so the user can
++                    // retry Commit/Rollback or Cancel instead of losing the
++                    // open transaction silently.
++                    this.error = Some(error.to_string());
++                    cx.notify();
++                }
++            })
++            .log_err();
++        })
++        .detach();
++        cx.notify();
+     }
+ 
+     fn cancel_commit_mode_switch(&mut self, cx: &mut Context<Self>) {
+@@ -2848,14 +2888,32 @@ mod tests {
+                 "the pending switch must be recorded so the UI can prompt"
+             );
+ 
+-            // Resolving via rollback completes the switch.
++            // Resolving via rollback must not flip the mode synchronously:
++            // the ROLLBACK is async, and only its successful completion may
++            // flip Manual -> Auto (see `resolve_pending_commit_mode_switch`).
+             view.resolve_commit_mode_switch_with_rollback(cx);
+-            assert_eq!(view.commit_mode, CommitMode::Auto);
+-            assert!(view.pending_commit_mode_switch.is_none());
++            assert_eq!(
++                view.commit_mode,
++                CommitMode::Manual,
++                "the mode must not flip until the async ROLLBACK actually succeeds"
++            );
++            assert!(
++                view.pending_commit_mode_switch.is_some(),
++                "the prompt must stay visible while the ROLLBACK is in flight"
++            );
+         });
+ 
+-        // Let the background ROLLBACK (harmless with no real BEGIN issued) drain.
++        // Let the background ROLLBACK actually land against the test DB.
+         cx.run_until_parked();
++
++        view.update(cx, |view, _cx| {
++            assert_eq!(
++                view.commit_mode,
++                CommitMode::Auto,
++                "a successful ROLLBACK must complete the deferred switch"
++            );
++            assert!(view.pending_commit_mode_switch.is_none());
++        });
+     }
+ 
+     fn one_column_result() -> QueryResult {

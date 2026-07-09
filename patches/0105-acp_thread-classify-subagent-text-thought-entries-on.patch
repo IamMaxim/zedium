@@ -1,0 +1,196 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Wed, 1 Jul 2026 01:23:27 +0300
+Subject: [PATCH] acp_thread: classify subagent text/thought entries on ingest
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+AgentMessageChunk/AgentThoughtChunk's own _meta was being dropped at
+the SessionUpdate match arm. Thread it through to
+push_assistant_content_block_with_indent and classify newly-created
+AssistantMessage entries the same way tool calls already are —
+membership is decided once, at entry creation, not on every streamed
+append to an existing entry.
+---
+ crates/acp_thread/src/acp_thread.rs | 84 ++++++++++++++++++++++++++---
+ crates/agent/src/agent.rs           | 15 +++++-
+ 2 files changed, 91 insertions(+), 8 deletions(-)
+
+diff --git a/crates/acp_thread/src/acp_thread.rs b/crates/acp_thread/src/acp_thread.rs
+index 68d1c22efd..dd91c5a5aa 100644
+--- a/crates/acp_thread/src/acp_thread.rs
++++ b/crates/acp_thread/src/acp_thread.rs
+@@ -2076,11 +2076,11 @@ impl AcpThread {
+                     self.push_user_content_block(None, content, cx);
+                 }
+             }
+-            acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk { content, .. }) => {
+-                self.push_assistant_content_block(content, false, cx);
++            acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk { content, meta, .. }) => {
++                self.push_assistant_content_block(content, false, meta, cx);
+             }
+-            acp::SessionUpdate::AgentThoughtChunk(acp::ContentChunk { content, .. }) => {
+-                self.push_assistant_content_block(content, true, cx);
++            acp::SessionUpdate::AgentThoughtChunk(acp::ContentChunk { content, meta, .. }) => {
++                self.push_assistant_content_block(content, true, meta, cx);
+             }
+             acp::SessionUpdate::ToolCall(tool_call) => {
+                 self.upsert_tool_call(tool_call, cx)?;
+@@ -2190,9 +2190,10 @@ impl AcpThread {
+         &mut self,
+         chunk: acp::ContentBlock,
+         is_thought: bool,
++        meta: Option<acp::Meta>,
+         cx: &mut Context<Self>,
+     ) {
+-        self.push_assistant_content_block_with_indent(chunk, is_thought, false, cx)
++        self.push_assistant_content_block_with_indent(chunk, is_thought, false, meta, cx)
+     }
+ 
+     pub fn push_assistant_content_block_with_indent(
+@@ -2200,6 +2201,7 @@ impl AcpThread {
+         chunk: acp::ContentBlock,
+         is_thought: bool,
+         indented: bool,
++        meta: Option<acp::Meta>,
+         cx: &mut Context<Self>,
+     ) {
+         let path_style = self.project.read(cx).path_style(cx);
+@@ -2250,6 +2252,7 @@ impl AcpThread {
+                 AssistantMessageChunk::Message { block }
+             };
+ 
++            let entry_ix = self.entries.len();
+             self.push_entry(
+                 AgentThreadEntry::AssistantMessage(AssistantMessage {
+                     chunks: vec![chunk],
+@@ -2258,6 +2261,10 @@ impl AcpThread {
+                 }),
+                 cx,
+             );
++            if let Some(grouping) = self.connection.subagent_grouping() {
++                let classification = grouping.classify(meta.as_ref());
++                self.subagent_index.apply_entry(entry_ix, classification);
++            }
+         }
+     }
+ 
+@@ -4520,7 +4527,7 @@ mod tests {
+ 
+         // Test creating new user message after assistant message
+         thread.update(cx, |thread, cx| {
+-            thread.push_assistant_content_block("Assistant response".into(), false, cx);
++            thread.push_assistant_content_block("Assistant response".into(), false, None, cx);
+         });
+ 
+         let message_2_id = UserMessageId::new();
+@@ -6058,6 +6065,71 @@ mod tests {
+         });
+     }
+ 
++    #[gpui::test]
++    async fn subagent_text_entries_are_classified_on_ingest(cx: &mut TestAppContext) {
++        init_test(cx);
++
++        let fs = FakeFs::new(cx.executor());
++        let project = Project::test(fs, [], cx).await;
++        let qwen_connection = Rc::new(
++            FakeAgentConnection::new().with_subagent_grouping(Rc::new(QwenSubagentGrouping)),
++        );
++        let thread = cx
++            .update(|cx| {
++                qwen_connection.new_session(project, PathList::new(&[Path::new(path!("/test"))]), cx)
++            })
++            .await
++            .unwrap();
++
++        thread.update(cx, |thread, cx| {
++            // Root: an "agent" tool call.
++            let root_id = acp::ToolCallId::new("call_root");
++            thread
++                .upsert_tool_call(
++                    acp::ToolCall::new(root_id.clone(), "Explore").meta(acp::Meta::from_iter([(
++                        "toolName".to_string(),
++                        serde_json::json!("agent"),
++                    )])),
++                    cx,
++                )
++                .unwrap();
++
++            // A streamed assistant text chunk tagged as belonging to the root.
++            let meta = acp::Meta::from_iter([
++                ("provenance".to_string(), serde_json::json!("subagent")),
++                (
++                    "parentToolCallId".to_string(),
++                    serde_json::json!("call_root"),
++                ),
++                ("subagentType".to_string(), serde_json::json!("Explore")),
++            ]);
++            thread
++                .handle_session_update(
++                    acp::SessionUpdate::AgentMessageChunk(
++                        acp::ContentChunk::new(acp::ContentBlock::Text(
++                            acp::TextContent::new("subagent narration"),
++                        ))
++                        .meta(meta),
++                    ),
++                    cx,
++                )
++                .unwrap();
++
++            let entries = thread.entries();
++            let text_ix = entries
++                .iter()
++                .position(|e| matches!(e, AgentThreadEntry::AssistantMessage(_)))
++                .expect("an AssistantMessage entry was pushed");
++
++            let index = thread.subagent_index();
++            assert!(index.is_text_member(text_ix));
++            assert_eq!(
++                index.entry_membership_of(text_ix).map(|m| m.parent.clone()),
++                Some(root_id)
++            );
++        });
++    }
++
+     /// Tests that restoring a checkpoint properly cleans up terminals that were
+     /// created after that checkpoint, and cancels any in-progress generation.
+     ///
+diff --git a/crates/agent/src/agent.rs b/crates/agent/src/agent.rs
+index 15e6719044..ddda4a3c3e 100644
+--- a/crates/agent/src/agent.rs
++++ b/crates/agent/src/agent.rs
+@@ -1832,6 +1832,7 @@ impl NativeAgent {
+                                 block.clone(),
+                                 false,
+                                 true,
++                                None,
+                                 cx,
+                             );
+                         });
+@@ -2125,12 +2126,22 @@ impl NativeAgentConnection {
+                             }
+                             ThreadEvent::AgentText(text) => {
+                                 acp_thread.update(cx, |thread, cx| {
+-                                    thread.push_assistant_content_block(text.into(), false, cx)
++                                    thread.push_assistant_content_block(
++                                        text.into(),
++                                        false,
++                                        None,
++                                        cx,
++                                    )
+                                 })?;
+                             }
+                             ThreadEvent::AgentThinking(text) => {
+                                 acp_thread.update(cx, |thread, cx| {
+-                                    thread.push_assistant_content_block(text.into(), true, cx)
++                                    thread.push_assistant_content_block(
++                                        text.into(),
++                                        true,
++                                        None,
++                                        cx,
++                                    )
+                                 })?;
+                             }
+                             ThreadEvent::ToolCallAuthorization(ToolCallAuthorization {

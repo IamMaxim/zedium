@@ -1,0 +1,210 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 2 Jul 2026 00:01:40 +0300
+Subject: [PATCH] fix(db): persist a query tab's database so restored tabs
+ target the right db
+
+---
+ crates/database_client/src/persistence.rs | 101 ++++++++++++++++++----
+ crates/database_client/src/query_view.rs  |  30 +++++--
+ 2 files changed, 109 insertions(+), 22 deletions(-)
+
+diff --git a/crates/database_client/src/persistence.rs b/crates/database_client/src/persistence.rs
+index a4b22646c8..ac5a60947e 100644
+--- a/crates/database_client/src/persistence.rs
++++ b/crates/database_client/src/persistence.rs
+@@ -11,17 +11,25 @@ pub struct QueryDb(ThreadSafeConnection);
+ impl Domain for QueryDb {
+     const NAME: &str = stringify!(QueryDb);
+ 
+-    const MIGRATIONS: &[&str] = &[sql!(
+-        CREATE TABLE database_query_views (
+-            item_id INTEGER,
+-            workspace_id INTEGER,
+-            profile_id TEXT NOT NULL,
+-            sql TEXT NOT NULL,
+-            PRIMARY KEY(item_id, workspace_id),
+-            FOREIGN KEY(workspace_id) REFERENCES workspaces(workspace_id)
+-            ON DELETE CASCADE
+-        ) STRICT;
+-    )];
++    const MIGRATIONS: &[&str] = &[
++        sql!(
++            CREATE TABLE database_query_views (
++                item_id INTEGER,
++                workspace_id INTEGER,
++                profile_id TEXT NOT NULL,
++                sql TEXT NOT NULL,
++                PRIMARY KEY(item_id, workspace_id),
++                FOREIGN KEY(workspace_id) REFERENCES workspaces(workspace_id)
++                ON DELETE CASCADE
++            ) STRICT;
++        ),
++        // Persist the database a query tab targets, so a tab opened on a
++        // non-default database (e.g. via double-click on a table) restores
++        // against the same database rather than the profile's default.
++        sql!(
++            ALTER TABLE database_query_views ADD COLUMN database TEXT;
++        ),
++    ];
+ }
+ 
+ db::static_connection!(QueryDb, [WorkspaceDb]);
+@@ -33,29 +41,88 @@ impl QueryDb {
+         workspace_id: WorkspaceId,
+         profile_id: String,
+         sql: String,
++        database: Option<String>,
+     ) -> Result<()> {
+         self.write(move |conn| {
+             let query_str =
+-                "INSERT INTO database_query_views (item_id, workspace_id, profile_id, sql)
+-                VALUES (?1, ?2, ?3, ?4)
++                "INSERT INTO database_query_views (item_id, workspace_id, profile_id, sql, database)
++                VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (item_id, workspace_id) DO UPDATE SET
+                     profile_id = excluded.profile_id,
+-                    sql = excluded.sql";
++                    sql = excluded.sql,
++                    database = excluded.database";
+             let mut statement = Statement::prepare(conn, query_str)?;
+             let mut next_index = statement.bind(&item_id, 1)?;
+             next_index = statement.bind(&workspace_id, next_index)?;
+             next_index = statement.bind(&profile_id, next_index)?;
+-            statement.bind(&sql, next_index)?;
++            next_index = statement.bind(&sql, next_index)?;
++            statement.bind(&database, next_index)?;
+             statement.exec()
+         })
+         .await
+     }
+ 
+     query! {
+-        pub fn get_query(item_id: ItemId, workspace_id: WorkspaceId) -> Result<Option<(String, String)>> {
+-            SELECT profile_id, sql
++        pub fn get_query(item_id: ItemId, workspace_id: WorkspaceId) -> Result<Option<(String, String, Option<String>)>> {
++            SELECT profile_id, sql, database
+             FROM database_query_views
+             WHERE item_id = ? AND workspace_id = ?
+         }
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use gpui::TestAppContext;
++
++    fn init_test(cx: &mut TestAppContext) {
++        cx.update(|cx| cx.set_global(db::AppDatabase::test_new()));
++    }
++
++    #[gpui::test]
++    async fn round_trips_persisted_database(cx: &mut TestAppContext) {
++        init_test(cx);
++        let workspace_db = cx.update(|cx| WorkspaceDb::global(cx));
++        let workspace_id = workspace_db.next_id().await.unwrap();
++        let query_db = cx.update(|cx| QueryDb::global(cx));
++
++        query_db
++            .save_query(
++                1,
++                workspace_id,
++                "p1".to_string(),
++                "select 1".to_string(),
++                Some("otherdb".to_string()),
++            )
++            .await
++            .unwrap();
++
++        let (profile_id, sql, database) = query_db.get_query(1, workspace_id).unwrap().unwrap();
++        assert_eq!(profile_id, "p1");
++        assert_eq!(sql, "select 1");
++        assert_eq!(database, Some("otherdb".to_string()));
++    }
++
++    #[gpui::test]
++    async fn missing_database_loads_as_none(cx: &mut TestAppContext) {
++        init_test(cx);
++        let workspace_db = cx.update(|cx| WorkspaceDb::global(cx));
++        let workspace_id = workspace_db.next_id().await.unwrap();
++        let query_db = cx.update(|cx| QueryDb::global(cx));
++
++        query_db
++            .save_query(
++                2,
++                workspace_id,
++                "p1".to_string(),
++                "select 1".to_string(),
++                None,
++            )
++            .await
++            .unwrap();
++
++        let (_, _, database) = query_db.get_query(2, workspace_id).unwrap().unwrap();
++        assert_eq!(database, None);
++    }
++}
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index d0ac8da4e2..36a4209295 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -188,8 +188,17 @@ impl QueryView {
+                 let Some(profile) = profile else {
+                     return;
+                 };
++                // The keychain key embeds the database name (see
++                // `ConnectionProfile::keychain_url`), so a tab profile pointing at a
++                // non-default database would miss the stored credential. Look up the
++                // base profile (as saved in connections.json) for the password read,
++                // but connect with the tab's profile so the right database is used.
++                let base_profile = store::load_profiles()
++                    .into_iter()
++                    .find(|p| p.id == profile.id)
++                    .unwrap_or_else(|| profile.clone());
+                 let password = cx
+-                    .update(|cx| store::read_password(cx, &profile))
++                    .update(|cx| store::read_password(cx, &base_profile))
+                     .await
+                     .ok()
+                     .flatten();
+@@ -331,13 +340,16 @@ impl SerializableItem for QueryView {
+         }
+ 
+         let workspace_id = self.workspace_id?;
+-        let profile_id = self.profile.as_ref()?.id.clone();
++        let profile = self.profile.as_ref()?;
++        let profile_id = profile.id.clone();
++        let database = Some(profile.database.clone());
+         let sql = self.editor.read(cx).text(cx);
+         self.needs_serialize = false;
+ 
+         let db = QueryDb::global(cx);
+         Some(cx.background_spawn(async move {
+-            db.save_query(item_id, workspace_id, profile_id, sql).await
++            db.save_query(item_id, workspace_id, profile_id, sql, database)
++                .await
+         }))
+     }
+ 
+@@ -356,10 +368,18 @@ impl SerializableItem for QueryView {
+         let db = QueryDb::global(cx);
+         let loaded = db.get_query(item_id, workspace_id).log_err().flatten();
+         window.spawn(cx, async move |cx| {
+-            let (profile_id, sql) = loaded.unwrap_or_default();
++            let (profile_id, sql, persisted_database) = loaded.unwrap_or_default();
+             let profile = store::load_profiles()
+                 .into_iter()
+-                .find(|p| p.id == profile_id);
++                .find(|p| p.id == profile_id)
++                .map(|mut p| {
++                    if let Some(database) = persisted_database {
++                        if database != p.database {
++                            p.database = database;
++                        }
++                    }
++                    p
++                });
+             cx.update(|window, cx| {
+                 Ok(cx.new(|cx| {
+                     QueryView::new(

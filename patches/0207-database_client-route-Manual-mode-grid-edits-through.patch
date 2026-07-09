@@ -1,0 +1,484 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 20:29:34 +0300
+Subject: [PATCH] database_client: route Manual-mode grid edits through the
+ open transaction
+
+---
+ crates/database_client/src/query_view.rs | 417 ++++++++++++++++++++---
+ 1 file changed, 362 insertions(+), 55 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index 05155b9c67..ce345e4f79 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -630,12 +630,17 @@ impl QueryView {
+             .update(cx, |grid, cx| grid.clear_pending(cx));
+     }
+ 
+-    /// Submits the grid's pending edits as a DML transaction: builds the
+-    /// ordered `BEGIN;…;COMMIT;` batch via [`build_edit_transaction`] and runs
+-    /// it atomically. A failure leaves `PendingChanges` staged — the
+-    /// transaction already rolled back server-side, so nothing committed —
+-    /// and surfaces the Postgres error; success clears the staged edits and
+-    /// refreshes the current page by re-running `last_sql`.
++    /// Submits the grid's pending edits as DML. In **Auto** commit mode this
++    /// builds the ordered `BEGIN;…;COMMIT;` batch via
++    /// [`build_edit_transaction`] and runs it atomically on the tab's plain
++    /// connection — unchanged from before Manual-mode routing existed. In
++    /// **Manual** mode the statements from [`build_edit_statements`] run
++    /// unwrapped (no `BEGIN`/`COMMIT` of their own) on the open session's
++    /// connection, so they land inside the user's in-progress transaction
++    /// instead of autocommitting; the user commits or rolls back later via
++    /// the toolbar. A failure leaves `PendingChanges` staged and surfaces the
++    /// Postgres error; success clears the staged edits and refreshes the
++    /// current page by re-running `last_sql`.
+     // A confirm-before-submit gate is wired in a later plan (Plan 10 adds the setting).
+     fn submit_edits(&mut self, cx: &mut Context<Self>) {
+         if self.read_only || self.running {
+@@ -647,55 +652,143 @@ impl QueryView {
+         let Some(result) = self.result.clone() else {
+             return;
+         };
+-        let Some(connection) = self.connection.clone() else {
+-            self.error = Some("No live connection for edit submit".into());
+-            cx.notify();
+-            return;
+-        };
+         let pending = self.results_grid.read(cx).pending_changes().clone();
+-        let Some(sql) =
+-            build_edit_transaction(&editability, &pending, &result.columns, &result.rows)
+-        else {
+-            return;
+-        };
+ 
+-        self.running = true;
+-        cx.notify();
+-        let refresh_sql = self.last_sql.clone();
+-        let page = self.page;
+-        cx.spawn(async move |this, cx| {
+-            // `execute` runs the whole `BEGIN;…;COMMIT;` batch as one
+-            // simple_query; any error aborts the transaction server-side
+-            // (implicit ROLLBACK), so nothing in it takes effect.
+-            let execute_task = cx.update(|cx| connection.execute(sql, DEFAULT_RESULT_LIMIT, cx));
+-            let result = execute_task.await;
+-            this.update(cx, |this, cx| {
+-                this.running = false;
+-                match result {
+-                    Ok(_) => {
+-                        // Success: the staged changes are now authoritative on
+-                        // the server — clear them and refresh the current
+-                        // page to show the committed effects.
+-                        this.results_grid
+-                            .update(cx, |grid, cx| grid.clear_pending(cx));
+-                        this.error = None;
+-                        if let Some(sql) = refresh_sql {
+-                            this.dispatch_query(sql, page, QueryIntent::Sort, cx);
++        match self.commit_mode {
++            CommitMode::Auto => {
++                let Some(connection) = self.connection.clone() else {
++                    self.error = Some("No live connection for edit submit".into());
++                    cx.notify();
++                    return;
++                };
++                let Some(sql) =
++                    build_edit_transaction(&editability, &pending, &result.columns, &result.rows)
++                else {
++                    return;
++                };
++
++                self.running = true;
++                cx.notify();
++                let refresh_sql = self.last_sql.clone();
++                let page = self.page;
++                cx.spawn(async move |this, cx| {
++                    // `execute` runs the whole `BEGIN;…;COMMIT;` batch as one
++                    // simple_query; any error aborts the transaction
++                    // server-side (implicit ROLLBACK), so nothing in it takes
++                    // effect.
++                    let execute_task =
++                        cx.update(|cx| connection.execute(sql, DEFAULT_RESULT_LIMIT, cx));
++                    let result = execute_task.await;
++                    this.update(cx, |this, cx| {
++                        this.running = false;
++                        match result {
++                            Ok(_) => {
++                                // Success: the staged changes are now
++                                // authoritative on the server — clear them
++                                // and refresh the current page to show the
++                                // committed effects.
++                                this.results_grid
++                                    .update(cx, |grid, cx| grid.clear_pending(cx));
++                                this.error = None;
++                                if let Some(sql) = refresh_sql {
++                                    this.dispatch_query(sql, page, QueryIntent::Sort, cx);
++                                }
++                            }
++                            Err(err) => {
++                                // Rollback already happened; keep
++                                // PendingChanges so the user can fix and
++                                // retry, and surface the Postgres message.
++                                this.error = Some(err.to_string());
++                                cx.emit(QueryViewEvent::ResultsChanged);
++                                cx.notify();
++                            }
++                        }
++                    })
++                    .ok();
++                })
++                .detach();
++            }
++            CommitMode::Manual => {
++                let Some(statements) =
++                    build_edit_statements(&editability, &pending, &result.columns, &result.rows)
++                else {
++                    return;
++                };
++                // Bare DML only — no BEGIN/COMMIT of its own — so the
++                // statements join the already-open Manual transaction rather
++                // than opening/closing one of their own.
++                let sql = statements.join(";\n");
++
++                self.running = true;
++                cx.notify();
++                let refresh_sql = self.last_sql.clone();
++                let page = self.page;
++                // `BEGIN` is chained first, mirroring `dispatch_query`, so the
++                // statements never race ahead of the session's transaction
++                // actually opening.
++                let begin_task = self.ensure_session_open(cx);
++                cx.spawn(async move |this, cx| {
++                    if let Some(begin_task) = begin_task {
++                        if let Err(error) = begin_task.await {
++                            this.update(cx, |this, cx| {
++                                this.running = false;
++                                this.error = Some(error.to_string());
++                                cx.emit(QueryViewEvent::ResultsChanged);
++                                cx.notify();
++                            })
++                            .ok();
++                            return;
+                         }
+                     }
+-                    Err(err) => {
+-                        // Rollback already happened; keep PendingChanges so
+-                        // the user can fix and retry, and surface the
+-                        // Postgres message.
+-                        this.error = Some(err.to_string());
+-                        cx.emit(QueryViewEvent::ResultsChanged);
+-                        cx.notify();
+-                    }
+-                }
+-            })
+-            .ok();
+-        })
+-        .detach();
++                    let connection = this
++                        .update(cx, |this, _cx| this.manual_execute_connection())
++                        .ok()
++                        .flatten();
++                    let Some(connection) = connection else {
++                        this.update(cx, |this, cx| {
++                            this.running = false;
++                            this.error = Some("No open transaction for edit submit".into());
++                            cx.emit(QueryViewEvent::ResultsChanged);
++                            cx.notify();
++                        })
++                        .ok();
++                        return;
++                    };
++                    let execute_task =
++                        cx.update(|cx| connection.execute(sql, DEFAULT_RESULT_LIMIT, cx));
++                    let result = execute_task.await;
++                    this.update(cx, |this, cx| {
++                        this.running = false;
++                        match result {
++                            Ok(_) => {
++                                // Success: the edits are now staged inside the
++                                // open Manual transaction — clear the pending
++                                // set and refresh the current page, which
++                                // routes through the same session so it shows
++                                // the in-transaction (uncommitted) state.
++                                this.results_grid
++                                    .update(cx, |grid, cx| grid.clear_pending(cx));
++                                this.error = None;
++                                if let Some(sql) = refresh_sql {
++                                    this.dispatch_query(sql, page, QueryIntent::Sort, cx);
++                                }
++                            }
++                            Err(err) => {
++                                // The transaction is now in an aborted state
++                                // server-side; keep PendingChanges so the
++                                // user can fix and retry after a Rollback,
++                                // and surface the Postgres message.
++                                this.error = Some(err.to_string());
++                                cx.emit(QueryViewEvent::ResultsChanged);
++                                cx.notify();
++                            }
++                        }
++                    })
++                    .ok();
++                })
++                .detach();
++            }
++        }
+     }
+ 
+     /// Runs `sql` for the given page. [`QueryIntent::LoadMore`] extends the
+@@ -1793,17 +1886,17 @@ pub fn detect_editability(
+     })
+ }
+ 
+-/// Assembles the ordered `BEGIN; deletes…; updates…; inserts…; COMMIT;`
+-/// transaction from staged changes, or `None` when nothing is staged. A
++/// Assembles the ordered delete/update/insert statements (each without a
++/// trailing `;`) from staged changes, or `None` when nothing is staged. A
+ /// deleted original row's staged updates are dropped. PK values come from the
+ /// *displayed* row cells (PKs are never NULL, so a missing/None PK cell drops
+ /// that row's statement rather than emitting `= NULL`).
+-pub(crate) fn build_edit_transaction(
++pub(crate) fn build_edit_statements(
+     editability: &Editability,
+     pending: &PendingChanges,
+     columns: &[String],
+     rows: &[Vec<Option<String>>],
+-) -> Option<String> {
++) -> Option<Vec<String>> {
+     let column_index = |name: &str| columns.iter().position(|c| c == name);
+     let pk_for_row = |row_index: usize| -> Option<Vec<(String, String)>> {
+         let row = rows.get(row_index)?;
+@@ -1887,6 +1980,19 @@ pub(crate) fn build_edit_transaction(
+     if statements.is_empty() {
+         return None;
+     }
++    Some(statements)
++}
++
++/// Wraps [`build_edit_statements`]'s output in `BEGIN;…;COMMIT;`, or `None`
++/// when nothing is staged. Used by the Auto commit-mode path, which runs the
++/// whole batch atomically on the tab's plain connection.
++pub(crate) fn build_edit_transaction(
++    editability: &Editability,
++    pending: &PendingChanges,
++    columns: &[String],
++    rows: &[Vec<Option<String>>],
++) -> Option<String> {
++    let statements = build_edit_statements(editability, pending, columns, rows)?;
+     let mut sql = String::from("BEGIN;\n");
+     for statement in &statements {
+         sql.push_str(statement);
+@@ -2826,6 +2932,142 @@ mod tests {
+         });
+     }
+ 
++    // Exercises the Manual-mode routing fix: `submit_edits` must run the bare
++    // DML on the open session's connection (no nested `BEGIN`/`COMMIT`)
++    // rather than the Auto-mode wrapped batch, so the edit stays uncommitted
++    // until the user commits/rolls back. `TransactionSession` needs a real
++    // `Connection` (no test double exists for it), so this is `#[ignore]`d
++    // like the other live-DB DML tests in this file and needs
++    // `DATABASE_CLIENT_TEST_PG_URL` to run.
++    #[gpui::test]
++    #[ignore]
++    async fn live_manual_submit_lands_in_open_transaction_uncommitted(cx: &mut TestAppContext) {
++        let Ok(url) = std::env::var("DATABASE_CLIENT_TEST_PG_URL") else {
++            return;
++        };
++        init_test(cx);
++        cx.executor().allow_parking();
++        let profile = ConnectionProfile::from_url(&url).expect("valid test DB URL");
++        let password = {
++            use std::str::FromStr as _;
++            tokio_postgres::Config::from_str(&url)
++                .ok()
++                .and_then(|config| {
++                    config
++                        .get_password()
++                        .and_then(|bytes| String::from_utf8(bytes.to_vec()).ok())
++                })
++        };
++        let conn = cx
++            .update(|cx| Connection::connect(profile, password.clone(), cx))
++            .await
++            .expect("connect to test DB");
++
++        // Isolated temp table (pg_temp is scoped to this connection/session).
++        cx.update(|cx| {
++            conn.execute(
++                "create temp table zedium_manual_submit (id int primary key, name text)".into(),
++                10,
++                cx,
++            )
++        })
++        .await
++        .expect("create temp table");
++        cx.update(|cx| {
++            conn.execute(
++                "insert into zedium_manual_submit values (1, 'a')".into(),
++                10,
++                cx,
++            )
++        })
++        .await
++        .expect("seed row");
++
++        let view = open_test_view(cx).await;
++        let editability = Editability {
++            schema: "pg_temp".into(),
++            table: "zedium_manual_submit".into(),
++            pk_cols: vec!["id".into()],
++            col_types: [
++                ("id".to_string(), "integer".to_string()),
++                ("name".to_string(), "text".to_string()),
++            ]
++            .into_iter()
++            .collect(),
++        };
++        let result = QueryResult {
++            columns: vec!["id".into(), "name".into()],
++            rows: vec![vec![Some("1".into()), Some("a".into())]],
++            command_tag: None,
++            truncated: false,
++        };
++        view.update(cx, |view, cx| {
++            view.commit_mode = CommitMode::Manual;
++            view.connection = Some(conn.clone());
++            view.editability = Some(editability);
++            view.last_sql = Some("select id, name from zedium_manual_submit order by id".into());
++            view.results_grid.update(cx, |grid, cx| {
++                grid.set_result(Some(result.clone()), false, cx);
++                grid.pending_mut_for_test()
++                    .stage_update(0, 1, Some("Z".into()));
++            });
++            view.result = Some(result);
++            view.submit_edits(cx);
++        });
++        cx.run_until_parked();
++
++        view.update(cx, |view, cx| {
++            assert_eq!(view.error, None, "the Manual submit must succeed");
++            assert!(
++                view.results_grid.read(cx).pending_changes().is_empty(),
++                "success clears the staged edit"
++            );
++            assert!(
++                view.transaction_is_open(),
++                "the Manual session's transaction must still be open — submit_edits must not \
++                 have run a nested COMMIT"
++            );
++        });
++
++        // Same connection/session: the uncommitted UPDATE is visible here.
++        let visible_in_session = cx
++            .update(|cx| {
++                conn.execute(
++                    "select name from zedium_manual_submit where id = 1".into(),
++                    10,
++                    cx,
++                )
++            })
++            .await
++            .expect("select inside the open transaction");
++        assert_eq!(visible_in_session.rows, vec![vec![Some("Z".into())]]);
++
++        // Rolling back must discard the uncommitted edit — proof it never
++        // auto-committed.
++        let rollback_task = view.update(cx, |view, cx| {
++            view.session
++                .as_mut()
++                .expect("Manual session must exist")
++                .rollback(cx)
++        });
++        rollback_task.await.expect("rollback");
++        let after_rollback = cx
++            .update(|cx| {
++                conn.execute(
++                    "select name from zedium_manual_submit where id = 1".into(),
++                    10,
++                    cx,
++                )
++            })
++            .await
++            .expect("select after rollback");
++        assert_eq!(
++            after_rollback.rows,
++            vec![vec![Some("a".into())]],
++            "rollback must discard the never-committed edit"
++        );
++    }
++
+     // Same DB-availability caveat as `manual_mode_allocates_session_on_first_dispatch`:
+     // `TransactionSession` needs a real `Connection`, so without
+     // `DATABASE_CLIENT_TEST_PG_URL` this only exercises the no-open-transaction
+@@ -3326,6 +3568,71 @@ mod tests {
+         );
+     }
+ 
++    // Regression guard for the `build_edit_statements`/`build_edit_transaction`
++    // refactor: the unwrapped statements must be exactly what
++    // `build_edit_transaction` wraps in `BEGIN;…;COMMIT;`, and the wrapped
++    // output must stay byte-identical to before the refactor.
++    #[test]
++    fn build_edit_statements_matches_transaction_wrapping() {
++        use crate::results_grid::PendingChanges;
++        let editability = Editability {
++            schema: "public".into(),
++            table: "users".into(),
++            pk_cols: vec!["id".into()],
++            col_types: [
++                ("id".to_string(), "integer".to_string()),
++                ("name".to_string(), "text".to_string()),
++            ]
++            .into_iter()
++            .collect(),
++        };
++        let columns = vec!["id".to_string(), "name".to_string()];
++        let rows = vec![
++            vec![Some("1".into()), Some("al".into())],
++            vec![Some("2".into()), Some("bo".into())],
++        ];
++        let mut pending = PendingChanges::default();
++        pending.stage_update(0, 1, Some("ann".into())); // update row 0
++        pending.deletes.insert(1); // delete row 1
++        pending.inserts.push(vec![Some("3".into()), None]); // insert
++
++        let statements = build_edit_statements(&editability, &pending, &columns, &rows)
++            .expect("non-empty pending yields statements");
++        assert_eq!(
++            statements,
++            vec![
++                "DELETE FROM \"public\".\"users\" WHERE \"id\" = '2'::integer".to_string(),
++                "UPDATE \"public\".\"users\" SET \"name\" = 'ann'::text WHERE \"id\" = '1'::integer"
++                    .to_string(),
++                "INSERT INTO \"public\".\"users\" (\"id\", \"name\") VALUES ('3'::integer, NULL)"
++                    .to_string(),
++            ]
++        );
++
++        let mut expected_wrapped = String::from("BEGIN;\n");
++        for statement in &statements {
++            expected_wrapped.push_str(statement);
++            expected_wrapped.push_str(";\n");
++        }
++        expected_wrapped.push_str("COMMIT;");
++        let sql = build_edit_transaction(&editability, &pending, &columns, &rows)
++            .expect("non-empty pending yields a transaction");
++        assert_eq!(sql, expected_wrapped);
++        assert_eq!(
++            sql,
++            "BEGIN;\n\
++             DELETE FROM \"public\".\"users\" WHERE \"id\" = '2'::integer;\n\
++             UPDATE \"public\".\"users\" SET \"name\" = 'ann'::text WHERE \"id\" = '1'::integer;\n\
++             INSERT INTO \"public\".\"users\" (\"id\", \"name\") VALUES ('3'::integer, NULL);\n\
++             COMMIT;"
++        );
++
++        assert!(
++            build_edit_statements(&editability, &PendingChanges::default(), &columns, &rows)
++                .is_none()
++        );
++    }
++
+     #[test]
+     fn build_transaction_skips_updates_on_deleted_rows_and_returns_none_when_empty() {
+         use crate::results_grid::PendingChanges;

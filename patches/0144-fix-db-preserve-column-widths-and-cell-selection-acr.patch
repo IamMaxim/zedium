@@ -1,0 +1,217 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 2 Jul 2026 12:36:07 +0300
+Subject: [PATCH] fix(db): preserve column widths and cell selection across
+ result pages
+
+set_result unconditionally rebuilt the ResizableColumnsState from width
+estimates and cleared the selected cell, so every Load more page and every
+header-sort click snapped manually dragged column widths back to the
+estimates and dropped the selection. When the incoming column list matches
+the displayed one, keep the existing widths-state entity (only bumping the
+row-number gutter width for the grown row count) and keep the selection if
+its row still exists; rebuild only when the columns actually change.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MQKuAnEREjToPLedE7KAqP
+---
+ crates/database_client/src/results_grid.rs | 166 ++++++++++++++++++---
+ 1 file changed, 142 insertions(+), 24 deletions(-)
+
+diff --git a/crates/database_client/src/results_grid.rs b/crates/database_client/src/results_grid.rs
+index 5cb59859ba..7a27e3edc4 100644
+--- a/crates/database_client/src/results_grid.rs
++++ b/crates/database_client/src/results_grid.rs
+@@ -168,8 +168,11 @@ impl ResultsGrid {
+         }
+     }
+ 
+-    /// Replaces the displayed result. Recomputes numeric columns and (re)builds
+-    /// the column-widths state from the new data. Clears selection/context menu.
++    /// Replaces the displayed result and recomputes numeric columns. When the
++    /// column list is unchanged (Load more / sort page of the same session),
++    /// the existing column-widths state — including the user's manual resizes —
++    /// and the cell selection are preserved; otherwise the widths are rebuilt
++    /// from estimates and the selection cleared. Always clears the context menu.
+     /// `sortable`: headers clickable (caller passes `sql_paging::wrappable(&sql)`).
+     pub fn set_result(
+         &mut self,
+@@ -177,34 +180,65 @@ impl ResultsGrid {
+         sortable: bool,
+         cx: &mut Context<Self>,
+     ) {
+-        self.selected_cell = None;
+         self.context_menu = None;
+         self.sortable = sortable;
+         match &result {
+-            Some(result) if !result.columns.is_empty() => {
+-                self.numeric_columns = detect_numeric_columns(result.columns.len(), &result.rows);
++            Some(new_result) if !new_result.columns.is_empty() => {
++                self.numeric_columns =
++                    detect_numeric_columns(new_result.columns.len(), &new_result.rows);
+                 let font_size = f32::from(Self::results_font_size(cx));
+-                let data_widths = estimate_column_widths(&result.columns, &result.rows, font_size);
+-                let gutter = row_number_column_width(result.rows.len(), font_size);
+-                let mut initial_widths: Vec<AbsoluteLength> =
+-                    Vec::with_capacity(data_widths.len() + 1);
+-                initial_widths.push(AbsoluteLength::Pixels(px(gutter)));
+-                initial_widths.extend(
+-                    data_widths
+-                        .iter()
+-                        .map(|width| AbsoluteLength::Pixels(px(*width))),
+-                );
+-                let mut behaviors = vec![TableResizeBehavior::None];
+-                behaviors.extend(std::iter::repeat_n(
+-                    // MinSize is in rems: 60px at the default 16px-per-rem.
+-                    TableResizeBehavior::MinSize(MIN_COLUMN_WIDTH / 16.0),
+-                    data_widths.len(),
+-                ));
+-                let cols = data_widths.len() + 1;
+-                self.columns_state =
+-                    Some(cx.new(|_| ResizableColumnsState::new(cols, initial_widths, behaviors)));
++                let gutter = row_number_column_width(new_result.rows.len(), font_size);
++                let same_columns = self
++                    .result
++                    .as_ref()
++                    .is_some_and(|old| old.columns == new_result.columns);
++                match &self.columns_state {
++                    Some(state) if same_columns => {
++                        // Only the row-number gutter can need more room (the
++                        // row count grew); data-column widths stay untouched.
++                        state.update(cx, |state, cx| {
++                            state.set_column_configuration(
++                                0,
++                                px(gutter),
++                                TableResizeBehavior::None,
++                            );
++                            cx.notify();
++                        });
++                        self.selected_cell = self
++                            .selected_cell
++                            .filter(|(row, _)| *row < new_result.rows.len());
++                    }
++                    _ => {
++                        self.selected_cell = None;
++                        let data_widths = estimate_column_widths(
++                            &new_result.columns,
++                            &new_result.rows,
++                            font_size,
++                        );
++                        let mut initial_widths: Vec<AbsoluteLength> =
++                            Vec::with_capacity(data_widths.len() + 1);
++                        initial_widths.push(AbsoluteLength::Pixels(px(gutter)));
++                        initial_widths.extend(
++                            data_widths
++                                .iter()
++                                .map(|width| AbsoluteLength::Pixels(px(*width))),
++                        );
++                        let mut behaviors = vec![TableResizeBehavior::None];
++                        behaviors.extend(std::iter::repeat_n(
++                            // MinSize is in rems: 60px at the default 16px-per-rem.
++                            TableResizeBehavior::MinSize(MIN_COLUMN_WIDTH / 16.0),
++                            data_widths.len(),
++                        ));
++                        let cols = data_widths.len() + 1;
++                        self.columns_state =
++                            Some(cx.new(|_| {
++                                ResizableColumnsState::new(cols, initial_widths, behaviors)
++                            }));
++                    }
++                }
+             }
+             _ => {
++                self.selected_cell = None;
+                 self.numeric_columns.clear();
+                 self.columns_state = None;
+             }
+@@ -712,6 +746,90 @@ mod tests {
+         });
+     }
+ 
++    fn number_rows(n: usize) -> Vec<Vec<Option<String>>> {
++        (0..n).map(|i| vec![cell(&i.to_string())]).collect()
++    }
++
++    #[gpui::test]
++    fn set_result_with_same_columns_keeps_widths_state_and_selection(
++        cx: &mut gpui::TestAppContext,
++    ) {
++        init_test(cx);
++        let grid = cx.new(ResultsGrid::new);
++        let page = |rows: usize| QueryResult {
++            columns: vec!["id".into()],
++            rows: number_rows(rows),
++            command_tag: None,
++            truncated: false,
++        };
++        grid.update(cx, |grid, cx| {
++            grid.set_result(Some(page(3)), true, cx);
++            grid.selected_cell = Some((2, 0));
++        });
++        let state_before = grid.read_with(cx, |grid, _| {
++            grid.columns_state
++                .as_ref()
++                .expect("columns state must exist")
++                .entity_id()
++        });
++
++        // Load more / a sorted page arrives: same column list, more rows.
++        grid.update(cx, |grid, cx| grid.set_result(Some(page(6)), true, cx));
++        grid.read_with(cx, |grid, _| {
++            let state_after = grid
++                .columns_state
++                .as_ref()
++                .expect("columns state must survive an append")
++                .entity_id();
++            assert_eq!(
++                state_before, state_after,
++                "manual column widths (the state entity) must survive paging"
++            );
++            assert_eq!(
++                grid.selected_cell,
++                Some((2, 0)),
++                "selection must survive an append of the same columns"
++            );
++        });
++
++        // A different column list rebuilds the state and clears the selection.
++        let other = QueryResult {
++            columns: vec!["id".into(), "name".into()],
++            rows: vec![vec![cell("1"), cell("a")]],
++            command_tag: None,
++            truncated: false,
++        };
++        grid.update(cx, |grid, cx| grid.set_result(Some(other), true, cx));
++        grid.read_with(cx, |grid, _| {
++            let state_after = grid
++                .columns_state
++                .as_ref()
++                .expect("columns state must exist")
++                .entity_id();
++            assert_ne!(state_before, state_after);
++            assert_eq!(grid.selected_cell, None);
++        });
++    }
++
++    #[gpui::test]
++    fn set_result_clears_selection_when_selected_row_vanishes(cx: &mut gpui::TestAppContext) {
++        init_test(cx);
++        let grid = cx.new(ResultsGrid::new);
++        let page = |rows: usize| QueryResult {
++            columns: vec!["id".into()],
++            rows: number_rows(rows),
++            command_tag: None,
++            truncated: false,
++        };
++        grid.update(cx, |grid, cx| {
++            grid.set_result(Some(page(5)), true, cx);
++            grid.selected_cell = Some((4, 0));
++            // A re-sorted page 0 can shrink the row count below the selection.
++            grid.set_result(Some(page(2)), true, cx);
++        });
++        grid.read_with(cx, |grid, _| assert_eq!(grid.selected_cell, None));
++    }
++
+     #[gpui::test]
+     fn copy_selected_cell_writes_raw_value_and_empty_for_null(cx: &mut gpui::TestAppContext) {
+         init_test(cx);

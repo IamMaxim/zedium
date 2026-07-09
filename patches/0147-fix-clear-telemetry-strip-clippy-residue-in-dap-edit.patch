@@ -1,0 +1,280 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 2 Jul 2026 12:53:53 +0300
+Subject: [PATCH] fix: clear telemetry-strip clippy residue in dap, editor, and
+ zed bin
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+./script/clippy -p database_client (--release --all-targets
+--all-features -- --deny warnings) exited 101 because the zedium
+telemetry strip left unused variables and dead code in dependency
+crates. Underscore-prefix the orphaned locals/params inside stripped
+bodies and gate never-called items with allow(dead_code), keeping the
+surrounding code intact so upstream merges stay clean.
+
+Sites:
+- dap/src/dap.rs: send_telemetry — _location param, _dock,
+  _with_build_task, _adapter_name, _kind
+- workspace/src/multi_workspace.rs: _side in sidebar context menu,
+  open_sidebar, close_sidebar
+- workspace/src/pane.rs: emptied `if let Some(_text) =
+  telemetry_event_text(..)` bodies (2 sites)
+- workspace/src/workspace.rs: emptied `if let Some(_panel) =
+  active_panel()` body in toggle_dock
+- editor/src/edit_prediction.rs: report_edit_prediction_event — _id
+  param, _provider, _extension, _event_type
+- editor/src/editor.rs: report_editor_event — _file_extension,
+  _vim_mode, _project, _event_type; dropped the no-op
+  `if let Saved { auto_saved } {} else {}` and gated the now-unread
+  auto_saved field with allow(dead_code)
+- zed/src/main.rs: _workspace in handle_open_request (collab strip)
+- zed/src/zed/edit_prediction_registry.rs: allow(dead_code) on
+  EditPredictionProviderConfig::name
+
+Verified: ./script/clippy -p database_client exits 0;
+cargo check -p dap -p editor -p zed clean for these crates;
+cargo test -p database_client --lib: 112 passed, 0 failed.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MQKuAnEREjToPLedE7KAqP
+---
+ crates/dap/src/dap.rs                         | 13 +++++-----
+ crates/editor/src/edit_prediction.rs          | 10 ++++----
+ crates/editor/src/editor.rs                   | 24 ++++++++++---------
+ crates/workspace/src/multi_workspace.rs       |  9 ++++---
+ crates/workspace/src/pane.rs                  |  8 +++----
+ crates/workspace/src/workspace.rs             |  4 ++--
+ crates/zed/src/main.rs                        |  4 +++-
+ .../zed/src/zed/edit_prediction_registry.rs   |  3 +++
+ 8 files changed, 44 insertions(+), 31 deletions(-)
+
+diff --git a/crates/dap/src/dap.rs b/crates/dap/src/dap.rs
+index 019d2a0a4e..26b8e600ec 100644
+--- a/crates/dap/src/dap.rs
++++ b/crates/dap/src/dap.rs
+@@ -47,22 +47,23 @@ pub enum TelemetrySpawnLocation {
+     Custom,
+ }
+ 
+-pub fn send_telemetry(scenario: &DebugScenario, location: TelemetrySpawnLocation, cx: &App) {
++// The zedium strip patch removed the telemetry event construction from this
++// body; the surrounding values are kept so upstream merges stay clean.
++pub fn send_telemetry(scenario: &DebugScenario, _location: TelemetrySpawnLocation, cx: &App) {
+     let Some(adapter) = cx.global::<DapRegistry>().adapter(&scenario.adapter) else {
+         return;
+     };
+-    let dock = DebuggerSettings::get_global(cx).dock;
++    let _dock = DebuggerSettings::get_global(cx).dock;
+     let config = scenario.config.clone();
+-    let with_build_task = scenario.build.is_some();
+-    let adapter_name = scenario.adapter.clone();
++    let _with_build_task = scenario.build.is_some();
++    let _adapter_name = scenario.adapter.clone();
+     cx.spawn(async move |_| {
+-        let kind = adapter
++        let _kind = adapter
+             .request_kind(&config)
+             .await
+             .ok()
+             .map(serde_json::to_value)
+             .and_then(Result::ok);
+-
+     })
+     .detach();
+ }
+diff --git a/crates/editor/src/edit_prediction.rs b/crates/editor/src/edit_prediction.rs
+index 9807763fb1..1f32bb6c3c 100644
+--- a/crates/editor/src/edit_prediction.rs
++++ b/crates/editor/src/edit_prediction.rs
+@@ -1618,8 +1618,10 @@ impl Editor {
+         .unwrap_or(false)
+     }
+ 
+-    fn report_edit_prediction_event(&self, id: Option<SharedString>, accepted: bool, cx: &App) {
+-        let Some(provider) = self.edit_prediction_provider() else {
++    // The zedium strip patch removed the telemetry event construction from this
++    // body; the surrounding values are kept so upstream merges stay clean.
++    fn report_edit_prediction_event(&self, _id: Option<SharedString>, accepted: bool, cx: &App) {
++        let Some(_provider) = self.edit_prediction_provider() else {
+             return;
+         };
+ 
+@@ -1633,12 +1635,12 @@ impl Editor {
+             return;
+         };
+ 
+-        let extension = buffer
++        let _extension = buffer
+             .read(cx)
+             .file()
+             .and_then(|file| Some(file.path().extension()?.to_string()));
+ 
+-        let event_type = match accepted {
++        let _event_type = match accepted {
+             true => "Edit Prediction Accepted",
+             false => "Edit Prediction Discarded",
+         };
+diff --git a/crates/editor/src/editor.rs b/crates/editor/src/editor.rs
+index 4ae52f1654..ec3031073f 100644
+--- a/crates/editor/src/editor.rs
++++ b/crates/editor/src/editor.rs
+@@ -307,7 +307,12 @@ pub(crate) const EDIT_PREDICTION_KEY_CONTEXT: &str = "edit_prediction";
+ pub(crate) const MINIMAP_FONT_SIZE: AbsoluteLength = AbsoluteLength::Pixels(px(2.));
+ 
+ enum ReportEditorEvent {
+-    Saved { auto_saved: bool },
++    // The zedium strip patch removed the telemetry event that read `auto_saved`;
++    // the field is kept so upstream merges stay clean.
++    Saved {
++        #[allow(dead_code)]
++        auto_saved: bool,
++    },
+     EditorOpened,
+     Closed,
+ }
+@@ -9985,6 +9990,8 @@ impl Editor {
+             .collect()
+     }
+ 
++    // The zedium strip patch removed the telemetry event construction from this
++    // body; the surrounding values are kept so upstream merges stay clean.
+     fn report_editor_event(
+         &self,
+         reported_event: ReportEditorEvent,
+@@ -10003,25 +10010,20 @@ impl Editor {
+             .read(cx)
+             .as_singleton()
+             .and_then(|b| b.read(cx).file());
+-        let file_extension = file_extension.or(file
++        let _file_extension = file_extension.or(file
+             .as_ref()
+             .and_then(|file| Path::new(file.file_name(cx)).extension())
+             .and_then(|e| e.to_str())
+             .map(|a| a.to_string()));
+ 
+-        let vim_mode = vim_mode_setting::VimModeSetting::try_get(cx)
++        let _vim_mode = vim_mode_setting::VimModeSetting::try_get(cx)
+             .map(|vim_mode| vim_mode.0)
+             .unwrap_or(false);
+ 
+-        let _edit_predictions_provider =
+-            all_language_settings(file, cx).edit_predictions.provider;
+-
+-        let project = project.read(cx);
+-        let event_type = reported_event.event_type();
++        let _edit_predictions_provider = all_language_settings(file, cx).edit_predictions.provider;
+ 
+-        if let ReportEditorEvent::Saved { auto_saved } = reported_event {
+-        } else {
+-        };
++        let _project = project.read(cx);
++        let _event_type = reported_event.event_type();
+     }
+ 
+     /// Copy the highlighted chunks to the clipboard as JSON. The format is an array of lines,
+diff --git a/crates/workspace/src/multi_workspace.rs b/crates/workspace/src/multi_workspace.rs
+index 6dacf2eed2..e96cf7cb3e 100644
+--- a/crates/workspace/src/multi_workspace.rs
++++ b/crates/workspace/src/multi_workspace.rs
+@@ -108,7 +108,8 @@ pub fn sidebar_side_context_menu(
+                     IconPosition::Start,
+                     None,
+                     move |_window, cx| {
+-                        let side = match position {
++                        // Telemetry strip left this value unused; kept for clean upstream merges.
++                        let _side = match position {
+                             SidebarDockPosition::Left => "left",
+                             SidebarDockPosition::Right => "right",
+                         };
+@@ -502,7 +503,8 @@ impl MultiWorkspace {
+     }
+ 
+     pub fn open_sidebar(&mut self, cx: &mut Context<Self>) {
+-        let side = match self.sidebar_side(cx) {
++        // Telemetry strip left this value unused; kept for clean upstream merges.
++        let _side = match self.sidebar_side(cx) {
+             SidebarSide::Left => "left",
+             SidebarSide::Right => "right",
+         };
+@@ -529,7 +531,8 @@ impl MultiWorkspace {
+     }
+ 
+     pub fn close_sidebar(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+-        let side = match self.sidebar_side(cx) {
++        // Telemetry strip left this value unused; kept for clean upstream merges.
++        let _side = match self.sidebar_side(cx) {
+             SidebarSide::Left => "left",
+             SidebarSide::Right => "right",
+         };
+diff --git a/crates/workspace/src/pane.rs b/crates/workspace/src/pane.rs
+index 47dd7dfe0e..5469cedc19 100644
+--- a/crates/workspace/src/pane.rs
++++ b/crates/workspace/src/pane.rs
+@@ -1123,8 +1123,8 @@ impl Pane {
+                 pane.set_preview_item_id(Some(new_item_id), cx);
+             }
+ 
+-            if let Some(text) = new_item.telemetry_event_text(cx) {
+-            }
++            // Telemetry strip emptied this body; kept for clean upstream merges.
++            if let Some(_text) = new_item.telemetry_event_text(cx) {}
+ 
+             pane.add_item_inner(
+                 new_item,
+@@ -1350,8 +1350,8 @@ impl Pane {
+         window: &mut Window,
+         cx: &mut Context<Self>,
+     ) {
+-        if let Some(text) = item.telemetry_event_text(cx) {
+-        }
++        // Telemetry strip emptied this body; kept for clean upstream merges.
++        if let Some(_text) = item.telemetry_event_text(cx) {}
+ 
+         self.add_item_inner(
+             item,
+diff --git a/crates/workspace/src/workspace.rs b/crates/workspace/src/workspace.rs
+index 980bcea15a..1aa38560df 100644
+--- a/crates/workspace/src/workspace.rs
++++ b/crates/workspace/src/workspace.rs
+@@ -4146,8 +4146,8 @@ impl Workspace {
+         let other_is_zoomed = self.zoomed.is_some() && self.zoomed_position != Some(dock_side);
+         let was_visible = self.is_dock_at_position_open(dock_side, cx) && !other_is_zoomed;
+ 
+-        if let Some(panel) = self.dock_at_position(dock_side).read(cx).active_panel() {
+-        }
++        // Telemetry strip emptied this body; kept for clean upstream merges.
++        if let Some(_panel) = self.dock_at_position(dock_side).read(cx).active_panel() {}
+         if was_visible {
+             self.save_open_dock_positions(cx);
+         }
+diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
+index fcc3679500..6bc334f530 100644
+--- a/crates/zed/src/main.rs
++++ b/crates/zed/src/main.rs
+@@ -1312,7 +1312,9 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
+                 let workspace_window =
+                     workspace::get_any_active_multi_workspace(app_state, cx.clone()).await?;
+ 
+-                let workspace = workspace_window.read_with(cx, |mw, _| mw.workspace().clone())?;
++                // The collab strip removed this value's only consumer (ChannelView);
++                // it is kept so upstream merges stay clean.
++                let _workspace = workspace_window.read_with(cx, |mw, _| mw.workspace().clone())?;
+ 
+                 // request.open_channel_notes was handled by collab_ui::ChannelView;
+                 // with the collab stack stripped, that field is silently ignored.
+diff --git a/crates/zed/src/zed/edit_prediction_registry.rs b/crates/zed/src/zed/edit_prediction_registry.rs
+index b18f6516c6..a1250a0366 100644
+--- a/crates/zed/src/zed/edit_prediction_registry.rs
++++ b/crates/zed/src/zed/edit_prediction_registry.rs
+@@ -138,6 +138,9 @@ enum EditPredictionProviderConfig {
+ }
+ 
+ impl EditPredictionProviderConfig {
++    // The zedium telemetry strip removed this method's only caller;
++    // it is kept so upstream merges stay clean.
++    #[allow(dead_code)]
+     fn name(&self) -> &'static str {
+         match self {
+             EditPredictionProviderConfig::Codestral => "Codestral",

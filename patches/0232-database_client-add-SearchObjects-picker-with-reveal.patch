@@ -1,0 +1,546 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 23:03:30 +0300
+Subject: [PATCH] database_client: add SearchObjects picker with reveal-in-tree
+
+---
+ crates/database_client/src/database_client.rs |   5 +
+ crates/database_client/src/object_search.rs   | 319 ++++++++++++++++++
+ crates/database_client/src/panel.rs           | 159 +++++++++
+ 3 files changed, 483 insertions(+)
+
+diff --git a/crates/database_client/src/database_client.rs b/crates/database_client/src/database_client.rs
+index 5c241129b8..b10dd2256f 100644
+--- a/crates/database_client/src/database_client.rs
++++ b/crates/database_client/src/database_client.rs
+@@ -38,6 +38,8 @@ actions!(
+         CollapseSelectedEntry,
+         /// Opens the query history picker for the active query tab.
+         ShowQueryHistory,
++        /// Searches connected objects by name and reveals the match in the tree.
++        SearchObjects,
+     ]
+ );
+ 
+@@ -54,6 +56,9 @@ pub fn init(cx: &mut App) {
+         workspace.register_action(|workspace, _: &ShowQueryHistory, window, cx| {
+             query_history::toggle(workspace, window, cx);
+         });
++        workspace.register_action(|workspace, _: &SearchObjects, window, cx| {
++            object_search::toggle(workspace, window, cx);
++        });
+     })
+     .detach();
+ }
+diff --git a/crates/database_client/src/object_search.rs b/crates/database_client/src/object_search.rs
+index 7975fd39b8..7f4124c49f 100644
+--- a/crates/database_client/src/object_search.rs
++++ b/crates/database_client/src/object_search.rs
+@@ -1,4 +1,252 @@
++use crate::connection::{introspect::RelationKind, metadata_cache::RelationMeta};
++use crate::panel::DatabasePanel;
+ use crate::tree::TreeNode;
++use gpui::{
++    App, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
++    ParentElement, Render, Styled, Task, WeakEntity, Window, rems,
++};
++use picker::{Picker, PickerDelegate};
++use std::sync::Arc;
++use ui::{Color, Label, LabelSize, ListItem, ListItemSpacing, prelude::*};
++use util::ResultExt;
++use workspace::{ModalView, Workspace};
++
++/// The chain of ancestor node ids for a slash-delimited tree id, shallowest
++/// first, excluding the node itself. e.g. "p1/db1/public/users" ->
++/// ["p1", "p1/db1", "p1/db1/public"].
++pub fn ancestor_ids(node_id: &str) -> Vec<String> {
++    let mut ancestors = Vec::new();
++    let mut prefix = String::new();
++    let segments: Vec<&str> = node_id.split('/').collect();
++    for segment in segments.iter().take(segments.len().saturating_sub(1)) {
++        if !prefix.is_empty() {
++            prefix.push('/');
++        }
++        prefix.push_str(segment);
++        ancestors.push(prefix.clone());
++    }
++    ancestors
++}
++
++/// A searchable database object, addressed by its full tree node id
++/// (including the object-group segment, e.g. `"p1/db1/public/tables/users"`).
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ObjectCandidate {
++    pub schema: String,
++    pub name: String,
++    pub kind: RelationKind,
++    pub node_id: String,
++}
++
++/// Maps a connection's cached relations into search candidates, mirroring
++/// how `TreeState::push_relation` addresses the same objects: `"{conn_key}/{schema}/{group}/{name}"`.
++fn candidates_for_connection(conn_key: &str, relations: &[RelationMeta]) -> Vec<ObjectCandidate> {
++    relations
++        .iter()
++        .map(|rel| {
++            let group = match rel.kind {
++                RelationKind::Table => "tables",
++                RelationKind::View => "views",
++                RelationKind::MaterializedView => "matviews",
++            };
++            ObjectCandidate {
++                schema: rel.schema.clone(),
++                name: rel.name.clone(),
++                kind: rel.kind,
++                node_id: format!("{conn_key}/{}/{group}/{}", rel.schema, rel.name),
++            }
++        })
++        .collect()
++}
++
++fn candidate_label(candidate: &ObjectCandidate) -> String {
++    format!("{}.{}", candidate.schema, candidate.name)
++}
++
++/// Indices of `candidates` whose `schema.name` label fuzzy-matches `query`.
++fn filter_candidates(candidates: &[ObjectCandidate], query: &str) -> Vec<usize> {
++    if query.trim().is_empty() {
++        return (0..candidates.len()).collect();
++    }
++    let query = query.trim();
++    candidates
++        .iter()
++        .enumerate()
++        .filter(|(_, candidate)| fuzzy_matches(&candidate_label(candidate), query))
++        .map(|(index, _)| index)
++        .collect()
++}
++
++pub(crate) struct SearchObjectsModal {
++    picker: Entity<Picker<SearchObjectsDelegate>>,
++}
++
++impl SearchObjectsModal {
++    fn new(
++        candidates: Vec<ObjectCandidate>,
++        panel: WeakEntity<DatabasePanel>,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) -> Self {
++        let matches = filter_candidates(&candidates, "");
++        let delegate = SearchObjectsDelegate {
++            modal: cx.entity().downgrade(),
++            panel,
++            candidates,
++            matches,
++            selected_index: 0,
++        };
++        let picker = cx.new(|cx| Picker::uniform_list(delegate, window, cx));
++        Self { picker }
++    }
++}
++
++impl ModalView for SearchObjectsModal {}
++impl EventEmitter<DismissEvent> for SearchObjectsModal {}
++
++impl Focusable for SearchObjectsModal {
++    fn focus_handle(&self, cx: &App) -> FocusHandle {
++        self.picker.focus_handle(cx)
++    }
++}
++
++impl Render for SearchObjectsModal {
++    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
++        v_flex()
++            .key_context("SearchObjectsModal")
++            .w(rems(44.))
++            .child(self.picker.clone())
++    }
++}
++
++pub(crate) struct SearchObjectsDelegate {
++    modal: WeakEntity<SearchObjectsModal>,
++    panel: WeakEntity<DatabasePanel>,
++    candidates: Vec<ObjectCandidate>,
++    matches: Vec<usize>,
++    selected_index: usize,
++}
++
++impl PickerDelegate for SearchObjectsDelegate {
++    type ListItem = ListItem;
++
++    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
++        "Search objects by name…".into()
++    }
++
++    fn match_count(&self) -> usize {
++        self.matches.len()
++    }
++
++    fn selected_index(&self) -> usize {
++        self.selected_index
++    }
++
++    fn set_selected_index(
++        &mut self,
++        index: usize,
++        _window: &mut Window,
++        _cx: &mut Context<Picker<Self>>,
++    ) {
++        self.selected_index = index;
++    }
++
++    fn update_matches(
++        &mut self,
++        query: String,
++        _window: &mut Window,
++        _cx: &mut Context<Picker<Self>>,
++    ) -> Task<()> {
++        self.matches = filter_candidates(&self.candidates, &query);
++        self.selected_index = 0;
++        Task::ready(())
++    }
++
++    fn confirm(&mut self, secondary: bool, window: &mut Window, cx: &mut Context<Picker<Self>>) {
++        let Some(&candidate_index) = self.matches.get(self.selected_index) else {
++            return;
++        };
++        let Some(candidate) = self.candidates.get(candidate_index) else {
++            return;
++        };
++        let node_id = candidate.node_id.clone();
++        self.panel
++            .update(cx, |panel, cx| {
++                panel.reveal_object(&node_id, secondary, window, cx)
++            })
++            .log_err();
++        self.dismissed(window, cx);
++    }
++
++    fn dismissed(&mut self, _window: &mut Window, cx: &mut Context<Picker<Self>>) {
++        self.modal.update(cx, |_, cx| cx.emit(DismissEvent)).ok();
++    }
++
++    fn render_match(
++        &self,
++        index: usize,
++        selected: bool,
++        _window: &mut Window,
++        _cx: &mut Context<Picker<Self>>,
++    ) -> Option<Self::ListItem> {
++        let candidate_index = *self.matches.get(index)?;
++        let candidate = self.candidates.get(candidate_index)?;
++        let kind_label = match candidate.kind {
++            RelationKind::Table => "table",
++            RelationKind::View => "view",
++            RelationKind::MaterializedView => "materialized view",
++        };
++        Some(
++            ListItem::new(index)
++                .inset(true)
++                .spacing(ListItemSpacing::Sparse)
++                .toggle_state(selected)
++                .child(
++                    h_flex()
++                        .w_full()
++                        .justify_between()
++                        .gap_2()
++                        .child(Label::new(candidate_label(candidate)).single_line())
++                        .child(
++                            Label::new(kind_label)
++                                .size(LabelSize::Small)
++                                .color(Color::Muted),
++                        ),
++                ),
++        )
++    }
++}
++
++/// Opens the `SearchObjects` picker, loading each live connection's metadata
++/// (Plan 3's `MetadataCache`) to build the candidate list.
++pub fn toggle(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
++    let Some(panel) = workspace.panel::<DatabasePanel>(cx) else {
++        return;
++    };
++    let connections = panel.read(cx).live_connections();
++    if connections.is_empty() {
++        return;
++    }
++    let panel_weak = panel.downgrade();
++    cx.spawn_in(window, async move |workspace, cx| {
++        let mut candidates = Vec::new();
++        for (conn_key, connection) in connections {
++            let metadata = cx.update(|_window, cx| connection.load_metadata(cx))?.await;
++            match metadata {
++                Ok(metadata) => {
++                    candidates.extend(candidates_for_connection(&conn_key, &metadata.relations));
++                }
++                Err(err) => log::error!("load_metadata for {conn_key}: {err}"),
++            }
++        }
++        workspace.update_in(cx, |workspace, window, cx| {
++            workspace.toggle_modal(window, cx, move |window, cx| {
++                SearchObjectsModal::new(candidates, panel_weak, window, cx)
++            });
++        })
++    })
++    .detach();
++}
+ 
+ /// Case-insensitive subsequence match of `query` against `label`.
+ pub fn fuzzy_matches(label: &str, query: &str) -> bool {
+@@ -49,6 +297,77 @@ pub fn filter_visible_nodes(nodes: Vec<TreeNode>, query: &str) -> Vec<TreeNode>
+         .collect()
+ }
+ 
++#[cfg(test)]
++mod reveal_tests {
++    use super::{ancestor_ids, candidates_for_connection, filter_candidates};
++    use crate::connection::introspect::RelationKind;
++    use crate::connection::metadata_cache::{ColumnMeta, RelationMeta};
++
++    fn relation(schema: &str, name: &str, kind: RelationKind) -> RelationMeta {
++        RelationMeta {
++            schema: schema.to_string(),
++            name: name.to_string(),
++            kind,
++            columns: vec![ColumnMeta {
++                name: "id".to_string(),
++                data_type: "integer".to_string(),
++                is_primary_key: true,
++            }],
++        }
++    }
++
++    #[test]
++    fn ancestor_ids_are_shallowest_first() {
++        assert_eq!(
++            ancestor_ids("p1/db1/public/users"),
++            vec!["p1", "p1/db1", "p1/db1/public"]
++        );
++        assert!(ancestor_ids("p1").is_empty());
++        assert_eq!(ancestor_ids("p1/db1"), vec!["p1".to_string()]);
++    }
++
++    #[test]
++    fn ancestor_ids_handle_object_group_segment() {
++        // Object node ids include the object-group segment (e.g. "tables"),
++        // so a table's ancestors include the group folder itself.
++        assert_eq!(
++            ancestor_ids("p1/db1/public/tables/users"),
++            vec!["p1", "p1/db1", "p1/db1/public", "p1/db1/public/tables"]
++        );
++    }
++
++    #[test]
++    fn candidates_address_objects_by_their_full_tree_node_id() {
++        let relations = vec![
++            relation("public", "users", RelationKind::Table),
++            relation("public", "users_view", RelationKind::View),
++            relation("public", "users_summary", RelationKind::MaterializedView),
++        ];
++        let candidates = candidates_for_connection("p1/db1", &relations);
++        let node_ids: Vec<_> = candidates.iter().map(|c| c.node_id.as_str()).collect();
++        assert_eq!(
++            node_ids,
++            vec![
++                "p1/db1/public/tables/users",
++                "p1/db1/public/views/users_view",
++                "p1/db1/public/matviews/users_summary",
++            ]
++        );
++    }
++
++    #[test]
++    fn filter_candidates_matches_schema_dot_name_fuzzily() {
++        let relations = vec![
++            relation("public", "users", RelationKind::Table),
++            relation("public", "orders", RelationKind::Table),
++        ];
++        let candidates = candidates_for_connection("p1/db1", &relations);
++        assert_eq!(filter_candidates(&candidates, "usr"), vec![0]);
++        assert_eq!(filter_candidates(&candidates, ""), vec![0, 1]);
++        assert!(filter_candidates(&candidates, "zzz").is_empty());
++    }
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+diff --git a/crates/database_client/src/panel.rs b/crates/database_client/src/panel.rs
+index ba577e962d..965c9a2c46 100644
+--- a/crates/database_client/src/panel.rs
++++ b/crates/database_client/src/panel.rs
+@@ -576,6 +576,125 @@ impl DatabasePanel {
+         .detach();
+     }
+ 
++    /// Live connections keyed `"{profile_id}/{database}"`, for building the
++    /// `SearchObjects` picker's candidate list.
++    pub(crate) fn live_connections(&self) -> Vec<(String, Connection)> {
++        self.connections
++            .iter()
++            .map(|(key, conn)| (key.clone(), conn.clone()))
++            .collect()
++    }
++
++    /// Whether `node_id`'s own children are loaded, i.e. whether expanding it
++    /// requires no further async fetch. Mirrors the dispatch in `toggle_node`.
++    fn ancestor_loaded(&self, node_id: &str) -> bool {
++        use crate::tree::ObjectGroupKind;
++        let segments: Vec<&str> = node_id.split('/').collect();
++        match segments.as_slice() {
++            [conn_id] => self.tree.databases_loaded(conn_id),
++            [conn_id, db_name] => self.tree.schemas_loaded(&format!("{conn_id}/{db_name}")),
++            [conn_id, db_name, schema_name] => self
++                .tree
++                .relations_loaded(&format!("{conn_id}/{db_name}/{schema_name}")),
++            [conn_id, db_name, schema_name, group] => {
++                let schema_id = format!("{conn_id}/{db_name}/{schema_name}");
++                match ObjectGroupKind::from_key(group) {
++                    Some(ObjectGroupKind::Tables) | Some(ObjectGroupKind::Views) => {
++                        self.tree.relations_loaded(&schema_id)
++                    }
++                    Some(ObjectGroupKind::MaterializedViews) => {
++                        self.tree.materialized_views_loaded(&schema_id)
++                    }
++                    Some(ObjectGroupKind::Functions) => self.tree.functions_loaded(&schema_id),
++                    Some(ObjectGroupKind::Sequences) => self.tree.sequences_loaded(&schema_id),
++                    _ => true,
++                }
++            }
++            _ => true,
++        }
++    }
++
++    /// Kicks off the async load for `node_id`'s children, reusing the same
++    /// per-kind expand methods `toggle_node` dispatches to.
++    fn ensure_children_loaded(&mut self, node_id: &str, cx: &mut Context<Self>) {
++        use crate::tree::ObjectGroupKind;
++        let segments: Vec<&str> = node_id.split('/').collect();
++        match segments.as_slice() {
++            [_conn_id] => self.expand_connection(node_id.to_string(), cx),
++            [_conn_id, _db_name] => self.expand_database(node_id.to_string(), cx),
++            [_conn_id, _db_name, _schema_name] => self.expand_schema(node_id.to_string(), cx),
++            [_conn_id, _db_name, _schema_name, group] => {
++                if let Some(kind) = ObjectGroupKind::from_key(group) {
++                    self.expand_schema_group(node_id.to_string(), kind, cx);
++                }
++            }
++            _ => {}
++        }
++    }
++
++    /// Expands every ancestor of `node_id` (shallowest first), loading
++    /// children lazily as needed, then selects `node_id`. When `open_data` is
++    /// set (⌥Enter from the `SearchObjects` picker), also opens its data tab
++    /// once revealed.
++    pub fn reveal_object(
++        &mut self,
++        node_id: &str,
++        open_data: bool,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) {
++        let node_id = node_id.to_string();
++        let ancestors = object_search::ancestor_ids(&node_id);
++        cx.spawn_in(window, async move |this, cx| {
++            for ancestor in ancestors {
++                let loaded = this.read_with(cx, |panel, _| panel.ancestor_loaded(&ancestor))?;
++                if !loaded {
++                    this.update(cx, |panel, cx| {
++                        if !panel.tree.is_expanded(&ancestor) {
++                            panel.tree.toggle(&ancestor);
++                        }
++                        panel.ensure_children_loaded(&ancestor, cx);
++                        cx.notify();
++                    })?;
++                    // The expand methods above spawn their own async fetch;
++                    // poll until it lands (or give up) before moving to the
++                    // next, deeper ancestor, which may depend on this one's
++                    // connection/schema having been loaded.
++                    for _ in 0..200 {
++                        if this.read_with(cx, |panel, _| panel.ancestor_loaded(&ancestor))? {
++                            break;
++                        }
++                        cx.background_executor()
++                            .timer(std::time::Duration::from_millis(25))
++                            .await;
++                    }
++                } else if !this.read_with(cx, |panel, _| panel.tree.is_expanded(&ancestor))? {
++                    this.update(cx, |panel, cx| {
++                        panel.tree.toggle(&ancestor);
++                        cx.notify();
++                    })?;
++                }
++            }
++            this.update_in(cx, |panel, window, cx| {
++                match panel
++                    .filtered_nodes()
++                    .iter()
++                    .position(|node| node.id == node_id)
++                {
++                    Some(index) => panel.set_selected(node_id.clone(), index, cx),
++                    None => {
++                        panel.selected_node_id = Some(node_id.clone());
++                        cx.notify();
++                    }
++                }
++                if open_data {
++                    panel.open_query_for_relation(&node_id, window, cx);
++                }
++            })
++        })
++        .detach();
++    }
++
+     fn open_query_for_relation(&self, rel_id: &str, window: &mut Window, cx: &mut Context<Self>) {
+         let segments: Vec<&str> = rel_id.split('/').collect();
+         let [conn_id, db_name, schema_name, _group, table_name] = segments.as_slice() else {
+@@ -2474,6 +2593,46 @@ mod tests {
+         assert_eq!(query_views, 1, "double-click should open one QueryView tab");
+     }
+ 
++    // Drives `SearchObjects`' reveal path against a live Postgres, starting
++    // from a fresh panel with nothing expanded and no live connection:
++    // `reveal_object` must lazily expand connection -> database -> schema ->
++    // Tables group, in order, before selecting the target relation. Run with:
++    // DATABASE_CLIENT_TEST_PG_URL=postgres://postgres@localhost:55432/testdb?sslmode=disable \
++    //   cargo test -p database_client --lib -- --ignored live_panel
++    #[gpui::test]
++    #[ignore]
++    async fn live_reveal_object_expands_ancestors_and_selects_relation(cx: &mut TestAppContext) {
++        let Ok(url) = std::env::var("DATABASE_CLIENT_TEST_PG_URL") else {
++            return;
++        };
++        cx.executor().allow_parking();
++        init_test(cx);
++        let mut profile = ConnectionProfile::from_url(&url).expect("valid test url");
++        profile.id = "p1".into();
++        profile.ssl_mode = SslMode::Disable;
++        let (panel, _workspace, cx) = panel_with_profile(profile, cx).await;
++
++        panel.update_in(cx, |panel, window, cx| {
++            panel.reveal_object("p1/testdb/public/tables/users", false, window, cx);
++        });
++        wait_until(&panel, cx, "users to be revealed and selected", |panel| {
++            panel.selected_node_id.as_deref() == Some("p1/testdb/public/tables/users")
++        })
++        .await;
++
++        let visible = labels(&panel, cx);
++        assert!(
++            visible.contains(&"users".to_string()),
++            "expected users table visible after reveal, got {visible:?}"
++        );
++        panel.read_with(cx, |panel, _| {
++            assert!(panel.tree.is_expanded("p1"));
++            assert!(panel.tree.is_expanded("p1/testdb"));
++            assert!(panel.tree.is_expanded("p1/testdb/public"));
++            assert!(panel.tree.is_expanded("p1/testdb/public/tables"));
++        });
++    }
++
+     // Drives table-level object-group expansion (indexes/fkeys/constraints/
+     // triggers) against a live Postgres. Run with:
+     // DATABASE_CLIENT_TEST_PG_URL=postgres://postgres@localhost:55432/testdb?sslmode=disable \

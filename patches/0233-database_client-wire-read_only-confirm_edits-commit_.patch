@@ -1,0 +1,553 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 23:19:57 +0300
+Subject: [PATCH] database_client: wire
+ read_only/confirm_edits/commit_mode/history_limit settings into consumers
+
+---
+ crates/database_client/src/query_view.rs | 324 ++++++++++++++++++++---
+ crates/database_client/src/settings.rs   |  20 +-
+ 2 files changed, 300 insertions(+), 44 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index df8a3cd864..3d2a9e8e11 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -8,8 +8,8 @@ use editor::{
+ };
+ use gpui::{
+     App, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
+-    KeyBinding, ParentElement, Render, SharedString, Styled, Subscription, Task, TextStyle,
+-    WeakEntity, Window, actions, div, px, relative,
++    KeyBinding, ParentElement, PromptLevel, Render, SharedString, Styled, Subscription, Task,
++    TextStyle, WeakEntity, Window, actions, div, px, relative,
+ };
+ use language::{
+     Anchor as LanguageAnchor, Buffer, CharScopeContext, CodeLabel, TextBufferSnapshot,
+@@ -54,9 +54,6 @@ pub(crate) const DEFAULT_EDITOR_RATIO: f32 = 0.3;
+ const MIN_EDITOR_RATIO: f32 = 0.1;
+ const MAX_EDITOR_RATIO: f32 = 0.9;
+ const RESIZE_HANDLE_HEIGHT: f32 = 8.0;
+-/// Default executed-statement retention. Plan 10 replaces this with the
+-/// `database.history_limit` setting once that key exists.
+-const DEFAULT_HISTORY_LIMIT: usize = 1000;
+ 
+ pub(crate) fn clamp_editor_ratio(ratio: f32) -> f32 {
+     ratio.clamp(MIN_EDITOR_RATIO, MAX_EDITOR_RATIO)
+@@ -154,10 +151,10 @@ pub struct QueryView {
+     /// ordinal to show.
+     last_run_label: Option<SharedString>,
+     /// User-facing override that disables editing even when the grid's
+-    /// result is otherwise editable (e.g. a read-only connection). Sourced
+-    /// from `DatabaseClientSettings::read_only` once Plan 10 lands, and
+-    /// pushed into the grid via `ResultsGrid::set_editability`.
+-    #[allow(dead_code)] // Wired up by a later task of the editable-grid plan.
++    /// result is otherwise editable (e.g. a read-only connection). Computed
++    /// from `DatabaseClientSettings::read_only` OR'd with the active
++    /// profile's `read_only` flag (see `effective_read_only`), and pushed
++    /// into the grid via `ResultsGrid::set_editability`.
+     read_only: bool,
+     /// `Some` when the current result maps to a single base table with a
+     /// primary key, letting the grid's staged edits be reconciled to
+@@ -240,9 +237,10 @@ impl QueryView {
+                 }
+             });
+ 
+-        let grid_subscription = cx.subscribe(
++        let grid_subscription = cx.subscribe_in(
+             &results_grid,
+-            |this, _grid, event: &ResultsGridEvent, cx| match event {
++            window,
++            |this, _grid, event: &ResultsGridEvent, window, cx| match event {
+                 ResultsGridEvent::SortRequested(sort) => {
+                     // While a query is in flight the grid still shows the
+                     // previous result; a header click there must not wrap the
+@@ -278,7 +276,7 @@ impl QueryView {
+                 ResultsGridEvent::CellSelected { value, data_type } => {
+                     this.on_cell_selected(value.clone(), data_type.clone(), cx);
+                 }
+-                ResultsGridEvent::SubmitRequested => this.submit_edits(cx),
++                ResultsGridEvent::SubmitRequested => this.submit_edits(window, cx),
+                 ResultsGridEvent::RevertRequested => this.revert_edits(cx),
+             },
+         );
+@@ -308,6 +306,11 @@ impl QueryView {
+ 
+         results_grid.update(cx, |grid, cx| grid.ensure_filter_editor(window, cx));
+ 
++        let settings = DatabaseClientSettings::get_global(cx);
++        let read_only =
++            settings.read_only || profile.as_ref().is_some_and(|profile| profile.read_only);
++        let commit_mode = CommitMode::from_stored_str(&settings.commit_mode);
++
+         QueryView {
+             editor,
+             connection,
+@@ -330,9 +333,9 @@ impl QueryView {
+             visible_editor_ratio: DEFAULT_EDITOR_RATIO,
+             label: None,
+             last_run_label: None,
+-            read_only: false,
++            read_only,
+             editability: None,
+-            commit_mode: CommitMode::Auto,
++            commit_mode,
+             session: None,
+             pending_commit_mode_switch: None,
+             results_grid,
+@@ -757,7 +760,50 @@ impl QueryView {
+             .update(cx, |grid, cx| grid.clear_pending(cx));
+     }
+ 
+-    /// Submits the grid's pending edits as DML. In **Auto** commit mode this
++    /// The effective read-only state for this tab: the global
++    /// `database.read_only` setting OR'd with the active connection
++    /// profile's own `read_only` flag. Either source disables editing.
++    fn effective_read_only(&self, cx: &App) -> bool {
++        DatabaseClientSettings::get_global(cx).read_only
++            || self
++                .profile
++                .as_ref()
++                .is_some_and(|profile| profile.read_only)
++    }
++
++    /// Submits the grid's pending edits as DML, gated on
++    /// `database.confirm_edits`: when set (the default) the user is prompted
++    /// before anything runs; otherwise [`execute_submit_edits`](Self::execute_submit_edits)
++    /// runs immediately, mirroring the pre-setting behavior.
++    fn submit_edits(&mut self, window: &mut Window, cx: &mut Context<Self>) {
++        if self.read_only || self.running {
++            return;
++        }
++        if self.editability.is_none() || self.result.is_none() {
++            return;
++        }
++        if !DatabaseClientSettings::get_global(cx).confirm_edits {
++            self.execute_submit_edits(cx);
++            return;
++        }
++        let answer = window.prompt(
++            PromptLevel::Warning,
++            "Submit changes to the database?",
++            None,
++            &["Submit", "Cancel"],
++            cx,
++        );
++        cx.spawn_in(window, async move |this, cx| {
++            if answer.await == Ok(0) {
++                this.update(cx, |this, cx| this.execute_submit_edits(cx))
++                    .ok();
++            }
++        })
++        .detach();
++    }
++
++    /// Runs the actual DML for [`submit_edits`](Self::submit_edits) once any
++    /// confirmation has been resolved. In **Auto** commit mode this
+     /// builds the ordered `BEGIN;…;COMMIT;` batch via
+     /// [`build_edit_transaction`] and runs it atomically on the tab's plain
+     /// connection — unchanged from before Manual-mode routing existed. In
+@@ -768,8 +814,7 @@ impl QueryView {
+     /// the toolbar. A failure leaves `PendingChanges` staged and surfaces the
+     /// Postgres error; success clears the staged edits and refreshes the
+     /// current page by re-running `last_sql`.
+-    // A confirm-before-submit gate is wired in a later plan (Plan 10 adds the setting).
+-    fn submit_edits(&mut self, cx: &mut Context<Self>) {
++    fn execute_submit_edits(&mut self, cx: &mut Context<Self>) {
+         if self.read_only || self.running {
+             return;
+         }
+@@ -1159,8 +1204,11 @@ impl QueryView {
+                     });
+                 }
+                 let editability = self.editability.clone();
+-                self.results_grid
+-                    .update(cx, |grid, cx| grid.set_editability(editability, false, cx));
++                let read_only = self.effective_read_only(cx);
++                self.read_only = read_only;
++                self.results_grid.update(cx, |grid, cx| {
++                    grid.set_editability(editability, read_only, cx)
++                });
+             }
+             Err(err) => {
+                 self.error = Some(err.to_string());
+@@ -1173,9 +1221,11 @@ impl QueryView {
+                         self.filter_expr = None;
+                         self.applied_filter = None;
+                         self.editability = None;
++                        let read_only = self.effective_read_only(cx);
++                        self.read_only = read_only;
+                         self.results_grid.update(cx, |grid, cx| {
+                             grid.set_result(None, false, cx);
+-                            grid.set_editability(None, false, cx);
++                            grid.set_editability(None, read_only, cx);
+                         });
+                     }
+                     QueryIntent::LoadMore | QueryIntent::Sort => {
+@@ -1268,12 +1318,11 @@ impl QueryView {
+             error,
+             row_count,
+         };
++        let history_limit = DatabaseClientSettings::get_global(cx).history_limit;
+         let history_db = HistoryDb::global(cx);
+         cx.background_spawn(async move {
+             history_db.record(workspace_id, entry).await?;
+-            history_db
+-                .prune(workspace_id, DEFAULT_HISTORY_LIMIT)
+-                .await?;
++            history_db.prune(workspace_id, history_limit).await?;
+             anyhow::Ok(())
+         })
+         .detach_and_log_err(cx);
+@@ -1542,9 +1591,11 @@ impl SerializableItem for QueryView {
+             let editor_ratio = editor_ratio
+                 .map(|ratio| clamp_editor_ratio(ratio as f32))
+                 .unwrap_or(DEFAULT_EDITOR_RATIO);
+-            let commit_mode = commit_mode
+-                .map(|stored| CommitMode::from_stored_str(&stored))
+-                .unwrap_or(CommitMode::Auto);
++            // `None` here (no persisted tab, or an old row saved before the
++            // column existed) must fall through to `QueryView::new`'s own
++            // `commit_mode` setting default below, rather than hardcoding
++            // Auto and shadowing it.
++            let commit_mode = commit_mode.map(|stored| CommitMode::from_stored_str(&stored));
+             let profile = store::load_profiles()
+                 .into_iter()
+                 .find(|p| p.id == profile_id)
+@@ -1569,7 +1620,9 @@ impl SerializableItem for QueryView {
+                     );
+                     view.editor_ratio = editor_ratio;
+                     view.visible_editor_ratio = editor_ratio;
+-                    view.commit_mode = commit_mode;
++                    if let Some(commit_mode) = commit_mode {
++                        view.commit_mode = commit_mode;
++                    }
+                     view
+                 }))
+             })?
+@@ -1740,7 +1793,9 @@ impl Render for QueryView {
+                         Button::new("submit-edits", "Submit")
+                             .label_size(LabelSize::Small)
+                             .disabled(pending_count == 0)
+-                            .on_click(cx.listener(|this, _, _window, cx| this.submit_edits(cx))),
++                            .on_click(
++                                cx.listener(|this, _, window, cx| this.submit_edits(window, cx)),
++                            ),
+                     )
+                     .child(
+                         Button::new("revert-edits", "Revert")
+@@ -2844,7 +2899,7 @@ mod tests {
+     use crate::connection::metadata_cache::{ColumnMeta, RelationMeta};
+     use crate::connection::profile::{ConnectionProfile, SslMode};
+     use crate::sql_paging::SortDirection;
+-    use gpui::TestAppContext;
++    use gpui::{BorrowAppContext, TestAppContext, VisualTestContext};
+ 
+     fn init_test(cx: &mut TestAppContext) {
+         cx.update(|cx| {
+@@ -2856,6 +2911,19 @@ mod tests {
+         });
+     }
+ 
++    fn set_database_settings(
++        cx: &mut TestAppContext,
++        update: impl FnOnce(&mut settings::DatabaseSettingsContent) + 'static,
++    ) {
++        cx.update(|cx| {
++            cx.update_global::<settings::SettingsStore, _>(|store, cx| {
++                store.update_user_settings(cx, |content| {
++                    update(content.database.get_or_insert_default());
++                });
++            })
++        });
++    }
++
+     fn test_profile() -> ConnectionProfile {
+         ConnectionProfile {
+             id: "p1".into(),
+@@ -3258,6 +3326,190 @@ mod tests {
+         });
+     }
+ 
++    #[gpui::test]
++    async fn commit_mode_setting_defaults_a_fresh_tab(cx: &mut TestAppContext) {
++        init_test(cx);
++        set_database_settings(cx, |database| database.commit_mode = Some("manual".into()));
++        let view = open_test_view(cx).await;
++
++        view.read_with(cx, |view, _| {
++            assert_eq!(
++                view.commit_mode,
++                CommitMode::Manual,
++                "a fresh tab must default its commit mode from the database.commit_mode setting"
++            );
++        });
++    }
++
++    #[gpui::test]
++    async fn read_only_setting_disables_grid_editing_and_blocks_submit(cx: &mut TestAppContext) {
++        init_test(cx);
++        set_database_settings(cx, |database| database.read_only = Some(true));
++        let view = open_test_view(cx).await;
++
++        let grid = view.update(cx, |view, cx| {
++            *view.metadata.borrow_mut() = users_table_metadata();
++            view.last_sql = Some("select id, name from users".into());
++            view.finish_query(
++                QueryIntent::Run,
++                false,
++                0,
++                500,
++                Ok(QueryResult {
++                    columns: vec!["id".into(), "name".into()],
++                    rows: vec![vec![Some("1".into()), Some("alice".into())]],
++                    command_tag: None,
++                    truncated: false,
++                }),
++                1,
++                cx,
++            );
++            view.results_grid.clone()
++        });
++
++        view.read_with(cx, |view, _| {
++            assert!(
++                view.editability.is_some(),
++                "a single-table select over a PK'd table is still detected as editable"
++            );
++            assert!(
++                view.read_only,
++                "the global read_only setting must flow into the tab's own read_only field"
++            );
++        });
++        grid.read_with(cx, |grid, _| {
++            assert!(
++                !grid.is_editable(),
++                "read_only must override the grid's own editability detection"
++            );
++        });
++
++        let mut window_cx = VisualTestContext::from_window(cx.windows()[0], cx);
++        view.update_in(&mut window_cx, |view, window, cx| {
++            view.results_grid.update(cx, |grid, _cx| {
++                grid.pending_mut_for_test()
++                    .stage_update(0, 1, Some("bob".into()));
++            });
++            view.submit_edits(window, cx);
++        });
++        window_cx.run_until_parked();
++
++        view.read_with(cx, |view, cx| {
++            assert!(
++                !view.results_grid.read(cx).pending_changes().is_empty(),
++                "read_only must block submit — the staged edit must remain pending"
++            );
++            assert_eq!(
++                view.error, None,
++                "a blocked submit must not attempt any DML or surface a DB error"
++            );
++        });
++    }
++
++    #[gpui::test]
++    async fn confirm_edits_defaults_true_and_gates_submit_behind_a_prompt(cx: &mut TestAppContext) {
++        init_test(cx);
++        let view = open_test_view(cx).await;
++        let mut window_cx = VisualTestContext::from_window(cx.windows()[0], cx);
++
++        let editability = Editability {
++            schema: "public".into(),
++            table: "t".into(),
++            pk_cols: vec!["id".into()],
++            col_types: [("id".to_string(), "integer".to_string())]
++                .into_iter()
++                .collect(),
++        };
++        let result = QueryResult {
++            columns: vec!["id".into()],
++            rows: vec![vec![Some("1".into())]],
++            command_tag: None,
++            truncated: false,
++        };
++        view.update_in(&mut window_cx, |view, window, cx| {
++            view.commit_mode = CommitMode::Auto;
++            view.connection = None;
++            view.editability = Some(editability);
++            view.result = Some(result);
++            view.results_grid.update(cx, |grid, _cx| {
++                grid.pending_mut_for_test()
++                    .stage_update(0, 0, Some("2".into()));
++            });
++            view.submit_edits(window, cx);
++        });
++        window_cx.run_until_parked();
++
++        assert!(
++            cx.has_pending_prompt(),
++            "confirm_edits defaults to true — submit must show a confirm prompt"
++        );
++        view.read_with(cx, |view, _| {
++            assert_eq!(
++                view.error, None,
++                "nothing must run until the prompt is answered"
++            );
++        });
++
++        cx.simulate_prompt_answer("Submit");
++        cx.run_until_parked();
++
++        view.read_with(cx, |view, _| {
++            assert_eq!(
++                view.error.as_deref(),
++                Some("No live connection for edit submit"),
++                "confirming the prompt must run the DML path, which then fails fast \
++                 without a connection — proving execute_submit_edits actually ran"
++            );
++        });
++    }
++
++    #[gpui::test]
++    async fn confirm_edits_false_submits_immediately_without_a_prompt(cx: &mut TestAppContext) {
++        init_test(cx);
++        set_database_settings(cx, |database| database.confirm_edits = Some(false));
++        let view = open_test_view(cx).await;
++        let mut window_cx = VisualTestContext::from_window(cx.windows()[0], cx);
++
++        let editability = Editability {
++            schema: "public".into(),
++            table: "t".into(),
++            pk_cols: vec!["id".into()],
++            col_types: [("id".to_string(), "integer".to_string())]
++                .into_iter()
++                .collect(),
++        };
++        let result = QueryResult {
++            columns: vec!["id".into()],
++            rows: vec![vec![Some("1".into())]],
++            command_tag: None,
++            truncated: false,
++        };
++        view.update_in(&mut window_cx, |view, window, cx| {
++            view.commit_mode = CommitMode::Auto;
++            view.connection = None;
++            view.editability = Some(editability);
++            view.result = Some(result);
++            view.results_grid.update(cx, |grid, _cx| {
++                grid.pending_mut_for_test()
++                    .stage_update(0, 0, Some("2".into()));
++            });
++            view.submit_edits(window, cx);
++        });
++        window_cx.run_until_parked();
++
++        assert!(
++            !cx.has_pending_prompt(),
++            "confirm_edits=false must skip the prompt entirely"
++        );
++        view.read_with(cx, |view, _| {
++            assert_eq!(
++                view.error.as_deref(),
++                Some("No live connection for edit submit"),
++                "submit must run immediately — unchanged from before the setting existed"
++            );
++        });
++    }
++
+     // `TransactionSession::new` requires a real `Connection` (no test double
+     // exists for it — see `Connection::connect`), so a live DB is needed to
+     // exercise `is_open()`'s transition from `BEGIN` actually landing. Without
+@@ -3372,6 +3624,7 @@ mod tests {
+         .expect("seed row");
+ 
+         let view = open_test_view(cx).await;
++        let mut window_cx = VisualTestContext::from_window(cx.windows()[0], cx);
+         let editability = Editability {
+             schema: "pg_temp".into(),
+             table: "zedium_manual_submit".into(),
+@@ -3389,7 +3642,7 @@ mod tests {
+             command_tag: None,
+             truncated: false,
+         };
+-        view.update(cx, |view, cx| {
++        view.update_in(&mut window_cx, |view, window, cx| {
+             view.commit_mode = CommitMode::Manual;
+             view.connection = Some(conn.clone());
+             view.editability = Some(editability);
+@@ -3400,9 +3653,11 @@ mod tests {
+                     .stage_update(0, 1, Some("Z".into()));
+             });
+             view.result = Some(result);
+-            view.submit_edits(cx);
++            view.submit_edits(window, cx);
+         });
+         cx.run_until_parked();
++        cx.simulate_prompt_answer("Submit");
++        cx.run_until_parked();
+ 
+         view.update(cx, |view, cx| {
+             assert_eq!(view.error, None, "the Manual submit must succeed");
+@@ -3507,6 +3762,7 @@ mod tests {
+         .expect("seed rows");
+ 
+         let view = open_test_view(cx).await;
++        let mut window_cx = VisualTestContext::from_window(cx.windows()[0], cx);
+         let editability = Editability {
+             schema: "pg_temp".into(),
+             table: "zedium_filter_submit".into(),
+@@ -3527,7 +3783,7 @@ mod tests {
+             command_tag: None,
+             truncated: false,
+         };
+-        view.update(cx, |view, cx| {
++        view.update_in(&mut window_cx, |view, window, cx| {
+             view.commit_mode = CommitMode::Auto;
+             view.connection = Some(conn.clone());
+             view.editability = Some(editability);
+@@ -3545,9 +3801,11 @@ mod tests {
+                     .stage_update(0, 1, Some("kept".into()));
+             });
+             view.result = Some(result);
+-            view.submit_edits(cx);
++            view.submit_edits(window, cx);
+         });
+         cx.run_until_parked();
++        cx.simulate_prompt_answer("Submit");
++        cx.run_until_parked();
+         // The submit's success handler dispatches a nested refresh query
+         // (`dispatch_query`), which sets `running` again and settles on its
+         // own subsequent poll — wait for both hops to fully quiesce.
+diff --git a/crates/database_client/src/settings.rs b/crates/database_client/src/settings.rs
+index 5c21d06a95..25c9148704 100644
+--- a/crates/database_client/src/settings.rs
++++ b/crates/database_client/src/settings.rs
+@@ -68,21 +68,19 @@ pub struct DatabaseClientSettings {
+     pub metadata_cache: bool,
+     /// CSV representation of SQL NULL on export; default is the empty string.
+     pub export_null_string: String,
+-    /// Confirm before submitting grid DML.
+-    ///
+-    /// Not yet consumed by the grid submit flow (wired in a later task).
++    /// Confirm before submitting grid DML. Consumed by
++    /// `QueryView::submit_edits`, which prompts before running the DML when
++    /// this is `true`.
+     pub confirm_edits: bool,
+-    /// Global read-only default (disables all DML).
+-    ///
+-    /// Not yet consumed by the grid/profile flow (wired in a later task).
++    /// Global read-only default (disables all DML). OR'd with the active
++    /// profile's own `read_only` flag by `QueryView::effective_read_only`.
+     pub read_only: bool,
+-    /// Default commit mode for new query tabs: "auto" | "manual".
+-    ///
+-    /// Not yet consumed by the query tab flow (wired in a later task).
++    /// Default commit mode for new query tabs: "auto" | "manual". Used by
++    /// `QueryView::new` for a brand-new tab; a restored tab's persisted
++    /// commit mode always wins over this default.
+     pub commit_mode: String,
+     /// Executed-statement retention; always at least [`MIN_HISTORY_LIMIT`].
+-    ///
+-    /// Not yet consumed by the history prune flow (wired in a later task).
++    /// Consumed by `QueryView::record_history`'s prune call.
+     pub history_limit: usize,
+ }
+ 

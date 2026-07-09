@@ -1,0 +1,394 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 2 Jul 2026 11:53:27 +0300
+Subject: [PATCH] feat(db): resizable editor/results split with persisted ratio
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MQKuAnEREjToPLedE7KAqP
+---
+ crates/database_client/src/persistence.rs |  72 ++++++++--
+ crates/database_client/src/query_view.rs  | 156 ++++++++++++++++++++--
+ 2 files changed, 209 insertions(+), 19 deletions(-)
+
+diff --git a/crates/database_client/src/persistence.rs b/crates/database_client/src/persistence.rs
+index ac5a60947e..94f2280390 100644
+--- a/crates/database_client/src/persistence.rs
++++ b/crates/database_client/src/persistence.rs
+@@ -29,6 +29,10 @@ impl Domain for QueryDb {
+         sql!(
+             ALTER TABLE database_query_views ADD COLUMN database TEXT;
+         ),
++        // Persist the editor/results split ratio of a query tab (NULL = default).
++        sql!(
++            ALTER TABLE database_query_views ADD COLUMN editor_ratio REAL;
++        ),
+     ];
+ }
+ 
+@@ -42,29 +46,32 @@ impl QueryDb {
+         profile_id: String,
+         sql: String,
+         database: Option<String>,
++        editor_ratio: Option<f64>,
+     ) -> Result<()> {
+         self.write(move |conn| {
+             let query_str =
+-                "INSERT INTO database_query_views (item_id, workspace_id, profile_id, sql, database)
+-                VALUES (?1, ?2, ?3, ?4, ?5)
++                "INSERT INTO database_query_views (item_id, workspace_id, profile_id, sql, database, editor_ratio)
++                VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                 ON CONFLICT (item_id, workspace_id) DO UPDATE SET
+                     profile_id = excluded.profile_id,
+                     sql = excluded.sql,
+-                    database = excluded.database";
++                    database = excluded.database,
++                    editor_ratio = excluded.editor_ratio";
+             let mut statement = Statement::prepare(conn, query_str)?;
+             let mut next_index = statement.bind(&item_id, 1)?;
+             next_index = statement.bind(&workspace_id, next_index)?;
+             next_index = statement.bind(&profile_id, next_index)?;
+             next_index = statement.bind(&sql, next_index)?;
+-            statement.bind(&database, next_index)?;
++            next_index = statement.bind(&database, next_index)?;
++            statement.bind(&editor_ratio, next_index)?;
+             statement.exec()
+         })
+         .await
+     }
+ 
+     query! {
+-        pub fn get_query(item_id: ItemId, workspace_id: WorkspaceId) -> Result<Option<(String, String, Option<String>)>> {
+-            SELECT profile_id, sql, database
++        pub fn get_query(item_id: ItemId, workspace_id: WorkspaceId) -> Result<Option<(String, String, Option<String>, Option<f64>)>> {
++            SELECT profile_id, sql, database, editor_ratio
+             FROM database_query_views
+             WHERE item_id = ? AND workspace_id = ?
+         }
+@@ -94,11 +101,12 @@ mod tests {
+                 "p1".to_string(),
+                 "select 1".to_string(),
+                 Some("otherdb".to_string()),
++                None,
+             )
+             .await
+             .unwrap();
+ 
+-        let (profile_id, sql, database) = query_db.get_query(1, workspace_id).unwrap().unwrap();
++        let (profile_id, sql, database, _) = query_db.get_query(1, workspace_id).unwrap().unwrap();
+         assert_eq!(profile_id, "p1");
+         assert_eq!(sql, "select 1");
+         assert_eq!(database, Some("otherdb".to_string()));
+@@ -118,11 +126,59 @@ mod tests {
+                 "p1".to_string(),
+                 "select 1".to_string(),
+                 None,
++                None,
+             )
+             .await
+             .unwrap();
+ 
+-        let (_, _, database) = query_db.get_query(2, workspace_id).unwrap().unwrap();
++        let (_, _, database, _) = query_db.get_query(2, workspace_id).unwrap().unwrap();
+         assert_eq!(database, None);
+     }
++
++    #[gpui::test]
++    async fn round_trips_editor_ratio(cx: &mut TestAppContext) {
++        init_test(cx);
++        let workspace_db = cx.update(|cx| WorkspaceDb::global(cx));
++        let workspace_id = workspace_db.next_id().await.unwrap();
++        let query_db = cx.update(|cx| QueryDb::global(cx));
++
++        query_db
++            .save_query(
++                3,
++                workspace_id,
++                "p1".to_string(),
++                "select 1".to_string(),
++                None,
++                Some(0.42),
++            )
++            .await
++            .unwrap();
++
++        let (_, _, _, editor_ratio) = query_db.get_query(3, workspace_id).unwrap().unwrap();
++        assert_eq!(editor_ratio, Some(0.42));
++    }
++
++    #[gpui::test]
++    async fn missing_editor_ratio_loads_as_none(cx: &mut TestAppContext) {
++        init_test(cx);
++        let workspace_db = cx.update(|cx| WorkspaceDb::global(cx));
++        let workspace_id = workspace_db.next_id().await.unwrap();
++        let query_db = cx.update(|cx| QueryDb::global(cx));
++
++        // NULL back-compat: rows written before the editor_ratio migration have NULL.
++        query_db
++            .save_query(
++                4,
++                workspace_id,
++                "p1".to_string(),
++                "select 1".to_string(),
++                None,
++                None,
++            )
++            .await
++            .unwrap();
++
++        let (_, _, _, editor_ratio) = query_db.get_query(4, workspace_id).unwrap().unwrap();
++        assert_eq!(editor_ratio, None);
++    }
+ }
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index 6f2dd8701f..54077a895c 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -2,9 +2,9 @@ use std::time::Instant;
+ 
+ use editor::{Editor, EditorElement, EditorEvent, EditorStyle};
+ use gpui::{
+-    App, Context, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, KeyBinding,
+-    ParentElement, Render, SharedString, Styled, Subscription, Task, TextStyle, WeakEntity, Window,
+-    actions, div, relative,
++    App, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
++    KeyBinding, ParentElement, Render, SharedString, Styled, Subscription, Task, TextStyle,
++    WeakEntity, Window, actions, div, px, relative,
+ };
+ use language::Buffer;
+ use project::Project;
+@@ -32,6 +32,23 @@ use crate::{
+ 
+ actions!(database_client, [RunQuery]);
+ 
++pub(crate) const DEFAULT_EDITOR_RATIO: f32 = 0.3;
++const MIN_EDITOR_RATIO: f32 = 0.1;
++const MAX_EDITOR_RATIO: f32 = 0.9;
++const RESIZE_HANDLE_HEIGHT: f32 = 8.0;
++
++pub(crate) fn clamp_editor_ratio(ratio: f32) -> f32 {
++    ratio.clamp(MIN_EDITOR_RATIO, MAX_EDITOR_RATIO)
++}
++
++/// Zero-size drag payload for the editor/results split handle. Carries the
++/// view's `EntityId` because `on_drag_move` fires window-wide for the payload
++/// type — two visible `QueryView`s must not react to each other's drags.
++#[derive(Clone)]
++struct DraggedQuerySplitHandle {
++    view: gpui::EntityId,
++}
++
+ pub(crate) fn register_keybindings(cx: &mut App) {
+     cx.bind_keys([
+         KeyBinding::new("cmd-enter", RunQuery, Some("QueryView")),
+@@ -68,6 +85,10 @@ pub struct QueryView {
+     last_sql: Option<String>,
+     /// True when the SQL content or profile has changed and needs to be persisted.
+     needs_serialize: bool,
++    /// Committed editor/results split ratio (persisted). `visible_` is the live
++    /// drag preview; they diverge only mid-drag.
++    editor_ratio: f32,
++    visible_editor_ratio: f32,
+     /// Optional short label shown in the tab title (e.g. the table name for double-click opens).
+     label: Option<SharedString>,
+     results_grid: Entity<ResultsGrid>,
+@@ -160,6 +181,8 @@ impl QueryView {
+             has_more: false,
+             last_sql: None,
+             needs_serialize: false,
++            editor_ratio: DEFAULT_EDITOR_RATIO,
++            visible_editor_ratio: DEFAULT_EDITOR_RATIO,
+             label: None,
+             results_grid,
+             workspace,
+@@ -362,6 +385,41 @@ impl QueryView {
+         .detach();
+     }
+ 
++    fn on_split_drag_move(
++        &mut self,
++        drag_event: &DragMoveEvent<DraggedQuerySplitHandle>,
++        cx: &mut Context<Self>,
++    ) {
++        if drag_event.drag(cx).view != cx.entity_id() {
++            return;
++        }
++        let bounds = drag_event.bounds;
++        let bounds_height = bounds.bottom() - bounds.top();
++        if bounds_height <= px(0.) {
++            return;
++        }
++        let new_ratio = (drag_event.event.position.y - bounds.top()) / bounds_height;
++        self.visible_editor_ratio = clamp_editor_ratio(new_ratio);
++        cx.notify();
++    }
++
++    fn commit_split_ratio(&mut self, cx: &mut Context<Self>) {
++        if self.editor_ratio != self.visible_editor_ratio {
++            self.editor_ratio = self.visible_editor_ratio;
++            self.needs_serialize = true;
++            cx.emit(QueryViewEvent::Edit);
++        }
++        cx.notify();
++    }
++
++    fn reset_split_ratio(&mut self, cx: &mut Context<Self>) {
++        self.editor_ratio = DEFAULT_EDITOR_RATIO;
++        self.visible_editor_ratio = DEFAULT_EDITOR_RATIO;
++        self.needs_serialize = true;
++        cx.emit(QueryViewEvent::Edit);
++        cx.notify();
++    }
++
+     #[cfg(test)]
+     pub(crate) fn profile(&self) -> Option<&ConnectionProfile> {
+         self.profile.as_ref()
+@@ -462,12 +520,20 @@ impl SerializableItem for QueryView {
+         let profile_id = profile.id.clone();
+         let database = Some(profile.database.clone());
+         let sql = self.editor.read(cx).text(cx);
++        let editor_ratio = Some(f64::from(self.editor_ratio));
+         self.needs_serialize = false;
+ 
+         let db = QueryDb::global(cx);
+         Some(cx.background_spawn(async move {
+-            db.save_query(item_id, workspace_id, profile_id, sql, database)
+-                .await
++            db.save_query(
++                item_id,
++                workspace_id,
++                profile_id,
++                sql,
++                database,
++                editor_ratio,
++            )
++            .await
+         }))
+     }
+ 
+@@ -486,7 +552,10 @@ impl SerializableItem for QueryView {
+         let db = QueryDb::global(cx);
+         let loaded = db.get_query(item_id, workspace_id).log_err().flatten();
+         window.spawn(cx, async move |cx| {
+-            let (profile_id, sql, persisted_database) = loaded.unwrap_or_default();
++            let (profile_id, sql, persisted_database, editor_ratio) = loaded.unwrap_or_default();
++            let editor_ratio = editor_ratio
++                .map(|ratio| clamp_editor_ratio(ratio as f32))
++                .unwrap_or(DEFAULT_EDITOR_RATIO);
+             let profile = store::load_profiles()
+                 .into_iter()
+                 .find(|p| p.id == profile_id)
+@@ -500,7 +569,7 @@ impl SerializableItem for QueryView {
+                 });
+             cx.update(|window, cx| {
+                 Ok(cx.new(|cx| {
+-                    QueryView::new(
++                    let mut view = QueryView::new(
+                         profile,
+                         None,
+                         sql,
+@@ -508,7 +577,10 @@ impl SerializableItem for QueryView {
+                         Some(workspace_id),
+                         window,
+                         cx,
+-                    )
++                    );
++                    view.editor_ratio = editor_ratio;
++                    view.visible_editor_ratio = editor_ratio;
++                    view
+                 }))
+             })?
+         })
+@@ -654,6 +726,37 @@ impl Render for QueryView {
+                 .into_any_element()
+         };
+ 
++        let separator_color = cx.theme().colors().border_variant;
++        let view_id = cx.entity_id();
++        let resize_handle = div()
++            .id("query-split-container")
++            .relative()
++            .w_full()
++            .flex_shrink_0()
++            .h(px(1.))
++            .bg(separator_color)
++            .child(
++                div()
++                    .id("query-split-handle")
++                    .absolute()
++                    .top(px(-RESIZE_HANDLE_HEIGHT / 2.0))
++                    .h(px(RESIZE_HANDLE_HEIGHT))
++                    .w_full()
++                    .cursor_row_resize()
++                    .block_mouse_except_scroll()
++                    .on_click(cx.listener(|this, event: &gpui::ClickEvent, _window, cx| {
++                        if event.click_count() >= 2 {
++                            this.reset_split_ratio(cx);
++                        }
++                        cx.stop_propagation();
++                    }))
++                    .on_drag(DraggedQuerySplitHandle { view: view_id }, |_, _, _, cx| {
++                        cx.new(|_| gpui::Empty)
++                    }),
++            );
++
++        let editor_ratio = self.visible_editor_ratio;
++
+         div()
+             .key_context("QueryView")
+             .track_focus(&self.focus_handle(cx))
+@@ -661,14 +764,34 @@ impl Render for QueryView {
+             .size_full()
+             .flex()
+             .flex_col()
++            .on_drag_move::<DraggedQuerySplitHandle>(cx.listener(|this, event, _window, cx| {
++                this.on_split_drag_move(event, cx);
++            }))
++            .on_drop::<DraggedQuerySplitHandle>(cx.listener(|this, _, _window, cx| {
++                this.commit_split_ratio(cx);
++            }))
+             .child(
+                 div()
+-                    .flex_none()
+-                    .h(gpui::px(200.0))
++                    .flex_shrink_1()
++                    .min_h_0()
++                    .w_full()
++                    .flex_basis(DefiniteLength::Fraction(editor_ratio))
++                    .overflow_hidden()
+                     .child(EditorElement::new(&self.editor, editor_style)),
+             )
++            .child(resize_handle)
+             .child(toolbar)
+-            .child(results_area)
++            .child(
++                div()
++                    .flex_shrink_1()
++                    .min_h_0()
++                    .w_full()
++                    .flex_basis(DefiniteLength::Fraction(1.0 - editor_ratio))
++                    .overflow_hidden()
++                    .flex()
++                    .flex_col()
++                    .child(results_area),
++            )
+     }
+ }
+ 
+@@ -695,6 +818,17 @@ pub(crate) fn format_duration(ms: u128) -> String {
+ mod unit {
+     use super::*;
+ 
++    #[test]
++    fn clamps_editor_ratio() {
++        assert_eq!(clamp_editor_ratio(0.05), 0.1);
++        assert_eq!(clamp_editor_ratio(0.95), 0.9);
++        assert_eq!(clamp_editor_ratio(0.3), 0.3);
++        assert_eq!(
++            clamp_editor_ratio(DEFAULT_EDITOR_RATIO),
++            DEFAULT_EDITOR_RATIO
++        );
++    }
++
+     #[test]
+     fn row_info_shows_open_and_final_totals() {
+         assert_eq!(row_info_text(0, false), "0 rows");

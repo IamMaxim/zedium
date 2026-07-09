@@ -1,0 +1,608 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 9 Jul 2026 11:05:33 +0300
+Subject: [PATCH] agent: make LLM completion retry policy configurable
+
+The agent's retry policy for failed LLM completions was hardcoded to 4
+attempts with a 5s base delay. Providers that enforce a low
+requests-per-minute limit frequently exhaust those four retries before
+the limit window clears, so the turn fails. This is especially painful
+for subagents, which fan out concurrently and hit the shared RPM budget
+hard.
+
+Expose an `agent.retry` settings block controlling the maximum number of
+attempts (with `0` meaning unlimited), the base delay, and a cap on the
+exponential-backoff delay. The policy applies only to rate-limit and
+server-overloaded errors; every other retryable error keeps its fixed
+internal cap so genuine failures still surface. Subagents are `Thread`
+instances sharing the same retry path, so they inherit the policy with
+no extra wiring.
+
+The run-loop attempt counter is widened to `u32` to support unlimited
+retries, and the retry-status UI omits the "of N" denominator when the
+policy is unlimited.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01GPuXXV8jUXtMtvCyG4Lbub
+---
+ assets/settings/default.json                  |  15 +++
+ crates/agent/src/tests/mod.rs                 | 112 ++++++++++++++++++
+ crates/agent/src/thread.rs                    |  95 +++++++++------
+ crates/agent/src/tool_permissions.rs          |   5 +
+ crates/agent_settings/src/agent_settings.rs   |  24 ++++
+ crates/agent_ui/src/agent_ui.rs               |   5 +
+ .../src/conversation_view/thread_view.rs      |  29 ++---
+ crates/settings_content/src/agent.rs          |  29 +++++
+ 8 files changed, 263 insertions(+), 51 deletions(-)
+
+diff --git a/assets/settings/default.json b/assets/settings/default.json
+index b06c53abae..5a7f1b5640 100644
+--- a/assets/settings/default.json
++++ b/assets/settings/default.json
+@@ -1131,6 +1131,21 @@
+       // 0 is not a valid threshold.
+       "threshold": "90%",
+     },
++    // How the agent retries completion requests that fail because the provider
++    // is rate-limiting (e.g. a requests-per-minute limit) or overloaded.
++    "retry": {
++      // Maximum number of automatic retries for those errors. Set to 0 for
++      // unlimited retries, so the agent keeps waiting for the rate limit to
++      // clear instead of failing the turn (useful when running close to a
++      // provider's RPM limit, especially with subagents). Other retryable
++      // errors keep their fixed internal cap regardless of this value.
++      "max_attempts": 4,
++      // Base delay before the first retry, in seconds. Seeds the exponential
++      // backoff and is the fallback when the provider sends no Retry-After.
++      "initial_delay_secs": 5,
++      // Upper bound on the exponential-backoff delay, in seconds.
++      "max_delay_secs": 120,
++    },
+     // When enabled, show voting thumbs for feedback on agent edits.
+     "enable_feedback": true,
+     "default_profile": "write",
+diff --git a/crates/agent/src/tests/mod.rs b/crates/agent/src/tests/mod.rs
+index beb1997309..27e814463b 100644
+--- a/crates/agent/src/tests/mod.rs
++++ b/crates/agent/src/tests/mod.rs
+@@ -4146,6 +4146,118 @@ async fn test_send_max_retries_exceeded(cx: &mut TestAppContext) {
+     ));
+ }
+ 
++/// A configured finite `max_attempts` overrides the built-in default.
++#[gpui::test]
++async fn test_send_configurable_max_retries(cx: &mut TestAppContext) {
++    let ThreadTest { thread, model, .. } = setup(cx, TestModel::Fake).await;
++    let fake_model = model.as_fake();
++
++    cx.update(|cx| {
++        let mut settings = agent_settings::AgentSettings::get_global(cx).clone();
++        settings.retry.max_attempts = Some(2);
++        agent_settings::AgentSettings::override_global(settings, cx);
++    });
++
++    let mut events = thread
++        .update(cx, |thread, cx| {
++            thread.send(UserMessageId::new(), ["Hello!"], cx)
++        })
++        .unwrap();
++    cx.run_until_parked();
++
++    for _ in 0..3 {
++        fake_model.send_last_completion_stream_error(
++            LanguageModelCompletionError::ServerOverloaded {
++                provider: LanguageModelProviderName::new("Anthropic"),
++                retry_after: Some(Duration::from_secs(3)),
++            },
++        );
++        fake_model.end_last_completion_stream();
++        cx.executor().advance_clock(Duration::from_secs(3));
++        cx.run_until_parked();
++    }
++
++    let mut errors = Vec::new();
++    let mut retry_events = Vec::new();
++    while let Some(event) = events.next().await {
++        match event {
++            Ok(ThreadEvent::Retry(retry_status)) => retry_events.push(retry_status),
++            Ok(ThreadEvent::Stop(..)) => break,
++            Err(error) => errors.push(error),
++            _ => {}
++        }
++    }
++
++    assert_eq!(retry_events.len(), 2);
++    assert!(retry_events.iter().all(|status| status.max_attempts == 2));
++    assert_eq!(errors.len(), 1);
++}
++
++/// `max_attempts == None` (the `0` sentinel in settings) retries indefinitely,
++/// so the turn eventually succeeds no matter how many rate-limit errors precede
++/// it. The reported `max_attempts` is `0`, signaling "unlimited" to the UI.
++#[gpui::test]
++async fn test_send_unlimited_retries(cx: &mut TestAppContext) {
++    let ThreadTest { thread, model, .. } = setup(cx, TestModel::Fake).await;
++    let fake_model = model.as_fake();
++
++    cx.update(|cx| {
++        let mut settings = agent_settings::AgentSettings::get_global(cx).clone();
++        settings.retry.max_attempts = None;
++        agent_settings::AgentSettings::override_global(settings, cx);
++    });
++
++    let mut events = thread
++        .update(cx, |thread, cx| {
++            thread.send(UserMessageId::new(), ["Hello!"], cx)
++        })
++        .unwrap();
++    cx.run_until_parked();
++
++    // Far more failures than the built-in cap of 4 would ever allow.
++    for _ in 0..12 {
++        fake_model.send_last_completion_stream_error(
++            LanguageModelCompletionError::ServerOverloaded {
++                provider: LanguageModelProviderName::new("Anthropic"),
++                retry_after: Some(Duration::from_secs(3)),
++            },
++        );
++        fake_model.end_last_completion_stream();
++        cx.executor().advance_clock(Duration::from_secs(3));
++        cx.run_until_parked();
++    }
++
++    // Then let the request finally succeed.
++    fake_model.send_last_completion_stream_text_chunk("Done");
++    fake_model.end_last_completion_stream();
++    cx.run_until_parked();
++
++    let mut errors = Vec::new();
++    let mut retry_events = Vec::new();
++    while let Some(event) = events.next().await {
++        match event {
++            Ok(ThreadEvent::Retry(retry_status)) => retry_events.push(retry_status),
++            Ok(ThreadEvent::Stop(..)) => break,
++            Err(error) => errors.push(error),
++            _ => {}
++        }
++    }
++
++    assert_eq!(retry_events.len(), 12);
++    assert!(retry_events.iter().all(|status| status.max_attempts == 0));
++    assert!(errors.is_empty());
++    thread.read_with(cx, |thread, _cx| {
++        assert_eq!(
++            thread.last_received_or_pending_message().as_deref(),
++            Some(&Message::Agent(AgentMessage {
++                content: vec![AgentMessageContent::Text("Done".into())],
++                tool_results: IndexMap::default(),
++                reasoning_details: None,
++            }))
++        );
++    });
++}
++
+ #[gpui::test]
+ async fn test_streaming_tool_completes_when_llm_stream_ends_without_final_input(
+     cx: &mut TestAppContext,
+diff --git a/crates/agent/src/thread.rs b/crates/agent/src/thread.rs
+index c93fc893b0..25559dec40 100644
+--- a/crates/agent/src/thread.rs
++++ b/crates/agent/src/thread.rs
+@@ -14,7 +14,7 @@ use agent_settings::UserAgentsMd;
+ use crate::sandboxing::{SandboxRequest, ThreadSandboxGrants, sandboxing_enabled};
+ use agent_client_protocol::schema as acp;
+ use agent_settings::{
+-    AgentProfileId, AgentSettings, AutoCompactThreshold, COMPACTION_PROMPT,
++    AgentProfileId, AgentSettings, AutoCompactThreshold, COMPACTION_PROMPT, RetrySettings,
+     SUMMARIZE_THREAD_DETAILED_PROMPT, SUMMARIZE_THREAD_PROMPT,
+ };
+ use anyhow::{Context as _, Result, anyhow};
+@@ -117,18 +117,21 @@ impl std::fmt::Display for PromptId {
+     }
+ }
+ 
+-pub(crate) const MAX_RETRY_ATTEMPTS: u8 = 4;
++pub(crate) const MAX_RETRY_ATTEMPTS: u32 = 4;
+ pub(crate) const BASE_RETRY_DELAY: Duration = Duration::from_secs(5);
+ 
+ #[derive(Debug, Clone)]
+ enum RetryStrategy {
+     ExponentialBackoff {
+         initial_delay: Duration,
+-        max_attempts: u8,
++        /// `None` means retry indefinitely.
++        max_attempts: Option<u32>,
++        max_delay: Duration,
+     },
+     Fixed {
+         delay: Duration,
+-        max_attempts: u8,
++        /// `None` means retry indefinitely.
++        max_attempts: Option<u32>,
+     },
+ }
+ 
+@@ -2422,7 +2425,7 @@ impl Thread {
+         mut cancellation_rx: watch::Receiver<bool>,
+         cx: &mut AsyncApp,
+     ) -> Result<()> {
+-        let mut attempt = 0;
++        let mut attempt: u32 = 0;
+         let mut intent = CompletionIntent::UserPrompt;
+         // Set when a refusal fallback occurs so subsequent iterations use the fallback model.
+         let mut refusal_fallback_model: Option<Arc<dyn LanguageModel>> = None;
+@@ -2763,12 +2766,14 @@ impl Thread {
+         event_stream: &ThreadEventStream,
+         cancellation_rx: &mut watch::Receiver<bool>,
+         error: LanguageModelCompletionError,
+-        attempt: u8,
++        attempt: u32,
+         cx: &mut AsyncApp,
+     ) -> Result<ControlFlow<()>> {
+         let retry = this.update(cx, |this, cx| {
+             let user_store = this.user_store.read(cx);
+-            this.handle_completion_error(error, attempt, user_store.plan())
++            let plan = user_store.plan();
++            let retry_settings = AgentSettings::get_global(cx).retry;
++            this.handle_completion_error(error, attempt, plan, retry_settings)
+         })??;
+         let timer = cx.background_executor().timer(retry.duration);
+         event_stream.send_retry(retry);
+@@ -2955,8 +2960,9 @@ impl Thread {
+     fn handle_completion_error(
+         &mut self,
+         error: LanguageModelCompletionError,
+-        attempt: u8,
++        attempt: u32,
+         plan: Option<Plan>,
++        retry_settings: RetrySettings,
+     ) -> Result<acp_thread::RetryStatus> {
+         let Some(model) = self.model.as_ref() else {
+             return Err(anyhow!(error));
+@@ -2972,7 +2978,7 @@ impl Thread {
+             return Err(anyhow!(error));
+         }
+ 
+-        let Some(strategy) = Self::retry_strategy_for(&error) else {
++        let Some(strategy) = Self::retry_strategy_for(&error, retry_settings) else {
+             return Err(anyhow!(error));
+         };
+ 
+@@ -2981,14 +2987,24 @@ impl Thread {
+             RetryStrategy::Fixed { max_attempts, .. } => *max_attempts,
+         };
+ 
+-        if attempt > max_attempts {
++        // `None` means retry indefinitely, so only bail out when a finite cap is
++        // set and has been exceeded.
++        if let Some(max_attempts) = max_attempts
++            && attempt > max_attempts
++        {
+             return Err(anyhow!(error));
+         }
+ 
+         let delay = match &strategy {
+-            RetryStrategy::ExponentialBackoff { initial_delay, .. } => {
+-                let delay_secs = initial_delay.as_secs() * 2u64.pow((attempt - 1) as u32);
+-                Duration::from_secs(delay_secs)
++            RetryStrategy::ExponentialBackoff {
++                initial_delay,
++                max_delay,
++                ..
++            } => {
++                let delay = initial_delay
++                    .saturating_mul(2u32.saturating_pow(attempt.saturating_sub(1)))
++                    .min(*max_delay);
++                delay
+             }
+             RetryStrategy::Fixed { delay, .. } => *delay,
+         };
+@@ -2997,7 +3013,9 @@ impl Thread {
+         Ok(acp_thread::RetryStatus {
+             last_error: error.to_string().into(),
+             attempt: attempt as usize,
+-            max_attempts: max_attempts as usize,
++            // `0` signals an unlimited retry policy to the UI, which then omits
++            // the "of N" denominator.
++            max_attempts: max_attempts.map_or(0, |max_attempts| max_attempts as usize),
+             started_at: Instant::now(),
+             duration: delay,
+             meta: None,
+@@ -4093,27 +4111,36 @@ impl Thread {
+         self.prompt_id = PromptId::new();
+     }
+ 
+-    fn retry_strategy_for(error: &LanguageModelCompletionError) -> Option<RetryStrategy> {
++    fn retry_strategy_for(
++        error: &LanguageModelCompletionError,
++        retry_settings: RetrySettings,
++    ) -> Option<RetryStrategy> {
+         use LanguageModelCompletionError::*;
+         use http_client::StatusCode;
+ 
++        // Rate-limit / overload errors honor the user-configurable `agent.retry`
++        // policy (attempt count, base delay, delay cap), so the agent can be
++        // told to wait out a provider's requests-per-minute limit indefinitely.
++        let rate_limited = |retry_after: Option<Duration>| RetryStrategy::Fixed {
++            delay: retry_after.unwrap_or(retry_settings.initial_delay),
++            max_attempts: retry_settings.max_attempts,
++        };
++
+         // General strategy here:
+         // - If retrying won't help (e.g. invalid API key or payload too large), return None so we don't retry at all.
+-        // - If it's a time-based issue (e.g. server overloaded, rate limit exceeded), retry up to 4 times with exponential backoff.
++        // - If it's a time-based issue (e.g. server overloaded, rate limit exceeded), honor the configurable retry policy.
+         // - If it's an issue that *might* be fixed by retrying (e.g. internal server error), retry up to 3 times.
+         match error {
+             HttpResponseError {
+                 status_code: StatusCode::TOO_MANY_REQUESTS,
+                 ..
+             } => Some(RetryStrategy::ExponentialBackoff {
+-                initial_delay: BASE_RETRY_DELAY,
+-                max_attempts: MAX_RETRY_ATTEMPTS,
++                initial_delay: retry_settings.initial_delay,
++                max_attempts: retry_settings.max_attempts,
++                max_delay: retry_settings.max_delay,
+             }),
+             ServerOverloaded { retry_after, .. } | RateLimitExceeded { retry_after, .. } => {
+-                Some(RetryStrategy::Fixed {
+-                    delay: retry_after.unwrap_or(BASE_RETRY_DELAY),
+-                    max_attempts: MAX_RETRY_ATTEMPTS,
+-                })
++                Some(rate_limited(*retry_after))
+             }
+             UpstreamProviderError {
+                 status,
+@@ -4121,42 +4148,36 @@ impl Thread {
+                 ..
+             } => match *status {
+                 StatusCode::TOO_MANY_REQUESTS | StatusCode::SERVICE_UNAVAILABLE => {
+-                    Some(RetryStrategy::Fixed {
+-                        delay: retry_after.unwrap_or(BASE_RETRY_DELAY),
+-                        max_attempts: MAX_RETRY_ATTEMPTS,
+-                    })
++                    Some(rate_limited(*retry_after))
+                 }
+                 StatusCode::INTERNAL_SERVER_ERROR => Some(RetryStrategy::Fixed {
+                     delay: retry_after.unwrap_or(BASE_RETRY_DELAY),
+                     // Internal Server Error could be anything, retry up to 3 times.
+-                    max_attempts: 3,
++                    max_attempts: Some(3),
+                 }),
+                 status => {
+                     // There is no StatusCode variant for the unofficial HTTP 529 ("The service is overloaded"),
+                     // but we frequently get them in practice. See https://http.dev/529
+                     if status.as_u16() == 529 {
+-                        Some(RetryStrategy::Fixed {
+-                            delay: retry_after.unwrap_or(BASE_RETRY_DELAY),
+-                            max_attempts: MAX_RETRY_ATTEMPTS,
+-                        })
++                        Some(rate_limited(*retry_after))
+                     } else {
+                         Some(RetryStrategy::Fixed {
+                             delay: retry_after.unwrap_or(BASE_RETRY_DELAY),
+-                            max_attempts: 2,
++                            max_attempts: Some(2),
+                         })
+                     }
+                 }
+             },
+             ApiInternalServerError { .. } => Some(RetryStrategy::Fixed {
+                 delay: BASE_RETRY_DELAY,
+-                max_attempts: 3,
++                max_attempts: Some(3),
+             }),
+             ApiReadResponseError { .. }
+             | HttpSend { .. }
+             | DeserializeResponse { .. }
+             | BadRequestFormat { .. } => Some(RetryStrategy::Fixed {
+                 delay: BASE_RETRY_DELAY,
+-                max_attempts: 3,
++                max_attempts: Some(3),
+             }),
+             // Retrying these errors definitely shouldn't help.
+             HttpResponseError {
+@@ -4173,7 +4194,7 @@ impl Thread {
+             SerializeRequest { .. } | BuildRequestBody { .. } | StreamEndedUnexpectedly { .. } => {
+                 Some(RetryStrategy::Fixed {
+                     delay: BASE_RETRY_DELAY,
+-                    max_attempts: 1,
++                    max_attempts: Some(1),
+                 })
+             }
+             // Retry all other 4xx and 5xx errors once.
+@@ -4182,7 +4203,7 @@ impl Thread {
+             {
+                 Some(RetryStrategy::Fixed {
+                     delay: BASE_RETRY_DELAY,
+-                    max_attempts: 3,
++                    max_attempts: Some(3),
+                 })
+             }
+             // Retrying won't help for Payment Required errors.
+@@ -4193,7 +4214,7 @@ impl Thread {
+             // Conservatively assume that any other errors are non-retryable
+             HttpResponseError { .. } | Other(..) => Some(RetryStrategy::Fixed {
+                 delay: BASE_RETRY_DELAY,
+-                max_attempts: 2,
++                max_attempts: Some(2),
+             }),
+         }
+     }
+diff --git a/crates/agent/src/tool_permissions.rs b/crates/agent/src/tool_permissions.rs
+index 59d52f563d..9602d34861 100644
+--- a/crates/agent/src/tool_permissions.rs
++++ b/crates/agent/src/tool_permissions.rs
+@@ -594,6 +594,11 @@ mod tests {
+                 enabled: false,
+                 threshold: agent_settings::AutoCompactThreshold::DEFAULT,
+             },
++            retry: agent_settings::RetrySettings {
++                max_attempts: Some(4),
++                initial_delay: std::time::Duration::from_secs(5),
++                max_delay: std::time::Duration::from_secs(120),
++            },
+             enable_feedback: false,
+             expand_edit_card: true,
+             expand_terminal_card: true,
+diff --git a/crates/agent_settings/src/agent_settings.rs b/crates/agent_settings/src/agent_settings.rs
+index bcd5d85afa..01b9c0c518 100644
+--- a/crates/agent_settings/src/agent_settings.rs
++++ b/crates/agent_settings/src/agent_settings.rs
+@@ -5,6 +5,7 @@ use std::cmp::Ordering::{Equal, Greater, Less};
+ use std::fmt;
+ use std::path::{Component, Path, PathBuf};
+ use std::sync::{Arc, LazyLock};
++use std::time::Duration;
+ 
+ use anyhow::Context as _;
+ use collections::{HashSet, IndexMap};
+@@ -172,6 +173,16 @@ pub struct AutoCompactSettings {
+     pub threshold: AutoCompactThreshold,
+ }
+ 
++/// Resolved policy for automatically retrying rate-limited or overloaded
++/// completion requests. See [`RetrySettingsContent`] for the user-facing schema.
++#[derive(Clone, Copy, Debug, PartialEq)]
++pub struct RetrySettings {
++    /// `None` means unlimited retries (the `0` sentinel in settings).
++    pub max_attempts: Option<u32>,
++    pub initial_delay: Duration,
++    pub max_delay: Duration,
++}
++
+ fn parse_auto_compact_threshold(raw: &str) -> anyhow::Result<AutoCompactThreshold> {
+     let trimmed = raw.trim();
+     if let Some(percent) = trimmed.strip_suffix('%') {
+@@ -228,6 +239,7 @@ pub struct AgentSettings {
+     pub single_file_review: bool,
+     pub model_parameters: Vec<LanguageModelParameters>,
+     pub auto_compact: AutoCompactSettings,
++    pub retry: RetrySettings,
+     pub enable_feedback: bool,
+     pub expand_edit_card: bool,
+     pub expand_terminal_card: bool,
+@@ -759,6 +771,18 @@ impl Settings for AgentSettings {
+                     threshold,
+                 }
+             },
++            retry: {
++                let retry = agent.retry.unwrap();
++                let max_attempts = match retry.max_attempts.unwrap() {
++                    0 => None,
++                    attempts => Some(attempts),
++                };
++                RetrySettings {
++                    max_attempts,
++                    initial_delay: Duration::from_secs(retry.initial_delay_secs.unwrap()),
++                    max_delay: Duration::from_secs(retry.max_delay_secs.unwrap()),
++                }
++            },
+             enable_feedback: agent.enable_feedback.unwrap(),
+             expand_edit_card: agent.expand_edit_card.unwrap(),
+             expand_terminal_card: agent.expand_terminal_card.unwrap(),
+diff --git a/crates/agent_ui/src/agent_ui.rs b/crates/agent_ui/src/agent_ui.rs
+index 7b8374ff3c..d35366b1af 100644
+--- a/crates/agent_ui/src/agent_ui.rs
++++ b/crates/agent_ui/src/agent_ui.rs
+@@ -949,6 +949,11 @@ mod tests {
+                 enabled: false,
+                 threshold: agent_settings::AutoCompactThreshold::DEFAULT,
+             },
++            retry: agent_settings::RetrySettings {
++                max_attempts: Some(4),
++                initial_delay: std::time::Duration::from_secs(5),
++                max_delay: std::time::Duration::from_secs(120),
++            },
+             enable_feedback: false,
+             expand_edit_card: true,
+             expand_terminal_card: true,
+diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
+index e407990378..70aa2ad7cf 100644
+--- a/crates/agent_ui/src/conversation_view/thread_view.rs
++++ b/crates/agent_ui/src/conversation_view/thread_view.rs
+@@ -2722,22 +2722,23 @@ impl ThreadView {
+ 
+         let next_attempt_in_secs = next_attempt_in.as_secs() + 1;
+ 
++        // `max_attempts == 0` signals an unlimited retry policy, so the attempt
++        // count is shown without an "of N" denominator.
++        let attempt_suffix = if state.max_attempts == 0 {
++            format!(" (Attempt {}).", state.attempt)
++        } else {
++            format!(" (Attempt {} of {}).", state.attempt, state.max_attempts)
++        };
++        let next_attempt = if next_attempt_in_secs == 1 {
++            "Retrying. Next attempt in 1 second".to_string()
++        } else {
++            format!("Retrying. Next attempt in {next_attempt_in_secs} seconds")
++        };
++
+         let retry_message = if state.max_attempts == 1 {
+-            if next_attempt_in_secs == 1 {
+-                "Retrying. Next attempt in 1 second.".to_string()
+-            } else {
+-                format!("Retrying. Next attempt in {next_attempt_in_secs} seconds.")
+-            }
+-        } else if next_attempt_in_secs == 1 {
+-            format!(
+-                "Retrying. Next attempt in 1 second (Attempt {} of {}).",
+-                state.attempt, state.max_attempts,
+-            )
++            format!("{next_attempt}.")
+         } else {
+-            format!(
+-                "Retrying. Next attempt in {next_attempt_in_secs} seconds (Attempt {} of {}).",
+-                state.attempt, state.max_attempts,
+-            )
++            format!("{next_attempt}{attempt_suffix}")
+         };
+ 
+         Some(
+diff --git a/crates/settings_content/src/agent.rs b/crates/settings_content/src/agent.rs
+index 3a94191848..787591745b 100644
+--- a/crates/settings_content/src/agent.rs
++++ b/crates/settings_content/src/agent.rs
+@@ -188,6 +188,32 @@ pub struct AutoCompactSettingsContent {
+     pub threshold: Option<AutoCompactThreshold>,
+ }
+ 
++#[with_fallible_options]
++#[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, Default)]
++pub struct RetrySettingsContent {
++    /// Maximum number of automatic retries for completion requests that fail
++    /// because the provider is rate-limiting (e.g. a requests-per-minute limit)
++    /// or overloaded. `0` means unlimited: the agent keeps retrying until the
++    /// limit clears or the turn is cancelled. Other retryable errors (server
++    /// errors, malformed responses, etc.) are unaffected and keep their fixed
++    /// internal cap.
++    ///
++    /// Default: 4
++    pub max_attempts: Option<u32>,
++    /// Base delay before the first retry, in seconds. Used as the seed for
++    /// exponential backoff and as the fallback delay when the provider does not
++    /// send a `Retry-After` header.
++    ///
++    /// Default: 5
++    pub initial_delay_secs: Option<u64>,
++    /// Upper bound on the exponential-backoff delay, in seconds. Prevents the
++    /// wait between retries from growing without bound under a high or unlimited
++    /// `max_attempts`.
++    ///
++    /// Default: 120
++    pub max_delay_secs: Option<u64>,
++}
++
+ #[with_fallible_options]
+ #[derive(Clone, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, Default)]
+ pub struct AgentSettingsContent {
+@@ -286,6 +312,9 @@ pub struct AgentSettingsContent {
+     /// earlier messages to free up room in the model's context window once the
+     /// context grows too large.
+     pub auto_compact: Option<AutoCompactSettingsContent>,
++    /// Settings controlling how the agent automatically retries LLM completion
++    /// requests that fail due to provider rate limits or overload.
++    pub retry: Option<RetrySettingsContent>,
+     /// Whether to show thumb buttons for feedback in the agent panel.
+     ///
+     /// Default: true

@@ -1,0 +1,129 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 18:26:41 +0300
+Subject: [PATCH] database_client: add generate_update (PK WHERE, literal
+ casts)
+
+---
+ crates/database_client/src/connection/edit.rs | 96 ++++++++++++++++++-
+ 1 file changed, 95 insertions(+), 1 deletion(-)
+
+diff --git a/crates/database_client/src/connection/edit.rs b/crates/database_client/src/connection/edit.rs
+index 03833b7bec..63a1f059c1 100644
+--- a/crates/database_client/src/connection/edit.rs
++++ b/crates/database_client/src/connection/edit.rs
+@@ -7,7 +7,7 @@
+ 
+ use std::collections::HashMap;
+ 
+-use crate::connection::introspect::quote_literal;
++use crate::connection::introspect::{quote_ident, quote_literal};
+ 
+ /// A staged edit of one existing row: its primary-key identity and the set of
+ /// changed columns. `set` values are `None` for a SQL `NULL`, `Some(text)`
+@@ -42,6 +42,52 @@ fn column_type<'a>(col_types: &'a HashMap<String, String>, col: &str) -> &'a str
+     col_types.get(col).map(String::as_str).unwrap_or("text")
+ }
+ 
++/// `col1 = literal1 AND col2 = literal2 …` from primary-key columns, whose
++/// values are never `NULL`.
++#[allow(dead_code)]
++fn pk_predicate(pk: &[(String, String)], col_types: &HashMap<String, String>) -> String {
++    pk.iter()
++        .map(|(col, value)| {
++            format!(
++                "{} = {}",
++                quote_ident(col),
++                null_or_literal(Some(value.as_str()), column_type(col_types, col))
++            )
++        })
++        .collect::<Vec<_>>()
++        .join(" AND ")
++}
++
++/// Approach-A `UPDATE` for a staged [`RowEdit`]: sets each edited column and
++/// restricts to the row identified by its primary-key columns.
++#[allow(dead_code)]
++pub fn generate_update(
++    schema: &str,
++    table: &str,
++    edit: &RowEdit,
++    col_types: &HashMap<String, String>,
++) -> String {
++    let assignments = edit
++        .set
++        .iter()
++        .map(|(col, value)| {
++            format!(
++                "{} = {}",
++                quote_ident(col),
++                null_or_literal(value.as_deref(), column_type(col_types, col))
++            )
++        })
++        .collect::<Vec<_>>()
++        .join(", ");
++    format!(
++        "UPDATE {}.{} SET {} WHERE {}",
++        quote_ident(schema),
++        quote_ident(table),
++        assignments,
++        pk_predicate(&edit.pk, col_types)
++    )
++}
++
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+@@ -80,4 +126,52 @@ mod tests {
+             "'\\x00ff'::bytea"
+         );
+     }
++
++    fn types() -> HashMap<String, String> {
++        [
++            ("id".to_string(), "integer".to_string()),
++            ("name".to_string(), "text".to_string()),
++            ("note".to_string(), "text".to_string()),
++            ("tenant".to_string(), "uuid".to_string()),
++        ]
++        .into_iter()
++        .collect()
++    }
++
++    #[test]
++    fn update_sets_edited_columns_with_casts_and_pk_where() {
++        let edit = RowEdit {
++            pk: vec![("id".into(), "7".into())],
++            set: vec![("name".into(), Some("ann".into()))],
++        };
++        assert_eq!(
++            generate_update("app", "users", &edit, &types()),
++            "UPDATE \"app\".\"users\" SET \"name\" = 'ann'::text WHERE \"id\" = '7'::integer"
++        );
++    }
++
++    #[test]
++    fn update_emits_null_for_none_and_empty_string_for_some_empty() {
++        let edit = RowEdit {
++            pk: vec![("id".into(), "7".into())],
++            set: vec![("name".into(), None), ("note".into(), Some("".into()))],
++        };
++        assert_eq!(
++            generate_update("app", "users", &edit, &types()),
++            "UPDATE \"app\".\"users\" SET \"name\" = NULL, \"note\" = ''::text WHERE \"id\" = '7'::integer"
++        );
++    }
++
++    #[test]
++    fn update_uses_all_pk_columns_and_quotes_identifiers() {
++        let edit = RowEdit {
++            pk: vec![("id".into(), "7".into()), ("tenant".into(), "t-1".into())],
++            set: vec![("name".into(), Some("o'brien".into()))],
++        };
++        assert_eq!(
++            generate_update("app", "users", &edit, &types()),
++            "UPDATE \"app\".\"users\" SET \"name\" = 'o''brien'::text \
++             WHERE \"id\" = '7'::integer AND \"tenant\" = 't-1'::uuid"
++        );
++    }
+ }

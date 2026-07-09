@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 16:00:18 +0300
+Subject: [PATCH] database_client: introspect approx row count via
+ pg_class.reltuples
+
+---
+ .../src/connection/introspect.rs              | 35 +++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/crates/database_client/src/connection/introspect.rs b/crates/database_client/src/connection/introspect.rs
+index d5627fdcc2..8795ea97b1 100644
+--- a/crates/database_client/src/connection/introspect.rs
++++ b/crates/database_client/src/connection/introspect.rs
+@@ -213,6 +213,14 @@ pub(crate) fn parse_triggers(r: &QueryResult) -> Vec<TriggerInfo> {
+         .collect()
+ }
+ 
++pub(crate) fn parse_row_count(r: &QueryResult) -> i64 {
++    r.rows
++        .first()
++        .and_then(|row| row.first().cloned().flatten())
++        .and_then(|value| value.parse::<i64>().ok())
++        .unwrap_or(-1)
++}
++
+ pub(crate) fn quote_literal(s: &str) -> String {
+     format!("'{}'", s.replace('\'', "''"))
+ }
+@@ -416,6 +424,19 @@ impl Connection {
+         let task = self.execute(sql, 10_000, cx);
+         cx.background_spawn(async move { Ok(parse_triggers(&task.await?)) })
+     }
++
++    pub fn approx_row_count(&self, schema: String, table: String, cx: &App) -> Task<Result<i64>> {
++        let sql = format!(
++            "select c.reltuples::bigint as row_count \
++             from pg_class c \
++             join pg_namespace n on n.oid = c.relnamespace \
++             where n.nspname = {} and c.relname = {}",
++            quote_literal(&schema),
++            quote_literal(&table)
++        );
++        let task = self.execute(sql, 10_000, cx);
++        cx.background_spawn(async move { Ok(parse_row_count(&task.await?)) })
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -774,4 +795,18 @@ mod tests {
+         assert_eq!(triggers[0].name, "users_audit");
+         assert!(triggers[0].definition.contains("AFTER UPDATE"));
+     }
++
++    #[test]
++    fn parses_row_count_and_defaults_negative_when_unknown() {
++        let r = qr(&["row_count"], vec![vec![Some("1234")]]);
++        assert_eq!(parse_row_count(&r), 1234);
++
++        // Never-analyzed table: reltuples is -1 in PG14+.
++        let never = qr(&["row_count"], vec![vec![Some("-1")]]);
++        assert_eq!(parse_row_count(&never), -1);
++
++        // No row / unparsable falls back to -1 (treated as "unknown").
++        let empty = qr(&["row_count"], vec![]);
++        assert_eq!(parse_row_count(&empty), -1);
++    }
+ }

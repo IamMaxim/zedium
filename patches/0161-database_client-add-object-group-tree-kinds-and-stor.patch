@@ -1,0 +1,475 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 16:08:35 +0300
+Subject: [PATCH] database_client: add object-group tree kinds and storage (no
+ visual change yet)
+
+---
+ crates/database_client/src/panel.rs |  32 +++-
+ crates/database_client/src/tree.rs  | 286 +++++++++++++++++++++++++++-
+ 2 files changed, 314 insertions(+), 4 deletions(-)
+
+diff --git a/crates/database_client/src/panel.rs b/crates/database_client/src/panel.rs
+index b32093ba46..f92c19d5d4 100644
+--- a/crates/database_client/src/panel.rs
++++ b/crates/database_client/src/panel.rs
+@@ -124,7 +124,15 @@ impl DatabasePanel {
+                 NodeKind::Database => self.expand_database(node_id, cx),
+                 NodeKind::Schema => self.expand_schema(node_id, cx),
+                 NodeKind::Relation => self.expand_relation(node_id, cx),
+-                NodeKind::Column | NodeKind::Empty => {}
++                NodeKind::ObjectGroup(_)
++                | NodeKind::Column
++                | NodeKind::Index
++                | NodeKind::ForeignKey
++                | NodeKind::Constraint
++                | NodeKind::Function
++                | NodeKind::Sequence
++                | NodeKind::Trigger
++                | NodeKind::Empty => {}
+             }
+         }
+ 
+@@ -614,7 +622,16 @@ impl DatabasePanel {
+                     )
+                 })
+             }
+-            NodeKind::Schema | NodeKind::Column | NodeKind::Empty => return,
++            NodeKind::Schema
++            | NodeKind::Column
++            | NodeKind::ObjectGroup(_)
++            | NodeKind::Index
++            | NodeKind::ForeignKey
++            | NodeKind::Constraint
++            | NodeKind::Function
++            | NodeKind::Sequence
++            | NodeKind::Trigger
++            | NodeKind::Empty => return,
+         };
+ 
+         window.focus(&context_menu.focus_handle(cx), cx);
+@@ -913,7 +930,7 @@ fn node_icon(node: &TreeNode) -> Option<IconName> {
+         NodeKind::Connection | NodeKind::Database => Some(IconName::Database),
+         NodeKind::Schema => Some(IconName::Folder),
+         NodeKind::Relation => match node.relation_kind {
+-            Some(RelationKind::View) => Some(IconName::Eye),
++            Some(RelationKind::View) | Some(RelationKind::MaterializedView) => Some(IconName::Eye),
+             _ => Some(IconName::Table),
+         },
+         NodeKind::Column => {
+@@ -925,6 +942,13 @@ fn node_icon(node: &TreeNode) -> Option<IconName> {
+                 ))
+             }
+         }
++        NodeKind::ObjectGroup(_) => Some(IconName::Folder),
++        NodeKind::Index => Some(IconName::ListTree),
++        NodeKind::ForeignKey => Some(IconName::Link),
++        NodeKind::Constraint => Some(IconName::Sliders),
++        NodeKind::Function => Some(IconName::Code),
++        NodeKind::Sequence => Some(IconName::Hash),
++        NodeKind::Trigger => Some(IconName::BoltFilled),
+         NodeKind::Empty => None,
+     }
+ }
+@@ -1303,6 +1327,7 @@ mod tests {
+                 relation_kind: None,
+                 column_data_type: Some(data_type.to_string()),
+                 is_primary_key,
++                row_count: None,
+             }
+         }
+ 
+@@ -1338,6 +1363,7 @@ mod tests {
+             relation_kind: Some(RelationKind::View),
+             column_data_type: None,
+             is_primary_key: false,
++            row_count: None,
+         };
+         assert_eq!(node_icon(&view), Some(IconName::Eye));
+     }
+diff --git a/crates/database_client/src/tree.rs b/crates/database_client/src/tree.rs
+index b2cf7f8c79..3ed7754caf 100644
+--- a/crates/database_client/src/tree.rs
++++ b/crates/database_client/src/tree.rs
+@@ -1,14 +1,115 @@
+ use std::collections::{HashMap, HashSet};
+ 
+-use crate::connection::introspect::{ColumnInfo, RelationInfo, RelationKind};
++use crate::connection::introspect::{
++    ColumnInfo, ConstraintInfo, ForeignKeyInfo, FunctionInfo, IndexInfo, RelationInfo,
++    RelationKind, SequenceInfo, TriggerInfo,
++};
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum ObjectGroupKind {
++    Tables,
++    Views,
++    MaterializedViews,
++    Functions,
++    Sequences,
++    Indexes,
++    ForeignKeys,
++    Constraints,
++    Triggers,
++}
++
++// Pinned cross-task API: the tasks that build the schema-object UI (indexes,
++// foreign keys, functions, etc.) are the first non-test consumers, so
++// dead_code fires until those tasks land.
++#[allow(dead_code)]
++impl ObjectGroupKind {
++    /// Stable path segment used inside node ids (e.g. ".../tables").
++    pub fn key(self) -> &'static str {
++        match self {
++            ObjectGroupKind::Tables => "tables",
++            ObjectGroupKind::Views => "views",
++            ObjectGroupKind::MaterializedViews => "matviews",
++            ObjectGroupKind::Functions => "functions",
++            ObjectGroupKind::Sequences => "sequences",
++            ObjectGroupKind::Indexes => "indexes",
++            ObjectGroupKind::ForeignKeys => "fkeys",
++            ObjectGroupKind::Constraints => "constraints",
++            ObjectGroupKind::Triggers => "triggers",
++        }
++    }
++
++    /// Human-readable folder title.
++    pub fn title(self) -> &'static str {
++        match self {
++            ObjectGroupKind::Tables => "Tables",
++            ObjectGroupKind::Views => "Views",
++            ObjectGroupKind::MaterializedViews => "Materialized Views",
++            ObjectGroupKind::Functions => "Functions",
++            ObjectGroupKind::Sequences => "Sequences",
++            ObjectGroupKind::Indexes => "Indexes",
++            ObjectGroupKind::ForeignKeys => "Foreign Keys",
++            ObjectGroupKind::Constraints => "Constraints",
++            ObjectGroupKind::Triggers => "Triggers",
++        }
++    }
++
++    /// Fragment used inside the "(no …)" empty placeholder.
++    pub fn empty_what(self) -> &'static str {
++        match self {
++            ObjectGroupKind::Tables => "tables",
++            ObjectGroupKind::Views => "views",
++            ObjectGroupKind::MaterializedViews => "materialized views",
++            ObjectGroupKind::Functions => "functions",
++            ObjectGroupKind::Sequences => "sequences",
++            ObjectGroupKind::Indexes => "indexes",
++            ObjectGroupKind::ForeignKeys => "foreign keys",
++            ObjectGroupKind::Constraints => "constraints",
++            ObjectGroupKind::Triggers => "triggers",
++        }
++    }
++
++    /// Look up a schema-level group by its path segment.
++    pub fn from_key(key: &str) -> Option<ObjectGroupKind> {
++        [
++            ObjectGroupKind::Tables,
++            ObjectGroupKind::Views,
++            ObjectGroupKind::MaterializedViews,
++            ObjectGroupKind::Functions,
++            ObjectGroupKind::Sequences,
++            ObjectGroupKind::Indexes,
++            ObjectGroupKind::ForeignKeys,
++            ObjectGroupKind::Constraints,
++            ObjectGroupKind::Triggers,
++        ]
++        .into_iter()
++        .find(|kind| kind.key() == key)
++    }
++}
+ 
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub enum NodeKind {
+     Connection,
+     Database,
+     Schema,
++    // Pinned cross-task API: the tasks that build the schema-object UI are
++    // the first non-test consumers to construct these variants, so
++    // dead_code fires until those tasks land.
++    #[allow(dead_code)]
++    ObjectGroup(ObjectGroupKind),
+     Relation,
+     Column,
++    #[allow(dead_code)]
++    Index,
++    #[allow(dead_code)]
++    ForeignKey,
++    #[allow(dead_code)]
++    Constraint,
++    #[allow(dead_code)]
++    Function,
++    #[allow(dead_code)]
++    Sequence,
++    #[allow(dead_code)]
++    Trigger,
+     /// Synthetic placeholder rendered under an expanded node whose children
+     /// loaded empty, e.g. "(no tables)". Non-interactive.
+     Empty,
+@@ -26,6 +127,11 @@ pub struct TreeNode {
+     pub column_data_type: Option<String>,
+     /// For `NodeKind::Column`: whether the column is part of the primary key.
+     pub is_primary_key: bool,
++    /// For `NodeKind::Relation`: the row count, once loaded.
++    // Pinned cross-task API: the results-grid row-count task is its first
++    // non-test consumer, so dead_code fires until that task lands.
++    #[allow(dead_code)]
++    pub row_count: Option<i64>,
+ }
+ 
+ struct ConnectionEntry {
+@@ -43,6 +149,22 @@ pub struct TreeState {
+     relations: HashMap<String, Vec<RelationInfo>>,
+     /// "{conn}/{db}/{schema}/{rel}" -> columns
+     columns: HashMap<String, Vec<ColumnInfo>>,
++    /// "{conn}/{db}/{schema}" -> materialized views
++    materialized_views: HashMap<String, Vec<RelationInfo>>,
++    /// "{conn}/{db}/{schema}" -> functions
++    functions: HashMap<String, Vec<FunctionInfo>>,
++    /// "{conn}/{db}/{schema}" -> sequences
++    sequences: HashMap<String, Vec<SequenceInfo>>,
++    /// "{conn}/{db}/{schema}/{rel}" -> indexes
++    indexes: HashMap<String, Vec<IndexInfo>>,
++    /// "{conn}/{db}/{schema}/{rel}" -> foreign keys
++    foreign_keys: HashMap<String, Vec<ForeignKeyInfo>>,
++    /// "{conn}/{db}/{schema}/{rel}" -> constraints
++    constraints: HashMap<String, Vec<ConstraintInfo>>,
++    /// "{conn}/{db}/{schema}/{rel}" -> triggers
++    triggers: HashMap<String, Vec<TriggerInfo>>,
++    /// "{conn}/{db}/{schema}/{rel}" -> row count
++    row_counts: HashMap<String, i64>,
+     expanded: HashSet<String>,
+ }
+ 
+@@ -65,6 +187,7 @@ fn empty_node(parent_id: &str, depth: usize, what: &str) -> TreeNode {
+         relation_kind: None,
+         column_data_type: None,
+         is_primary_key: false,
++        row_count: None,
+     }
+ }
+ 
+@@ -79,6 +202,14 @@ impl TreeState {
+             schemas: HashMap::new(),
+             relations: HashMap::new(),
+             columns: HashMap::new(),
++            materialized_views: HashMap::new(),
++            functions: HashMap::new(),
++            sequences: HashMap::new(),
++            indexes: HashMap::new(),
++            foreign_keys: HashMap::new(),
++            constraints: HashMap::new(),
++            triggers: HashMap::new(),
++            row_counts: HashMap::new(),
+             expanded: HashSet::new(),
+         }
+     }
+@@ -97,6 +228,7 @@ impl TreeState {
+                 relation_kind: None,
+                 column_data_type: None,
+                 is_primary_key: false,
++                row_count: None,
+             });
+             if expanded {
+                 match self.databases.get(&conn.id) {
+@@ -128,6 +260,7 @@ impl TreeState {
+             relation_kind: None,
+             column_data_type: None,
+             is_primary_key: false,
++            row_count: None,
+         });
+         if expanded {
+             match self.schemas.get(&db_id) {
+@@ -157,6 +290,7 @@ impl TreeState {
+             relation_kind: None,
+             column_data_type: None,
+             is_primary_key: false,
++            row_count: None,
+         });
+         if expanded {
+             match self.relations.get(&schema_id) {
+@@ -186,6 +320,7 @@ impl TreeState {
+             relation_kind: Some(rel.kind),
+             column_data_type: None,
+             is_primary_key: false,
++            row_count: None,
+         });
+         if expanded {
+             match self.columns.get(&rel_id) {
+@@ -205,6 +340,7 @@ impl TreeState {
+                             relation_kind: None,
+                             column_data_type: Some(col.data_type.clone()),
+                             is_primary_key: col.is_primary_key,
++                            row_count: None,
+                         });
+                     }
+                 }
+@@ -256,6 +392,89 @@ impl TreeState {
+         self.columns.contains_key(rel_id)
+     }
+ 
++    // Pinned cross-task API: the tasks that build the schema-object UI
++    // (indexes, foreign keys, functions, etc.) are the first non-test
++    // consumers, so dead_code fires until those tasks land.
++    #[allow(dead_code)]
++    pub fn set_materialized_views(&mut self, schema_id: &str, views: Vec<RelationInfo>) {
++        self.materialized_views.insert(schema_id.to_string(), views);
++    }
++
++    #[allow(dead_code)]
++    pub fn materialized_views_loaded(&self, schema_id: &str) -> bool {
++        self.materialized_views.contains_key(schema_id)
++    }
++
++    #[allow(dead_code)]
++    pub fn set_functions(&mut self, schema_id: &str, functions: Vec<FunctionInfo>) {
++        self.functions.insert(schema_id.to_string(), functions);
++    }
++
++    #[allow(dead_code)]
++    pub fn functions_loaded(&self, schema_id: &str) -> bool {
++        self.functions.contains_key(schema_id)
++    }
++
++    #[allow(dead_code)]
++    pub fn set_sequences(&mut self, schema_id: &str, sequences: Vec<SequenceInfo>) {
++        self.sequences.insert(schema_id.to_string(), sequences);
++    }
++
++    #[allow(dead_code)]
++    pub fn sequences_loaded(&self, schema_id: &str) -> bool {
++        self.sequences.contains_key(schema_id)
++    }
++
++    #[allow(dead_code)]
++    pub fn set_indexes(&mut self, rel_id: &str, indexes: Vec<IndexInfo>) {
++        self.indexes.insert(rel_id.to_string(), indexes);
++    }
++
++    #[allow(dead_code)]
++    pub fn indexes_loaded(&self, rel_id: &str) -> bool {
++        self.indexes.contains_key(rel_id)
++    }
++
++    #[allow(dead_code)]
++    pub fn set_foreign_keys(&mut self, rel_id: &str, foreign_keys: Vec<ForeignKeyInfo>) {
++        self.foreign_keys.insert(rel_id.to_string(), foreign_keys);
++    }
++
++    #[allow(dead_code)]
++    pub fn foreign_keys_loaded(&self, rel_id: &str) -> bool {
++        self.foreign_keys.contains_key(rel_id)
++    }
++
++    #[allow(dead_code)]
++    pub fn set_constraints(&mut self, rel_id: &str, constraints: Vec<ConstraintInfo>) {
++        self.constraints.insert(rel_id.to_string(), constraints);
++    }
++
++    #[allow(dead_code)]
++    pub fn constraints_loaded(&self, rel_id: &str) -> bool {
++        self.constraints.contains_key(rel_id)
++    }
++
++    #[allow(dead_code)]
++    pub fn set_triggers(&mut self, rel_id: &str, triggers: Vec<TriggerInfo>) {
++        self.triggers.insert(rel_id.to_string(), triggers);
++    }
++
++    #[allow(dead_code)]
++    pub fn triggers_loaded(&self, rel_id: &str) -> bool {
++        self.triggers.contains_key(rel_id)
++    }
++
++    #[allow(dead_code)]
++    pub fn set_row_count(&mut self, rel_id: &str, count: i64) {
++        self.row_counts.insert(rel_id.to_string(), count);
++    }
++
++    #[allow(dead_code)]
++    pub fn row_count(&self, rel_id: &str) -> Option<i64> {
++        self.row_counts.get(rel_id).copied()
++    }
++
+     /// Remove all cached databases, schemas, relations, and columns for a
+     /// connection and collapse its descendants. The connection node's own
+     /// expanded state is preserved so callers can collapse it separately.
+@@ -265,6 +484,15 @@ impl TreeState {
+         self.schemas.retain(|k, _| !k.starts_with(&prefix));
+         self.relations.retain(|k, _| !k.starts_with(&prefix));
+         self.columns.retain(|k, _| !k.starts_with(&prefix));
++        self.materialized_views
++            .retain(|k, _| !k.starts_with(&prefix));
++        self.functions.retain(|k, _| !k.starts_with(&prefix));
++        self.sequences.retain(|k, _| !k.starts_with(&prefix));
++        self.indexes.retain(|k, _| !k.starts_with(&prefix));
++        self.foreign_keys.retain(|k, _| !k.starts_with(&prefix));
++        self.constraints.retain(|k, _| !k.starts_with(&prefix));
++        self.triggers.retain(|k, _| !k.starts_with(&prefix));
++        self.row_counts.retain(|k, _| !k.starts_with(&prefix));
+         self.expanded.retain(|k| !k.starts_with(&prefix));
+     }
+ 
+@@ -528,4 +756,60 @@ mod tests {
+         let t = tree_one_conn();
+         assert!(t.visible_nodes()[0].has_children);
+     }
++
++    #[test]
++    fn stores_and_reports_loaded_object_collections() {
++        let mut t = tree_one_conn();
++        let schema_id = "p1/db1/public";
++        let rel_id = "p1/db1/public/tables/users";
++
++        assert!(!t.functions_loaded(schema_id));
++        t.set_functions(
++            schema_id,
++            vec![FunctionInfo {
++                name: "f".into(),
++                signature: String::new(),
++                returns: "void".into(),
++                language: "sql".into(),
++            }],
++        );
++        assert!(t.functions_loaded(schema_id));
++
++        assert!(!t.sequences_loaded(schema_id));
++        t.set_sequences(schema_id, vec![]);
++        assert!(t.sequences_loaded(schema_id));
++
++        assert!(!t.materialized_views_loaded(schema_id));
++        t.set_materialized_views(
++            schema_id,
++            vec![RelationInfo {
++                name: "mv".into(),
++                kind: RelationKind::MaterializedView,
++            }],
++        );
++        assert!(t.materialized_views_loaded(schema_id));
++
++        assert!(!t.indexes_loaded(rel_id));
++        t.set_indexes(
++            rel_id,
++            vec![IndexInfo {
++                name: "i".into(),
++                is_unique: false,
++                is_primary: false,
++                definition: String::new(),
++            }],
++        );
++        assert!(t.indexes_loaded(rel_id));
++
++        t.set_foreign_keys(rel_id, vec![]);
++        t.set_constraints(rel_id, vec![]);
++        t.set_triggers(rel_id, vec![]);
++        assert!(t.foreign_keys_loaded(rel_id));
++        assert!(t.constraints_loaded(rel_id));
++        assert!(t.triggers_loaded(rel_id));
++
++        assert_eq!(t.row_count(rel_id), None);
++        t.set_row_count(rel_id, 99);
++        assert_eq!(t.row_count(rel_id), Some(99));
++    }
+ }

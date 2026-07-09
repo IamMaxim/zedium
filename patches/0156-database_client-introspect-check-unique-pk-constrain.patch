@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 15:50:34 +0300
+Subject: [PATCH] database_client: introspect check/unique/pk constraints via
+ pg_constraint
+
+---
+ .../src/connection/introspect.rs              | 73 +++++++++++++++++++
+ 1 file changed, 73 insertions(+)
+
+diff --git a/crates/database_client/src/connection/introspect.rs b/crates/database_client/src/connection/introspect.rs
+index 821f1abad4..063b4cd27c 100644
+--- a/crates/database_client/src/connection/introspect.rs
++++ b/crates/database_client/src/connection/introspect.rs
+@@ -47,6 +47,13 @@ pub struct ForeignKeyInfo {
+     pub referenced_table: String,
+ }
+ 
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ConstraintInfo {
++    pub name: String,
++    pub kind: String,
++    pub definition: String,
++}
++
+ fn col(r: &QueryResult, row: &[Option<String>], name: &str) -> String {
+     r.columns
+         .iter()
+@@ -134,6 +141,17 @@ pub(crate) fn parse_foreign_keys(r: &QueryResult) -> Vec<ForeignKeyInfo> {
+         .collect()
+ }
+ 
++pub(crate) fn parse_constraints(r: &QueryResult) -> Vec<ConstraintInfo> {
++    r.rows
++        .iter()
++        .map(|row| ConstraintInfo {
++            name: col(r, row, "constraint_name"),
++            kind: col(r, row, "kind"),
++            definition: col(r, row, "definition"),
++        })
++        .collect()
++}
++
+ pub(crate) fn quote_literal(s: &str) -> String {
+     format!("'{}'", s.replace('\'', "''"))
+ }
+@@ -259,6 +277,32 @@ impl Connection {
+         let task = self.execute(sql, 10_000, cx);
+         cx.background_spawn(async move { Ok(parse_foreign_keys(&task.await?)) })
+     }
++
++    pub fn list_constraints(
++        &self,
++        schema: String,
++        table: String,
++        cx: &App,
++    ) -> Task<Result<Vec<ConstraintInfo>>> {
++        let sql = format!(
++            "select con.conname as constraint_name, \
++                    case con.contype \
++                        when 'c' then 'CHECK' \
++                        when 'u' then 'UNIQUE' \
++                        when 'p' then 'PRIMARY KEY' \
++                    end as kind, \
++                    pg_get_constraintdef(con.oid) as definition \
++             from pg_constraint con \
++             join pg_class rel on rel.oid = con.conrelid \
++             join pg_namespace n on n.oid = rel.relnamespace \
++             where con.contype in ('c', 'u', 'p') and n.nspname = {} and rel.relname = {} \
++             order by con.conname",
++            quote_literal(&schema),
++            quote_literal(&table)
++        );
++        let task = self.execute(sql, 10_000, cx);
++        cx.background_spawn(async move { Ok(parse_constraints(&task.await?)) })
++    }
+ }
+ 
+ #[cfg(test)]
+@@ -535,4 +579,33 @@ mod tests {
+         assert_eq!(fks[0].referenced_table, "users");
+         assert!(fks[0].definition.contains("REFERENCES users(id)"));
+     }
++
++    #[test]
++    fn parses_constraints_with_kind() {
++        let r = qr(
++            &["constraint_name", "kind", "definition"],
++            vec![
++                vec![
++                    Some("users_pkey"),
++                    Some("PRIMARY KEY"),
++                    Some("PRIMARY KEY (id)"),
++                ],
++                vec![
++                    Some("users_email_key"),
++                    Some("UNIQUE"),
++                    Some("UNIQUE (email)"),
++                ],
++                vec![
++                    Some("users_age_check"),
++                    Some("CHECK"),
++                    Some("CHECK ((age >= 0))"),
++                ],
++            ],
++        );
++        let cons = parse_constraints(&r);
++        assert_eq!(cons[0].kind, "PRIMARY KEY");
++        assert_eq!(cons[1].kind, "UNIQUE");
++        assert_eq!(cons[2].kind, "CHECK");
++        assert_eq!(cons[2].definition, "CHECK ((age >= 0))");
++    }
+ }

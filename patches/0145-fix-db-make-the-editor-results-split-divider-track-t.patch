@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 2 Jul 2026 12:36:18 +0300
+Subject: [PATCH] fix(db): make the editor/results split divider track the
+ cursor
+
+The drag ratio was computed over the whole QueryView bounds while the
+editor/results flex fractions distribute only the height left after the
+fixed toolbar and 1px divider rows, so the divider jumped on the first
+mouse-move and drifted above the cursor while dragging. Move the toolbar
+inside the results fraction so the two fractions share exactly
+(container - 1px divider), and compute the drag ratio over that same
+shared space.
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MQKuAnEREjToPLedE7KAqP
+---
+ crates/database_client/src/query_view.rs | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index 6f69028885..edba81e656 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -451,11 +451,14 @@ impl QueryView {
+             return;
+         }
+         let bounds = drag_event.bounds;
+-        let bounds_height = bounds.bottom() - bounds.top();
+-        if bounds_height <= px(0.) {
++        // The editor/results flex fractions distribute the container height
++        // minus its only fixed-height row, the 1px divider. Computing the
++        // ratio over that shared space keeps the divider under the cursor.
++        let shared_height = bounds.bottom() - bounds.top() - px(1.);
++        if shared_height <= px(0.) {
+             return;
+         }
+-        let new_ratio = (drag_event.event.position.y - bounds.top()) / bounds_height;
++        let new_ratio = (drag_event.event.position.y - bounds.top()) / shared_height;
+         self.visible_editor_ratio = clamp_editor_ratio(new_ratio);
+         cx.notify();
+     }
+@@ -684,6 +687,7 @@ impl Render for QueryView {
+             .px_2()
+             .py_1()
+             .gap_2()
++            .flex_shrink_0()
+             .border_b_1()
+             .border_color(cx.theme().colors().border)
+             .child(run_button)
+@@ -857,8 +861,10 @@ impl Render for QueryView {
+                     .child(EditorElement::new(&self.editor, editor_style)),
+             )
+             .child(resize_handle)
+-            .child(toolbar)
+             .child(
++                // The toolbar lives inside the results fraction so the split
++                // fractions share (container − 1px divider) — the same space
++                // `on_split_drag_move` computes the drag ratio against.
+                 div()
+                     .flex_shrink_1()
+                     .min_h_0()
+@@ -867,6 +873,7 @@ impl Render for QueryView {
+                     .overflow_hidden()
+                     .flex()
+                     .flex_col()
++                    .child(toolbar)
+                     .child(results_area),
+             )
+     }

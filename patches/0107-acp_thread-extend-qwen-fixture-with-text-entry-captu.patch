@@ -1,0 +1,124 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Wed, 1 Jul 2026 01:50:18 +0300
+Subject: [PATCH] acp_thread: extend qwen fixture with text-entry capture from
+ patched qwen-code
+
+Captured live against the provenance-patched local qwen-code build
+(Task 5). Proves text-entry classification (Task 3) works end-to-end
+against real wire traffic, not just synthetic test data.
+---
+ crates/acp_thread/src/acp_thread.rs           |  26 ++
+ .../tests/qwen_subagent_session_updates.jsonl |  63 +++++
+ ...-07-01-qwen-acp-wire-capture-with-text.log | 236 ++++++++++++++++++
+ 3 files changed, 325 insertions(+)
+ create mode 100644 docs/superpowers/specs/2026-07-01-qwen-acp-wire-capture-with-text.log
+
+diff --git a/crates/acp_thread/src/acp_thread.rs b/crates/acp_thread/src/acp_thread.rs
+index 6a9ea01a75..c99c451c85 100644
+--- a/crates/acp_thread/src/acp_thread.rs
++++ b/crates/acp_thread/src/acp_thread.rs
+@@ -6199,6 +6199,32 @@ mod tests {
+             assert_eq!(index.roots().count(), 1);
+             assert!(index.is_root(&root_id));
+             assert_eq!(index.members_of(&root_id).len(), 4);
++
++            // The freshly-captured fixture (2026-07-01, against the
++            // provenance-patched qwen-code build) also includes streamed text
++            // chunks tagged as belonging to a root subagent (Task 5's
++            // qwen-code patch). That capture is a separate session from the
++            // original 2026-06-23 tool-call-only capture above, so its root
++            // tool-call id is necessarily different.
++            let text_root_id =
++                acp::ToolCallId::new("toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es");
++            let entries = thread.entries();
++            let text_member_count = (0..entries.len())
++                .filter(|ix| index.is_text_member(*ix))
++                .count();
++            assert!(
++                text_member_count > 0,
++                "expected at least one text entry classified as a subagent member \
++                 from the updated fixture"
++            );
++            for ix in 0..entries.len() {
++                if index.is_text_member(ix) {
++                    assert_eq!(
++                        index.entry_membership_of(ix).map(|m| m.parent.clone()),
++                        Some(text_root_id.clone())
++                    );
++                }
++            }
+         });
+     }
+ 
+diff --git a/crates/acp_thread/src/tests/qwen_subagent_session_updates.jsonl b/crates/acp_thread/src/tests/qwen_subagent_session_updates.jsonl
+index ccb497e37b..7582977b45 100644
+--- a/crates/acp_thread/src/tests/qwen_subagent_session_updates.jsonl
++++ b/crates/acp_thread/src/tests/qwen_subagent_session_updates.jsonl
+@@ -8,3 +8,66 @@
+ {"sessionUpdate":"tool_call_update","toolCallId":"call_bf1f1baa62274be6a97aab32","status":"completed","_meta":{"toolName":"read_file","parentToolCallId":"call_4ca2caa145844a0e9d467403","subagentType":"Explore","provenance":"subagent"},"content":[{"type":"content","content":{"type":"text","text":"world\n"}}]}
+ {"sessionUpdate":"tool_call_update","toolCallId":"call_c7f9bcd478d94a158e2db6dc","status":"completed","_meta":{"toolName":"read_file","parentToolCallId":"call_4ca2caa145844a0e9d467403","subagentType":"Explore","provenance":"subagent"},"content":[{"type":"content","content":{"type":"text","text":"# readme\n"}}]}
+ {"sessionUpdate":"tool_call_update","toolCallId":"call_4ca2caa145844a0e9d467403","status":"completed","_meta":{"toolName":"agent","provenance":"builtin"},"content":[{"type":"content","content":{"type":"text","text":"Here is a summary of all files in the directory: 3 files (a.txt, b.py, README.md)."}}]}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Hello! I'm ready"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" to help you with your work"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":". Let"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" me list"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" all"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" the files in your"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" current working directory."},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Here"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"'s a summary"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" of the"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" files in your working"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" directory:\n\n**Files"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":":**"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n\n1. **a.txt** —"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" A plain"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" text file."},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" Likely"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" contains simple"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" text data"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" or"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" notes.\n\n2. **b."},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"py** — A Python source"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" file. Contains"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" Python"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" code,"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" possibly"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" a"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" script or module"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":".\n\n3. **README.m"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"d** — A"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" Markdown file. Typically"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" contains project"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" documentation,"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" setup"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" instructions, or an"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" overview of the project.\n\n4."},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" "},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"**.qwen/**"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" — A hidden"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" directory containing Qwen Code"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" configuration"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"."},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" It"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" includes"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":":\n   - **"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"settings.json** — Configuration"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" settings for your"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" Qwen Code"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" environment"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"."},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\n\nThis"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" appears to be a small"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" project or"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" workspace"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" with"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" basic"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" files"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"."},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" Woul"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"d you like me to examine the"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" contents of any of these files to"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" provide"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}
++{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":" more detailed information?"},"_meta":{"provenance":"subagent","parentToolCallId":"toolu_bdrk_01SMLxZ8tCoqZKSEJNv2w4Es","subagentType":"general-purpose"}}

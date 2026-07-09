@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 13:42:26 +0300
+Subject: [PATCH] feat(db): wire the query console toolbar to the toolbar
+ density settings
+
+---
+ crates/database_client/src/query_view.rs | 28 ++++++++++++++++++++++--
+ 1 file changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index edba81e656..a65101fd0c 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -27,6 +27,7 @@ use crate::{
+     },
+     persistence::QueryDb,
+     results_grid::{ColumnSort, ResultsGrid, ResultsGridEvent},
++    settings::DatabaseClientSettings,
+ };
+ 
+ actions!(database_client, [RunQuery]);
+@@ -674,8 +675,20 @@ impl Render for QueryView {
+         let page_size = self.session_page_size;
+         let non_wrappable_truncated = self.result.as_ref().is_some_and(|r| r.truncated);
+ 
++        let toolbar_settings = DatabaseClientSettings::get_global(cx).toolbar;
++        let ui_font_size = f32::from(ThemeSettings::get_global(cx).ui_font_size(cx));
++        let toolbar_rem_size = toolbar_settings.font_size.unwrap_or(ui_font_size);
++        let toolbar_icon_size = toolbar_settings
++            .icon_size
++            .map(|size| ui::bar_icon_size(size, toolbar_rem_size))
++            .unwrap_or(IconSize::Small);
++        let toolbar_padding = toolbar_settings
++            .padding
++            .map(|padding| px(ui::clamp_bar_padding(padding)));
++
+         let run_button = IconButton::new("run-query", IconName::PlayFilled)
+             .shape(IconButtonShape::Square)
++            .icon_size(toolbar_icon_size)
+             .icon_color(Color::Success)
+             .disabled(self.running)
+             .tooltip(Tooltip::text("Run Query (⌘↵)"))
+@@ -683,9 +696,12 @@ impl Render for QueryView {
+                 this.run(&RunQuery, window, cx);
+             }));
+ 
+-        let toolbar = h_flex()
++        let toolbar_content = h_flex()
+             .px_2()
+-            .py_1()
++            .map(|this| match toolbar_padding {
++                Some(padding) => this.py(padding),
++                None => this.py_1(),
++            })
+             .gap_2()
+             .flex_shrink_0()
+             .border_b_1()
+@@ -740,6 +756,14 @@ impl Render for QueryView {
+                 )
+             });
+ 
++        let toolbar = match toolbar_settings.font_size {
++            Some(font_size) => ui::utils::WithRemSize::new(px(font_size))
++                .w_full()
++                .child(toolbar_content)
++                .into_any_element(),
++            None => toolbar_content.into_any_element(),
++        };
++
+         let results_area: AnyElement = if let Some(error) = &self.error {
+             let error_msg = format!("Error: {}", error);
+             let banner = div()

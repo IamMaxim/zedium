@@ -1,0 +1,261 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 19:15:15 +0300
+Subject: [PATCH] database_client: Submit/Revert grid events + toolbar buttons
+ + gating
+
+---
+ crates/database_client/src/query_view.rs   | 68 ++++++++++++++++++
+ crates/database_client/src/results_grid.rs | 84 +++++++++++++++++++++-
+ 2 files changed, 150 insertions(+), 2 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index 7c4ad9e902..b1630a1dff 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -134,6 +134,12 @@ pub struct QueryView {
+     /// just ran; cleared by `run_script` since a whole-buffer run has no single
+     /// ordinal to show.
+     last_run_label: Option<SharedString>,
++    /// User-facing override that disables editing even when the grid's
++    /// result is otherwise editable (e.g. a read-only connection). Sourced
++    /// from `DatabaseClientSettings::read_only` once Plan 10 lands, and
++    /// pushed into the grid via `ResultsGrid::set_editability`.
++    #[allow(dead_code)] // Wired up by a later task of the editable-grid plan.
++    read_only: bool,
+     results_grid: Entity<ResultsGrid>,
+     /// Schema/table/column metadata backing `SqlCompletionProvider`. Retained
+     /// only so its `Rc` (cloned into the provider and the background sweep)
+@@ -218,6 +224,8 @@ impl QueryView {
+                     this.sort = sort.clone();
+                     this.dispatch_query(sql, 0, QueryIntent::Sort, cx);
+                 }
++                ResultsGridEvent::SubmitRequested => this.submit_edits(cx),
++                ResultsGridEvent::RevertRequested => this.revert_edits(cx),
+             },
+         );
+ 
+@@ -264,6 +272,7 @@ impl QueryView {
+             visible_editor_ratio: DEFAULT_EDITOR_RATIO,
+             label: None,
+             last_run_label: None,
++            read_only: false,
+             results_grid,
+             metadata,
+             workspace,
+@@ -420,6 +429,21 @@ impl QueryView {
+         self.dispatch_query(sql, self.page + 1, QueryIntent::LoadMore, cx);
+     }
+ 
++    /// Discards all pending grid edits without touching the database.
++    fn revert_edits(&mut self, cx: &mut Context<Self>) {
++        self.results_grid
++            .update(cx, |grid, cx| grid.clear_pending(cx));
++    }
++
++    /// Submits the grid's pending edits as a DML transaction.
++    ///
++    /// Generating the `UPDATE`/`INSERT`/`DELETE` statements and running them
++    /// inside a `BEGIN`/`COMMIT` (with rollback and a grid refresh on
++    /// failure) is Task 10 of the editable-grid plan; this is wired up now so
++    /// `ResultsGridEvent::SubmitRequested` has a handler, but is otherwise a
++    /// no-op placeholder until that task lands.
++    fn submit_edits(&mut self, _cx: &mut Context<Self>) {}
++
+     /// Runs `sql` for the given page. [`QueryIntent::LoadMore`] extends the
+     /// accumulated rows; the other intents replace the result set (page 0 of
+     /// a session).
+@@ -945,6 +969,10 @@ impl Render for QueryView {
+             .padding
+             .map(|padding| px(ui::clamp_bar_padding(padding)));
+ 
++        let grid_state = self.results_grid.read(cx);
++        let show_edit_controls = grid_state.is_editable() && !self.read_only;
++        let pending_count = grid_state.pending_changes().count();
++
+         let run_button = IconButton::new("run-query", IconName::PlayFilled)
+             .shape(IconButtonShape::Square)
+             .icon_size(toolbar_icon_size)
+@@ -1000,6 +1028,25 @@ impl Render for QueryView {
+                         .on_click(cx.listener(|this, _, _window, cx| this.load_more(cx))),
+                 )
+             })
++            .when(show_edit_controls, |toolbar| {
++                toolbar
++                    .child(
++                        Label::new(format!("{pending_count} pending"))
++                            .size(LabelSize::Small)
++                            .color(Color::Muted),
++                    )
++                    .child(
++                        Button::new("submit-edits", "Submit")
++                            .label_size(LabelSize::Small)
++                            .disabled(pending_count == 0)
++                            .on_click(cx.listener(|this, _, _window, cx| this.submit_edits(cx))),
++                    )
++                    .child(
++                        Button::new("revert-edits", "Revert")
++                            .label_size(LabelSize::Small)
++                            .on_click(cx.listener(|this, _, _window, cx| this.revert_edits(cx))),
++                    )
++            })
+             .when_some(self.elapsed_ms, |toolbar, elapsed| {
+                 toolbar.child(
+                     Label::new(format_duration(elapsed))
+@@ -2294,4 +2341,25 @@ mod tests {
+             );
+         });
+     }
++
++    #[gpui::test]
++    async fn revert_clears_pending_changes(cx: &mut TestAppContext) {
++        init_test(cx);
++        let view = open_test_view(cx).await;
++        view.update(cx, |view, cx| {
++            view.results_grid.update(cx, |grid, cx| {
++                let result = QueryResult {
++                    columns: vec!["id".into()],
++                    rows: vec![vec![Some("1".into())]],
++                    command_tag: None,
++                    truncated: false,
++                };
++                grid.set_result(Some(result), true, cx);
++                grid.pending_mut_for_test()
++                    .stage_update(0, 0, Some("9".into()));
++            });
++            view.revert_edits(cx);
++            assert!(view.results_grid.read(cx).pending_changes().is_empty());
++        });
++    }
+ }
+diff --git a/crates/database_client/src/results_grid.rs b/crates/database_client/src/results_grid.rs
+index 3c15c6f093..236bfd761d 100644
+--- a/crates/database_client/src/results_grid.rs
++++ b/crates/database_client/src/results_grid.rs
+@@ -35,7 +35,11 @@ actions!(
+         AddRow,
+         /// Toggles the pending delete-mark on the selected row (or drops it
+         /// from the pending inserts if it hasn't been committed yet).
+-        DeleteRow
++        DeleteRow,
++        /// Submits all pending grid edits as a DML transaction.
++        SubmitEdits,
++        /// Discards all pending grid edits.
++        RevertEdits
+     ]
+ );
+ 
+@@ -47,6 +51,8 @@ pub(crate) fn register_keybindings(cx: &mut App) {
+         KeyBinding::new("escape", CancelCellEdit, Some("DatabaseResultsGrid")),
+         KeyBinding::new("cmd-+", AddRow, Some("DatabaseResultsGrid")),
+         KeyBinding::new("cmd-backspace", DeleteRow, Some("DatabaseResultsGrid")),
++        KeyBinding::new("cmd-enter", SubmitEdits, Some("DatabaseResultsGrid")),
++        KeyBinding::new("ctrl-enter", SubmitEdits, Some("DatabaseResultsGrid")),
+     ]);
+ }
+ 
+@@ -151,6 +157,12 @@ pub enum ResultsGridEvent {
+     /// it verbatim, re-queries, then calls [`ResultsGrid::set_result`] +
+     /// [`ResultsGrid::set_sort`].
+     SortRequested(Option<ColumnSort>),
++    /// User asked to submit all pending edits as a DML transaction. Emitted
++    /// only when the grid is editable and has pending changes.
++    SubmitRequested,
++    /// User asked to discard all pending edits. Emitted only when the grid
++    /// is editable.
++    RevertRequested,
+ }
+ 
+ /// Uncommitted grid edits. `updates` keys are `(row, data-column)` into the
+@@ -379,10 +391,31 @@ impl ResultsGrid {
+         cx.notify();
+     }
+ 
+-    fn is_editable(&self) -> bool {
++    /// Requests submission of all pending edits. A no-op unless the grid is
++    /// editable and has pending changes to submit.
++    pub fn request_submit(&mut self, cx: &mut Context<Self>) {
++        if self.is_editable() && !self.pending.is_empty() {
++            cx.emit(ResultsGridEvent::SubmitRequested);
++        }
++    }
++
++    /// Requests discarding all pending edits. A no-op unless the grid is
++    /// editable.
++    pub fn request_revert(&mut self, cx: &mut Context<Self>) {
++        if self.is_editable() {
++            cx.emit(ResultsGridEvent::RevertRequested);
++        }
++    }
++
++    pub(crate) fn is_editable(&self) -> bool {
+         self.editability.is_some() && !self.read_only
+     }
+ 
++    #[cfg(test)]
++    pub(crate) fn pending_mut_for_test(&mut self) -> &mut PendingChanges {
++        &mut self.pending
++    }
++
+     /// Appends a blank pending-insert row (one `None` per data column) to
+     /// [`PendingChanges::inserts`]. A no-op when the grid isn't editable or
+     /// has no result to size the row against.
+@@ -887,6 +920,12 @@ impl Render for ResultsGrid {
+             .on_action(cx.listener(|this, _: &DeleteRow, _window, cx| {
+                 this.delete_selected_row(cx);
+             }))
++            .on_action(cx.listener(|this, _: &SubmitEdits, _window, cx| {
++                this.request_submit(cx);
++            }))
++            .on_action(cx.listener(|this, _: &RevertEdits, _window, cx| {
++                this.request_revert(cx);
++            }))
+             .child(
+                 div()
+                     .relative()
+@@ -1455,4 +1494,45 @@ mod tests {
+             );
+         });
+     }
++
++    #[gpui::test]
++    fn request_submit_and_revert_emit_events(cx: &mut gpui::TestAppContext) {
++        init_test(cx);
++        let (grid, cx) = cx.add_window_view(|_window, cx| {
++            let mut grid = ResultsGrid::new(cx);
++            let result = QueryResult {
++                columns: vec!["id".into()],
++                rows: vec![vec![Some("1".into())]],
++                command_tag: None,
++                truncated: false,
++            };
++            grid.set_result(Some(result), true, cx);
++            grid.editability = Some(crate::query_view::Editability {
++                schema: "public".into(),
++                table: "users".into(),
++                pk_cols: vec!["id".into()],
++                col_types: Default::default(),
++            });
++            grid.pending.stage_update(0, 0, Some("2".into()));
++            grid
++        });
++        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
++        let _sub = cx.update(|_window, cx| {
++            let events = events.clone();
++            cx.subscribe(
++                &grid,
++                move |_grid, event: &ResultsGridEvent, _cx| match event {
++                    ResultsGridEvent::SubmitRequested => events.borrow_mut().push("submit"),
++                    ResultsGridEvent::RevertRequested => events.borrow_mut().push("revert"),
++                    ResultsGridEvent::SortRequested(_) => {}
++                },
++            )
++        });
++        grid.update(cx, |grid, cx| {
++            grid.request_submit(cx);
++            grid.request_revert(cx);
++        });
++        cx.run_until_parked();
++        assert_eq!(*events.borrow(), vec!["submit", "revert"]);
++    }
+ }

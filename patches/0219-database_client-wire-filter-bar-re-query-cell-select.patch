@@ -1,0 +1,648 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 21:37:19 +0300
+Subject: [PATCH] database_client: wire filter bar re-query, cell-selection
+ value viewer, and toolbar toggle
+
+Adds a WHERE filter bar to the results grid (Apply/Clear + inline error),
+a QueryIntent::Filter re-query path in QueryView that wraps the base SQL
+in sql_paging::filter_subquery while preserving sort and reverting on a
+failed expression, and wires ResultsGridEvent::CellSelected into an
+embedded ValueViewer shown via a new toolbar toggle. Also adds a
+#[cfg(test)] value_for_test accessor on ValueViewer so the cell-selection
+wiring test can assert on it from query_view.
+---
+ crates/database_client/src/query_view.rs   | 268 ++++++++++++++++++++-
+ crates/database_client/src/results_grid.rs | 123 +++++++++-
+ crates/database_client/src/value_viewer.rs |   8 +
+ 3 files changed, 389 insertions(+), 10 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index b263738040..c2ea2992a6 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -44,6 +44,7 @@ use crate::{
+     persistence::QueryDb,
+     results_grid::{ColumnSort, PendingChanges, ResultsGrid, ResultsGridEvent},
+     settings::DatabaseClientSettings,
++    value_viewer::ValueViewer,
+ };
+ 
+ actions!(database_client, [RunStatement, RunScript]);
+@@ -91,6 +92,10 @@ enum QueryIntent {
+     /// Page 0 of the current session with a changed sort: replaces the rows;
+     /// a failure keeps the currently displayed ones.
+     Sort,
++    /// Page 0 with a changed WHERE filter: replaces the rows preserving sort;
++    /// a failure keeps the displayed rows and reverts `filter_expr` to the
++    /// filter those rows actually reflect (`applied_filter`).
++    Filter,
+ }
+ 
+ /// Row-highlight type key for the statement currently running.
+@@ -116,6 +121,13 @@ pub struct QueryView {
+     /// The sort confirmed by the last successful page — what the grid's rows
+     /// actually reflect. A failed sort re-query reverts `sort` to this.
+     applied_sort: Option<ColumnSort>,
++    /// Requested WHERE filter, stored verbatim from
++    /// `ResultsGridEvent::FilterRequested`. `None`/empty clears filtering.
++    filter_expr: Option<String>,
++    /// The filter confirmed by the last successful page — what the grid's
++    /// rows actually reflect. A failed filter re-query reverts `filter_expr`
++    /// to this, mirroring `applied_sort`.
++    applied_filter: Option<String>,
+     /// Page size captured when the current result session started (page 0);
+     /// Load more keeps using it so a settings change mid-session cannot skew
+     /// the `page * page_size` offsets against already-loaded rows.
+@@ -161,6 +173,10 @@ pub struct QueryView {
+     /// completes only once the transaction is resolved.
+     pending_commit_mode_switch: Option<CommitMode>,
+     results_grid: Entity<ResultsGrid>,
++    /// Read-only full-cell viewer, updated on `ResultsGridEvent::CellSelected`.
++    value_viewer: Entity<ValueViewer>,
++    /// Whether the value-viewer pane is shown alongside the results grid.
++    value_viewer_visible: bool,
+     /// Schema/table/column metadata backing `SqlCompletionProvider`, and read
+     /// by `finish_query` to compute `editability` for the just-run SQL. The
+     /// `Rc` is also cloned into the provider and the background sweep, so it
+@@ -230,9 +246,12 @@ impl QueryView {
+                     if this.running {
+                         return;
+                     }
+-                    let Some(sql) = this.last_sql.clone() else {
++                    if this.last_sql.is_none() {
+                         return;
+-                    };
++                    }
++                    // Filter-aware: if a filter is currently applied, keep
++                    // sorting/paging the filtered SQL, not the raw base.
++                    let sql = this.effective_base_sql();
+                     // Belt-and-braces: the grid only makes headers clickable when
+                     // sortable, but a stale event must never wrap unwrappable SQL.
+                     if !crate::sql_paging::wrappable(&sql) {
+@@ -244,9 +263,17 @@ impl QueryView {
+                     this.sort = sort.clone();
+                     this.dispatch_query(sql, 0, QueryIntent::Sort, cx);
+                 }
+-                // Wired up to fill the WHERE box by a later task of the
+-                // filter/value-viewer plan.
+-                ResultsGridEvent::FilterRequested(_) => {}
++                ResultsGridEvent::FilterRequested(expr) => {
++                    // Mirrors the SortRequested guard: a stale event from a
++                    // no-longer-current result must not re-query.
++                    if this.running {
++                        return;
++                    }
++                    this.apply_filter_request(expr.clone(), cx);
++                }
++                ResultsGridEvent::CellSelected { value, data_type } => {
++                    this.on_cell_selected(value.clone(), data_type.clone(), cx);
++                }
+                 ResultsGridEvent::SubmitRequested => this.submit_edits(cx),
+                 ResultsGridEvent::RevertRequested => this.revert_edits(cx),
+             },
+@@ -275,6 +302,8 @@ impl QueryView {
+             .detach();
+         }
+ 
++        results_grid.update(cx, |grid, cx| grid.ensure_filter_editor(window, cx));
++
+         QueryView {
+             editor,
+             connection,
+@@ -287,6 +316,8 @@ impl QueryView {
+             page: 0,
+             sort: None,
+             applied_sort: None,
++            filter_expr: None,
++            applied_filter: None,
+             session_page_size: crate::settings::DatabaseClientSettings::get_global(cx).page_size,
+             has_more: false,
+             last_sql: None,
+@@ -301,6 +332,8 @@ impl QueryView {
+             session: None,
+             pending_commit_mode_switch: None,
+             results_grid,
++            value_viewer: cx.new(|_| ValueViewer::new()),
++            value_viewer_visible: false,
+             metadata,
+             workspace,
+             workspace_id,
+@@ -351,9 +384,15 @@ impl QueryView {
+             return;
+         }
+ 
+-        // An edited statement invalidates a sort tied to the old result's columns.
++        // An edited statement invalidates a sort/filter tied to the old result's
++        // columns.
+         if self.last_sql.as_deref() != Some(sql.as_str()) {
+             self.sort = None;
++            self.filter_expr = None;
++            self.results_grid.update(cx, |grid, cx| {
++                grid.set_filter_text("", cx);
++                grid.set_filter_error(None, cx);
++            });
+         }
+         self.last_sql = Some(sql.clone());
+         self.dispatch_query(sql, 0, QueryIntent::Run, cx);
+@@ -450,12 +489,70 @@ impl QueryView {
+         if self.running || !self.has_more {
+             return;
+         }
+-        let Some(sql) = self.last_sql.clone() else {
++        if self.last_sql.is_none() {
+             return;
+-        };
++        }
++        // Filter-aware: keep paging the filtered SQL once a filter is applied.
++        let sql = self.effective_base_sql();
+         self.dispatch_query(sql, self.page + 1, QueryIntent::LoadMore, cx);
+     }
+ 
++    /// The base statement with the active WHERE filter applied (still
++    /// unwrapped by paging). `build_page_request` wraps this for the actual
++    /// fetch. Falls back to the plain base SQL when there is no filter, the
++    /// filter is blank, or the base isn't wrappable.
++    fn effective_base_sql(&self) -> String {
++        let base = self.last_sql.clone().unwrap_or_default();
++        match &self.filter_expr {
++            Some(expr) if !expr.trim().is_empty() && crate::sql_paging::wrappable(&base) => {
++                crate::sql_paging::filter_subquery(&base, expr)
++            }
++            _ => base,
++        }
++    }
++
++    /// Handles `ResultsGridEvent::FilterRequested`: validates the base SQL is
++    /// wrappable, stores the (possibly cleared) filter, syncs the filter bar,
++    /// and re-queries page 0 (preserving `sort`).
++    fn apply_filter_request(&mut self, expr: String, cx: &mut Context<Self>) {
++        let Some(base) = self.last_sql.clone() else {
++            return;
++        };
++        if !crate::sql_paging::wrappable(&base) {
++            self.results_grid.update(cx, |grid, cx| {
++                grid.set_filter_error(
++                    Some("Filtering needs a single wrappable SELECT.".into()),
++                    cx,
++                );
++            });
++            return;
++        }
++        let trimmed = expr.trim();
++        self.filter_expr = if trimmed.is_empty() {
++            None
++        } else {
++            Some(trimmed.to_string())
++        };
++        self.results_grid.update(cx, |grid, cx| {
++            grid.set_filter_text(&expr, cx);
++            grid.set_filter_error(None, cx);
++        });
++        let effective = self.effective_base_sql();
++        self.dispatch_query(effective, 0, QueryIntent::Filter, cx);
++    }
++
++    /// Handles `ResultsGridEvent::CellSelected`: pushes the selected cell's
++    /// value into the value viewer.
++    fn on_cell_selected(
++        &mut self,
++        value: Option<String>,
++        data_type: String,
++        cx: &mut Context<Self>,
++    ) {
++        self.value_viewer
++            .update(cx, |viewer, cx| viewer.set_value(value, data_type, cx));
++    }
++
+     fn set_commit_mode(&mut self, mode: CommitMode, cx: &mut Context<Self>) {
+         if self.commit_mode == mode {
+             return;
+@@ -999,6 +1096,7 @@ impl QueryView {
+                 }
+                 self.error = None;
+                 self.applied_sort = self.sort.clone();
++                self.applied_filter = self.filter_expr.clone();
+                 // The grid holds its own clone of the displayed result —
+                 // push the MERGED rows and the confirmed sort into it, or
+                 // the grid never shows new/sorted/appended rows and the
+@@ -1033,6 +1131,8 @@ impl QueryView {
+                         self.has_more = false;
+                         self.sort = None;
+                         self.applied_sort = None;
++                        self.filter_expr = None;
++                        self.applied_filter = None;
+                         self.editability = None;
+                         self.results_grid.update(cx, |grid, cx| {
+                             grid.set_result(None, false, cx);
+@@ -1045,6 +1145,16 @@ impl QueryView {
+                         // sticks and re-fails every subsequent Run.
+                         self.sort = self.applied_sort.clone();
+                     }
++                    QueryIntent::Filter => {
++                        // Keep the rows the user sees; revert the requested
++                        // filter to the one those rows reflect so a bad
++                        // expression never sticks.
++                        self.filter_expr = self.applied_filter.clone();
++                        let error = self.error.clone();
++                        self.results_grid.update(cx, |grid, cx| {
++                            grid.set_filter_error(error, cx);
++                        });
++                    }
+                 }
+             }
+         }
+@@ -1478,6 +1588,16 @@ impl Render for QueryView {
+                 this.run_script(&RunScript, window, cx);
+             }));
+ 
++        let value_viewer_toggle = IconButton::new("toggle-value-viewer", IconName::Eye)
++            .shape(IconButtonShape::Square)
++            .icon_size(toolbar_icon_size)
++            .toggle_state(self.value_viewer_visible)
++            .tooltip(Tooltip::text("Toggle value viewer"))
++            .on_click(cx.listener(|this, _, _window, cx| {
++                this.value_viewer_visible = !this.value_viewer_visible;
++                cx.notify();
++            }));
++
+         let toolbar_content = h_flex()
+             .px_2()
+             .map(|this| match toolbar_padding {
+@@ -1510,6 +1630,7 @@ impl Render for QueryView {
+             })
+             .child(Indicator::dot().color(status_color))
+             .child(export_menu)
++            .child(value_viewer_toggle)
+             .when_some(self.result.as_ref(), |toolbar, result| {
+                 toolbar.child(
+                     Label::new(row_info_text(result.rows.len(), self.has_more))
+@@ -1710,6 +1831,23 @@ impl Render for QueryView {
+                 .into_any_element()
+         };
+ 
++        let results_row = h_flex()
++            .flex_1()
++            .w_full()
++            .min_h_0()
++            .child(results_area)
++            .when(self.value_viewer_visible, |row| {
++                row.child(
++                    div()
++                        .w(px(320.))
++                        .flex_shrink_0()
++                        .h_full()
++                        .border_l_1()
++                        .border_color(cx.theme().colors().border)
++                        .child(self.value_viewer.clone()),
++                )
++            });
++
+         let separator_color = cx.theme().colors().border_variant;
+         let view_id = cx.entity_id();
+         let resize_handle = div()
+@@ -1778,7 +1916,7 @@ impl Render for QueryView {
+                     .flex()
+                     .flex_col()
+                     .child(toolbar)
+-                    .child(results_area),
++                    .child(results_row),
+             )
+     }
+ }
+@@ -3774,4 +3912,116 @@ mod tests {
+             "INSERT INTO \"exported_table\" (\"id\", \"name\") VALUES ('1', NULL);\n"
+         );
+     }
++
++    /// Builds a `QueryView` (no live connection) with `sql` recorded as
++    /// `last_sql` and a `QueryResult` for `columns` already installed via
++    /// `finish_query(QueryIntent::Run, ...)`, as if a fresh run had just
++    /// completed. `workspace` is `WeakEntity::new_invalid()` — nothing in the
++    /// filter/value-viewer paths needs a live workspace.
++    fn build_view_with_result(
++        cx: &mut TestAppContext,
++        sql: &str,
++        columns: &[&str],
++    ) -> Entity<QueryView> {
++        let (view, cx) = cx.add_window_view(|window, cx| {
++            QueryView::new(
++                Some(test_profile()),
++                None,
++                sql.to_string(),
++                WeakEntity::new_invalid(),
++                None,
++                window,
++                cx,
++            )
++        });
++        let result = QueryResult {
++            columns: columns.iter().map(|c| c.to_string()).collect(),
++            rows: vec![
++                columns
++                    .iter()
++                    .enumerate()
++                    .map(|(i, _)| Some(format!("v{i}")))
++                    .collect(),
++            ],
++            command_tag: None,
++            truncated: false,
++        };
++        view.update(cx, |view, cx| {
++            view.last_sql = Some(sql.to_string());
++            view.finish_query(QueryIntent::Run, true, 0, 500, Ok(result), 1, cx);
++        });
++        view
++    }
++
++    #[gpui::test]
++    fn filter_request_applies_where_and_preserves_sort_on_dispatch(cx: &mut TestAppContext) {
++        init_test(cx);
++        let view = build_view_with_result(cx, "select * from users", &["id", "name"]);
++        view.update(cx, |view, cx| {
++            view.applied_sort = Some(ColumnSort {
++                column: 0,
++                name: "id".into(),
++                direction: crate::sql_paging::SortDirection::Ascending,
++            });
++            view.sort = view.applied_sort.clone();
++            view.apply_filter_request("\"name\" IS NULL".to_string(), cx);
++        });
++        view.read_with(cx, |view, _| {
++            assert_eq!(view.filter_expr.as_deref(), Some("\"name\" IS NULL"));
++            // The base sql stays unfiltered; the effective sql the dispatch
++            // builds wraps it in the filter subquery, still wrappable + sorted.
++            let effective = view.effective_base_sql();
++            assert_eq!(
++                effective,
++                "select * from (\nselect * from users\n) zedium_filter where \"name\" IS NULL"
++            );
++            assert!(crate::sql_paging::wrappable(&effective));
++            assert_eq!(
++                view.sort, view.applied_sort,
++                "the sort must survive the filter re-query dispatch"
++            );
++        });
++    }
++
++    #[gpui::test]
++    fn failed_filter_reverts_to_applied_filter_and_keeps_rows(cx: &mut TestAppContext) {
++        init_test(cx);
++        let view = build_view_with_result(cx, "select * from users", &["id", "name"]);
++        view.update(cx, |view, cx| {
++            view.filter_expr = Some("bogus(".into());
++            view.applied_filter = None;
++            view.finish_query(
++                QueryIntent::Filter,
++                true,
++                0,
++                10,
++                Err(anyhow::anyhow!("syntax error at or near \"(\"")),
++                5,
++                cx,
++            );
++        });
++        view.read_with(cx, |view, _| {
++            assert!(
++                view.error
++                    .as_deref()
++                    .is_some_and(|e| e.contains("syntax error"))
++            );
++            assert_eq!(view.filter_expr, None, "failed filter reverts to applied");
++            assert!(view.result.is_some(), "prior rows are kept");
++        });
++    }
++
++    #[gpui::test]
++    fn cell_selected_event_populates_value_viewer(cx: &mut TestAppContext) {
++        init_test(cx);
++        let view = build_view_with_result(cx, "select * from users", &["id", "name"]);
++        view.update(cx, |view, cx| {
++            view.on_cell_selected(Some("hello".into()), "text".into(), cx);
++        });
++        view.read_with(cx, |view, cx| {
++            view.value_viewer.read_with(cx, |viewer, _| {
++                assert_eq!(viewer.value_for_test(), Some("hello".to_string()));
++            });
++        });
++    }
+ }
+diff --git a/crates/database_client/src/results_grid.rs b/crates/database_client/src/results_grid.rs
+index 5cde315425..381fbd7ca9 100644
+--- a/crates/database_client/src/results_grid.rs
++++ b/crates/database_client/src/results_grid.rs
+@@ -187,6 +187,12 @@ pub enum ResultsGridEvent {
+     /// User asked to discard all pending edits. Emitted only when the grid
+     /// is editable.
+     RevertRequested,
++    /// A cell was selected (or the selection cleared). The owner pushes the
++    /// value + data type into its `ValueViewer`.
++    CellSelected {
++        value: Option<String>,
++        data_type: String,
++    },
+ }
+ 
+ /// Uncommitted grid edits. `updates` keys are `(row, data-column)` into the
+@@ -245,6 +251,11 @@ pub struct ResultsGrid {
+     columns_state: Option<Entity<ResizableColumnsState>>,
+     result: Option<QueryResult>,
+     numeric_columns: Vec<bool>,
++    /// Postgres data type per data column (by index), used to pick the
++    /// `ValueViewer`'s display format for a selected cell (pretty JSON, hex
++    /// for bytea, …). Empty when the caller hasn't supplied types yet — the
++    /// viewer then falls back to plain text / JSON auto-detection.
++    column_types: Vec<String>,
+     /// (row index, data-column index) — the gutter is not selectable.
+     selected_cell: Option<(usize, usize)>,
+     sortable: bool,
+@@ -266,6 +277,17 @@ pub struct ResultsGrid {
+     /// overlay editor)`. `row` indexes into the rendered row list (originals
+     /// followed by pending inserts), matching `original_row_count`'s split.
+     editing_cell: Option<(usize, usize, Entity<Editor>)>,
++    /// The single-line WHERE-expression editor backing the filter bar.
++    /// Lazily created by [`Self::ensure_filter_editor`] (needs a `Window`),
++    /// so it starts `None` until the owner's first render.
++    filter_editor: Option<Entity<Editor>>,
++    /// A filter-editor text sync requested by [`Self::set_filter_text`]
++    /// before a `Window` was available (e.g. from the owner's event
++    /// subscription); applied to `filter_editor` on the next render.
++    pending_filter_text: Option<String>,
++    /// Postgres error from the last failed filter re-query, shown under the
++    /// filter bar. Cleared by a fresh (non-empty) filter request.
++    filter_error: Option<String>,
+     /// Test-only: the last overlay editor built by [`Self::begin_cell_edit`],
+     /// kept alive so [`Self::begin_cell_edit_at`] can start a further edit
+     /// session without a live `Window` — plain `Entity::update` (used by
+@@ -284,6 +306,7 @@ impl ResultsGrid {
+             columns_state: None,
+             result: None,
+             numeric_columns: Vec::new(),
++            column_types: Vec::new(),
+             selected_cell: None,
+             sortable: false,
+             sort: None,
+@@ -293,11 +316,22 @@ impl ResultsGrid {
+             read_only: false,
+             original_row_count: 0,
+             editing_cell: None,
++            filter_editor: None,
++            pending_filter_text: None,
++            filter_error: None,
+             #[cfg(test)]
+             last_editor_for_tests: None,
+         }
+     }
+ 
++    /// Sets the Postgres data type shown per data column, used to format a
++    /// selected cell's value in the `ValueViewer`. Pass an empty `Vec` (or
++    /// leave unset) to fall back to plain text / JSON auto-detection.
++    pub fn set_column_types(&mut self, types: Vec<String>, cx: &mut Context<Self>) {
++        self.column_types = types;
++        cx.notify();
++    }
++
+     /// Replaces the displayed result and recomputes numeric columns. When the
+     /// column list is unchanged (Load more / sort page of the same session),
+     /// the existing column-widths state — including the user's manual resizes —
+@@ -609,11 +643,65 @@ impl ResultsGrid {
+ 
+     fn select_cell(&mut self, row: usize, col: usize, window: &mut Window, cx: &mut Context<Self>) {
+         self.selected_cell = Some((row, col));
++        let value = self
++            .result
++            .as_ref()
++            .and_then(|result| result.rows.get(row))
++            .and_then(|row| row.get(col))
++            .cloned()
++            .flatten();
++        let data_type = self.column_types.get(col).cloned().unwrap_or_default();
++        cx.emit(ResultsGridEvent::CellSelected { value, data_type });
+         let focus_handle = self.interaction.read(cx).focus_handle.clone();
+         window.focus(&focus_handle, cx);
+         cx.notify();
+     }
+ 
++    /// Lazily creates the single-line WHERE-expression editor backing the
++    /// filter bar. A no-op once it already exists.
++    pub fn ensure_filter_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
++        if self.filter_editor.is_none() {
++            let editor = cx.new(|cx| {
++                let mut editor = Editor::single_line(window, cx);
++                editor.set_placeholder_text(
++                    "WHERE expression (e.g. status = 'active')",
++                    window,
++                    cx,
++                );
++                editor
++            });
++            self.filter_editor = Some(editor);
++        }
++    }
++
++    /// Requests that the filter editor's text be set to `text`. Setting an
++    /// `Editor`'s text needs a `Window`, which isn't available from the
++    /// owner's event subscription (only a plain `Context`), so the request is
++    /// staged here and applied on the next render.
++    pub fn set_filter_text(&mut self, text: &str, cx: &mut Context<Self>) {
++        self.pending_filter_text = Some(text.to_string());
++        cx.notify();
++    }
++
++    pub fn set_filter_error(&mut self, error: Option<String>, cx: &mut Context<Self>) {
++        self.filter_error = error;
++        cx.notify();
++    }
++
++    /// Reads the filter editor's current text and requests a re-query.
++    fn submit_filter(&mut self, cx: &mut Context<Self>) {
++        let Some(editor) = &self.filter_editor else {
++            return;
++        };
++        let text = editor.read(cx).text(cx);
++        cx.emit(ResultsGridEvent::FilterRequested(text));
++    }
++
++    /// Clears the filter editor and requests the filter be dropped.
++    fn clear_filter(&mut self, cx: &mut Context<Self>) {
++        cx.emit(ResultsGridEvent::FilterRequested(String::new()));
++    }
++
+     fn copy_selected_cell(&mut self, cx: &mut Context<Self>) {
+         let Some((row, col)) = self.selected_cell else {
+             return;
+@@ -823,7 +911,38 @@ impl ResultsGrid {
+ }
+ 
+ impl Render for ResultsGrid {
+-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
++    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
++        self.ensure_filter_editor(window, cx);
++        if let Some(text) = self.pending_filter_text.take() {
++            if let Some(editor) = &self.filter_editor {
++                editor.update(cx, |editor, cx| editor.set_text(text, window, cx));
++            }
++        }
++        let filter_bar = self.filter_editor.clone().map(|filter_editor| {
++            h_flex()
++                .w_full()
++                .flex_shrink_0()
++                .gap_2()
++                .px_2()
++                .py_1()
++                .border_b_1()
++                .border_color(cx.theme().colors().border)
++                .child(div().flex_1().min_w_0().child(filter_editor))
++                .child(
++                    Button::new("apply-filter", "Apply")
++                        .label_size(LabelSize::Small)
++                        .on_click(cx.listener(|this, _, _window, cx| this.submit_filter(cx))),
++                )
++                .child(
++                    Button::new("clear-filter", "Clear")
++                        .label_size(LabelSize::Small)
++                        .on_click(cx.listener(|this, _, _window, cx| this.clear_filter(cx))),
++                )
++                .when_some(self.filter_error.clone(), |bar, error| {
++                    bar.child(Label::new(error).size(LabelSize::Small).color(Color::Error))
++                })
++        });
++
+         let (Some(result), Some(columns_state)) = (&self.result, &self.columns_state) else {
+             return div().size_full().into_any_element();
+         };
+@@ -1020,6 +1139,7 @@ impl Render for ResultsGrid {
+             .on_action(cx.listener(|this, _: &RevertEdits, _window, cx| {
+                 this.request_revert(cx);
+             }))
++            .children(filter_bar)
+             .child(
+                 div()
+                     .relative()
+@@ -1641,6 +1761,7 @@ mod tests {
+                     ResultsGridEvent::RevertRequested => events.borrow_mut().push("revert"),
+                     ResultsGridEvent::SortRequested(_) => {}
+                     ResultsGridEvent::FilterRequested(_) => {}
++                    ResultsGridEvent::CellSelected { .. } => {}
+                 },
+             )
+         });
+diff --git a/crates/database_client/src/value_viewer.rs b/crates/database_client/src/value_viewer.rs
+index 104cc813d5..752b58f044 100644
+--- a/crates/database_client/src/value_viewer.rs
++++ b/crates/database_client/src/value_viewer.rs
+@@ -54,6 +54,14 @@ impl ValueViewer {
+             self.value.clone().unwrap_or_default(),
+         ));
+     }
++
++    /// Test-only: `value` is private so other modules' tests (`query_view`'s
++    /// `CellSelected` wiring test) can only assert on it through this
++    /// accessor.
++    #[cfg(test)]
++    pub(crate) fn value_for_test(&self) -> Option<String> {
++        self.value.clone()
++    }
+ }
+ 
+ impl Default for ValueViewer {

@@ -1,0 +1,217 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 18:18:52 +0300
+Subject: [PATCH] database_client: highlight the running statement and label it
+
+---
+ crates/database_client/src/query_view.rs | 131 ++++++++++++++++++++++-
+ 1 file changed, 126 insertions(+), 5 deletions(-)
+
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index de58a9eada..97915e378b 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -2,7 +2,9 @@ use std::cell::RefCell;
+ use std::rc::Rc;
+ use std::time::Instant;
+ 
+-use editor::{Bias, CompletionProvider, Editor, EditorElement, EditorEvent, EditorStyle};
++use editor::{
++    Bias, CompletionProvider, Editor, EditorElement, EditorEvent, EditorStyle, RowHighlightOptions,
++};
+ use gpui::{
+     App, Context, DragMoveEvent, Entity, EventEmitter, FocusHandle, Focusable, IntoElement,
+     KeyBinding, ParentElement, Render, SharedString, Styled, Subscription, Task, TextStyle,
+@@ -86,6 +88,9 @@ enum QueryIntent {
+     Sort,
+ }
+ 
++/// Row-highlight type key for the statement currently running.
++enum ActiveStatement {}
++
+ pub struct QueryView {
+     editor: Entity<Editor>,
+     connection: Option<Connection>,
+@@ -123,6 +128,10 @@ pub struct QueryView {
+     visible_editor_ratio: f32,
+     /// Optional short label shown in the tab title (e.g. the table name for double-click opens).
+     label: Option<SharedString>,
++    /// Set by `run_statement` to a `"stmt N/M"` label naming the statement that
++    /// just ran; cleared by `run_script` since a whole-buffer run has no single
++    /// ordinal to show.
++    last_run_label: Option<SharedString>,
+     results_grid: Entity<ResultsGrid>,
+     /// Schema/table/column metadata backing `SqlCompletionProvider`. Retained
+     /// only so its `Rc` (cloned into the provider and the background sweep)
+@@ -252,6 +261,7 @@ impl QueryView {
+             editor_ratio: DEFAULT_EDITOR_RATIO,
+             visible_editor_ratio: DEFAULT_EDITOR_RATIO,
+             label: None,
++            last_run_label: None,
+             results_grid,
+             metadata,
+             workspace,
+@@ -314,6 +324,8 @@ impl QueryView {
+     /// Runs the entire editor buffer as one batch (today's whole-buffer behavior).
+     fn run_script(&mut self, _: &RunScript, _window: &mut Window, cx: &mut Context<Self>) {
+         let sql = self.editor.read(cx).text(cx);
++        // A whole-buffer run has no single statement ordinal to show.
++        self.last_run_label = None;
+         self.run_sql(sql, cx);
+     }
+ 
+@@ -328,20 +340,74 @@ impl QueryView {
+                 .newest::<editor::MultiBufferOffset>(&snapshot)
+         });
+         let range = selection.range();
+-        let sql = if range.start.0 != range.end.0 {
++        let statement_range = if range.start.0 != range.end.0 {
+             // A non-empty selection runs verbatim (DataGrip "run selection").
+-            text.get(range.start.0..range.end.0).map(str::to_string)
++            Some(crate::sql_statements::StatementRange {
++                start: range.start.0,
++                end: range.end.0,
++            })
+         } else {
+             // A collapsed caret runs the enclosing statement.
+             crate::sql_statements::statement_at(&text, selection.head().0)
+-                .and_then(|range| text.get(range.start..range.end).map(str::to_string))
+         };
+-        let Some(sql) = sql else {
++        let Some(statement_range) = statement_range else {
++            return;
++        };
++        let Some(sql) = text
++            .get(statement_range.start..statement_range.end)
++            .map(str::to_string)
++        else {
+             return;
+         };
++        self.highlight_active_statement(statement_range, cx);
+         self.run_sql(sql, cx);
+     }
+ 
++    /// Paints a subtle gutter+line highlight over the statement currently running,
++    /// and records a "stmt N/M" toolbar label. A raw (non-statement-aligned)
++    /// selection doesn't correspond to a single split statement, so it gets no
++    /// ordinal label.
++    fn highlight_active_statement(
++        &mut self,
++        range: crate::sql_statements::StatementRange,
++        cx: &mut Context<Self>,
++    ) {
++        let text = self.editor.read(cx).text(cx);
++        let statements = crate::sql_statements::split(&text);
++        let position = statements
++            .iter()
++            .position(|statement| statement.start == range.start && statement.end == range.end);
++        self.last_run_label = position
++            .map(|index| SharedString::from(format!("stmt {}/{}", index + 1, statements.len())));
++        let color = cx
++            .theme()
++            .colors()
++            .editor_document_highlight_read_background;
++        self.editor.update(cx, |editor, cx| {
++            editor.clear_row_highlights::<ActiveStatement>();
++            let snapshot = editor.buffer().read(cx).snapshot(cx);
++            let anchors = snapshot.anchor_after(editor::MultiBufferOffset(range.start))
++                ..snapshot.anchor_before(editor::MultiBufferOffset(range.end));
++            editor.highlight_rows::<ActiveStatement>(
++                anchors,
++                color,
++                RowHighlightOptions {
++                    include_gutter: true,
++                    autoscroll: false,
++                },
++                cx,
++            );
++        });
++    }
++
++    /// Clears the running-statement row highlight once its query settles
++    /// (success or error).
++    fn clear_active_statement(&mut self, cx: &mut Context<Self>) {
++        self.editor.update(cx, |editor, _cx| {
++            editor.clear_row_highlights::<ActiveStatement>()
++        });
++    }
++
+     fn load_more(&mut self, cx: &mut Context<Self>) {
+         if self.running || !self.has_more {
+             return;
+@@ -511,6 +577,9 @@ impl QueryView {
+                 }
+             }
+         }
++        // The query settled (either way) — the active-statement highlight no
++        // longer reflects anything running.
++        self.clear_active_statement(cx);
+         cx.emit(QueryViewEvent::ResultsChanged);
+         cx.notify();
+     }
+@@ -936,6 +1005,9 @@ impl Render for QueryView {
+                         .color(Color::Muted),
+                 )
+             })
++            .when_some(self.last_run_label.clone(), |toolbar, label| {
++                toolbar.child(Label::new(label).size(LabelSize::Small).color(Color::Muted))
++            })
+             .when(non_wrappable_truncated, |toolbar| {
+                 toolbar.child(
+                     Label::new(format!("(showing first {page_size})"))
+@@ -1534,6 +1606,55 @@ mod tests {
+         });
+     }
+ 
++    #[gpui::test]
++    async fn run_statement_records_which_statement_ran(cx: &mut TestAppContext) {
++        init_test(cx);
++        let fs = fs::FakeFs::new(cx.executor());
++        let project = project::Project::test(fs, [], cx).await;
++        let (workspace, cx) =
++            cx.add_window_view(|window, cx| Workspace::test_new(project.clone(), window, cx));
++        workspace.update_in(cx, |workspace, window, cx| {
++            QueryView::open(
++                workspace,
++                Some(test_profile()),
++                None,
++                "select 1;\nselect 2;\nselect 3".to_string(),
++                None,
++                window,
++                cx,
++            );
++        });
++        let view = workspace.update(cx, |workspace, cx| {
++            workspace
++                .items_of_type::<QueryView>(cx)
++                .next()
++                .expect("QueryView tab should exist")
++        });
++
++        // Caret in the 2nd of 3 statements.
++        view.update_in(cx, |view, window, cx| {
++            view.editor.update(cx, |editor, cx| {
++                editor.change_selections(Default::default(), window, cx, |selections| {
++                    selections.select_ranges([
++                        editor::MultiBufferOffset(13)..editor::MultiBufferOffset(13)
++                    ]);
++                });
++            });
++            view.run_statement(&RunStatement, window, cx);
++        });
++        view.read_with(cx, |view, _| {
++            assert_eq!(view.last_run_label.as_deref(), Some("stmt 2/3"));
++        });
++
++        // Running the whole script clears the per-statement label.
++        view.update_in(cx, |view, window, cx| {
++            view.run_script(&RunScript, window, cx)
++        });
++        view.read_with(cx, |view, _| {
++            assert_eq!(view.last_run_label, None);
++        });
++    }
++
+     // Regression test for the QueryView run-keybinding shadowing bug: the SQL
+     // editor is a full-mode `Editor`, whose default keymap binds
+     // `cmd-enter -> editor::NewlineBelow` at the `Editor && mode == full`

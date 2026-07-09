@@ -1,0 +1,118 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 2 Jul 2026 10:35:30 +0300
+Subject: [PATCH] feat(db): carry column type and primary-key flag through tree
+ nodes
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MQKuAnEREjToPLedE7KAqP
+---
+ crates/database_client/src/tree.rs | 46 ++++++++++++++++++++++++++++++
+ 1 file changed, 46 insertions(+)
+
+diff --git a/crates/database_client/src/tree.rs b/crates/database_client/src/tree.rs
+index 8fd108bf86..b2cf7f8c79 100644
+--- a/crates/database_client/src/tree.rs
++++ b/crates/database_client/src/tree.rs
+@@ -22,6 +22,10 @@ pub struct TreeNode {
+     pub expanded: bool,
+     pub has_children: bool,
+     pub relation_kind: Option<RelationKind>,
++    /// For `NodeKind::Column`: the raw Postgres type name (e.g. "integer").
++    pub column_data_type: Option<String>,
++    /// For `NodeKind::Column`: whether the column is part of the primary key.
++    pub is_primary_key: bool,
+ }
+ 
+ struct ConnectionEntry {
+@@ -59,6 +63,8 @@ fn empty_node(parent_id: &str, depth: usize, what: &str) -> TreeNode {
+         expanded: false,
+         has_children: false,
+         relation_kind: None,
++        column_data_type: None,
++        is_primary_key: false,
+     }
+ }
+ 
+@@ -89,6 +95,8 @@ impl TreeState {
+                 expanded,
+                 has_children: loaded_has_children(self.databases.get(&conn.id)),
+                 relation_kind: None,
++                column_data_type: None,
++                is_primary_key: false,
+             });
+             if expanded {
+                 match self.databases.get(&conn.id) {
+@@ -118,6 +126,8 @@ impl TreeState {
+             expanded,
+             has_children: loaded_has_children(self.schemas.get(&db_id)),
+             relation_kind: None,
++            column_data_type: None,
++            is_primary_key: false,
+         });
+         if expanded {
+             match self.schemas.get(&db_id) {
+@@ -145,6 +155,8 @@ impl TreeState {
+             expanded,
+             has_children: loaded_has_children(self.relations.get(&schema_id)),
+             relation_kind: None,
++            column_data_type: None,
++            is_primary_key: false,
+         });
+         if expanded {
+             match self.relations.get(&schema_id) {
+@@ -172,6 +184,8 @@ impl TreeState {
+             expanded,
+             has_children: loaded_has_children(self.columns.get(&rel_id)),
+             relation_kind: Some(rel.kind),
++            column_data_type: None,
++            is_primary_key: false,
+         });
+         if expanded {
+             match self.columns.get(&rel_id) {
+@@ -189,6 +203,8 @@ impl TreeState {
+                             expanded: false,
+                             has_children: false,
+                             relation_kind: None,
++                            column_data_type: Some(col.data_type.clone()),
++                            is_primary_key: col.is_primary_key,
+                         });
+                     }
+                 }
+@@ -362,6 +378,36 @@ mod tests {
+         assert!(!nodes[4].has_children);
+     }
+ 
++    #[test]
++    fn column_nodes_carry_type_and_primary_key() {
++        let mut t = loaded_tree();
++        t.toggle("p1/db1/public/users");
++        t.set_columns(
++            "p1/db1/public/users",
++            vec![
++                ColumnInfo {
++                    name: "id".into(),
++                    data_type: "integer".into(),
++                    is_primary_key: true,
++                },
++                ColumnInfo {
++                    name: "email".into(),
++                    data_type: "text".into(),
++                    is_primary_key: false,
++                },
++            ],
++        );
++        let nodes = t.visible_nodes();
++        assert_eq!(nodes[4].column_data_type.as_deref(), Some("integer"));
++        assert!(nodes[4].is_primary_key);
++        assert_eq!(nodes[5].column_data_type.as_deref(), Some("text"));
++        assert!(!nodes[5].is_primary_key);
++        assert!(
++            nodes[0].column_data_type.is_none(),
++            "non-column nodes carry no type"
++        );
++    }
++
+     #[test]
+     fn expanding_then_collapsing_hides_children() {
+         let mut t = tree_one_conn();

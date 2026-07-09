@@ -1,0 +1,284 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 17:12:48 +0300
+Subject: [PATCH] database_client: add MetadataCache and
+ Connection::load_metadata
+
+---
+ crates/database_client/src/connection.rs      |   1 +
+ .../src/connection/metadata_cache.rs          | 255 ++++++++++++++++++
+ 2 files changed, 256 insertions(+)
+ create mode 100644 crates/database_client/src/connection/metadata_cache.rs
+
+diff --git a/crates/database_client/src/connection.rs b/crates/database_client/src/connection.rs
+index 5235647437..c875fe5d3c 100644
+--- a/crates/database_client/src/connection.rs
++++ b/crates/database_client/src/connection.rs
+@@ -1,5 +1,6 @@
+ pub mod client;
+ pub mod ddl;
+ pub mod introspect;
++pub mod metadata_cache;
+ pub mod profile;
+ pub mod store;
+diff --git a/crates/database_client/src/connection/metadata_cache.rs b/crates/database_client/src/connection/metadata_cache.rs
+new file mode 100644
+index 0000000000..4dd28b19fe
+--- /dev/null
++++ b/crates/database_client/src/connection/metadata_cache.rs
+@@ -0,0 +1,255 @@
++use crate::connection::client::{Connection, QueryResult};
++use crate::connection::introspect::RelationKind;
++use anyhow::Result;
++use gpui::{App, AppContext, Task};
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct ColumnMeta {
++    pub name: String,
++    pub data_type: String,
++    // Populated by the sweep so Plan 5's `detect_editability` can find PK columns
++    // without a second round-trip. False when the relation has no PK.
++    pub is_primary_key: bool,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct RelationMeta {
++    pub schema: String,
++    pub name: String,
++    pub kind: RelationKind,
++    pub columns: Vec<ColumnMeta>,
++}
++
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct MetadataCache {
++    pub relations: Vec<RelationMeta>,
++}
++
++fn cell(r: &QueryResult, row: &[Option<String>], name: &str) -> String {
++    r.columns
++        .iter()
++        .position(|c| c == name)
++        .and_then(|i| row.get(i).cloned().flatten())
++        .unwrap_or_default()
++}
++
++/// Groups the flat schema/table/column sweep into per-relation metadata.
++/// Rows are ordered by (schema, table, ordinal_position), so consecutive
++/// rows of the same relation extend the last entry.
++pub(crate) fn parse_metadata(r: &QueryResult) -> MetadataCache {
++    let mut relations: Vec<RelationMeta> = Vec::new();
++    for row in &r.rows {
++        let schema = cell(r, row, "table_schema");
++        let name = cell(r, row, "table_name");
++        let kind = if cell(r, row, "table_type") == "VIEW" {
++            RelationKind::View
++        } else {
++            RelationKind::Table
++        };
++        let column = ColumnMeta {
++            name: cell(r, row, "column_name"),
++            data_type: cell(r, row, "data_type"),
++            is_primary_key: cell(r, row, "is_primary_key") == "YES",
++        };
++        match relations.last_mut() {
++            Some(last) if last.schema == schema && last.name == name => {
++                last.columns.push(column);
++            }
++            _ => relations.push(RelationMeta {
++                schema,
++                name,
++                kind,
++                columns: vec![column],
++            }),
++        }
++    }
++    MetadataCache { relations }
++}
++
++impl Connection {
++    /// One cheap sweep of user-schema tables/views and their columns, feeding
++    /// autocomplete. Independent of the tree's lazy loading.
++    #[allow(dead_code)] // Wired up by Plan 3's caller in a later task.
++    pub fn load_metadata(&self, cx: &App) -> Task<Result<MetadataCache>> {
++        let sql = "select c.table_schema, c.table_name, t.table_type, \
++                          c.column_name, c.data_type, \
++                          case when pk.column_name is not null then 'YES' else 'NO' end \
++                              as is_primary_key \
++                   from information_schema.columns c \
++                   join information_schema.tables t \
++                     on t.table_schema = c.table_schema \
++                    and t.table_name = c.table_name \
++                   left join ( \
++                       select kcu.table_schema, kcu.table_name, kcu.column_name \
++                       from information_schema.table_constraints tc \
++                       join information_schema.key_column_usage kcu \
++                         on kcu.constraint_schema = tc.constraint_schema \
++                        and kcu.constraint_name = tc.constraint_name \
++                       where tc.constraint_type = 'PRIMARY KEY' \
++                   ) pk \
++                     on pk.table_schema = c.table_schema \
++                    and pk.table_name = c.table_name \
++                    and pk.column_name = c.column_name \
++                   where c.table_schema not like 'pg\\_%' \
++                     and c.table_schema <> 'information_schema' \
++                   order by c.table_schema, c.table_name, c.ordinal_position"
++            .to_string();
++        let task = self.execute(sql, 100_000, cx);
++        cx.background_spawn(async move { Ok(parse_metadata(&task.await?)) })
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use crate::connection::client::QueryResult;
++    use crate::connection::introspect::RelationKind;
++
++    fn qr(columns: &[&str], rows: Vec<Vec<Option<&str>>>) -> QueryResult {
++        QueryResult {
++            columns: columns.iter().map(|s| s.to_string()).collect(),
++            rows: rows
++                .into_iter()
++                .map(|r| r.into_iter().map(|c| c.map(String::from)).collect())
++                .collect(),
++            command_tag: None,
++            truncated: false,
++        }
++    }
++
++    #[test]
++    fn groups_rows_into_relations_preserving_column_order() {
++        let r = qr(
++            &[
++                "table_schema",
++                "table_name",
++                "table_type",
++                "column_name",
++                "data_type",
++                "is_primary_key",
++            ],
++            vec![
++                vec![
++                    Some("public"),
++                    Some("users"),
++                    Some("BASE TABLE"),
++                    Some("id"),
++                    Some("integer"),
++                    Some("YES"),
++                ],
++                vec![
++                    Some("public"),
++                    Some("users"),
++                    Some("BASE TABLE"),
++                    Some("email"),
++                    Some("text"),
++                    Some("NO"),
++                ],
++                vec![
++                    Some("public"),
++                    Some("v_users"),
++                    Some("VIEW"),
++                    Some("id"),
++                    Some("integer"),
++                    Some("NO"),
++                ],
++            ],
++        );
++        let cache = parse_metadata(&r);
++        assert_eq!(cache.relations.len(), 2);
++        assert_eq!(cache.relations[0].schema, "public");
++        assert_eq!(cache.relations[0].name, "users");
++        assert_eq!(cache.relations[0].kind, RelationKind::Table);
++        let names: Vec<_> = cache.relations[0]
++            .columns
++            .iter()
++            .map(|c| c.name.as_str())
++            .collect();
++        assert_eq!(names, vec!["id", "email"]);
++        assert_eq!(cache.relations[0].columns[1].data_type, "text");
++        assert!(
++            cache.relations[0].columns[0].is_primary_key,
++            "users.id is PK"
++        );
++        assert!(
++            !cache.relations[0].columns[1].is_primary_key,
++            "users.email is not PK"
++        );
++        assert_eq!(cache.relations[1].name, "v_users");
++        assert_eq!(cache.relations[1].kind, RelationKind::View);
++    }
++
++    #[test]
++    fn same_table_name_in_two_schemas_stays_distinct() {
++        let r = qr(
++            &[
++                "table_schema",
++                "table_name",
++                "table_type",
++                "column_name",
++                "data_type",
++            ],
++            vec![
++                vec![
++                    Some("public"),
++                    Some("t"),
++                    Some("BASE TABLE"),
++                    Some("a"),
++                    Some("integer"),
++                ],
++                vec![
++                    Some("app"),
++                    Some("t"),
++                    Some("BASE TABLE"),
++                    Some("b"),
++                    Some("integer"),
++                ],
++            ],
++        );
++        let cache = parse_metadata(&r);
++        assert_eq!(cache.relations.len(), 2);
++        assert_eq!(cache.relations[0].schema, "public");
++        assert_eq!(cache.relations[1].schema, "app");
++    }
++
++    // Live introspection test against a real Postgres. Run with:
++    // DATABASE_CLIENT_TEST_PG_URL=postgres://postgres:secret@localhost:55432/testdb?sslmode=disable \
++    //   cargo test -p database_client --lib -- --ignored live_
++    #[cfg(test)]
++    async fn live_connection(cx: &mut gpui::TestAppContext) -> Option<Connection> {
++        use std::str::FromStr as _;
++        let url = std::env::var("DATABASE_CLIENT_TEST_PG_URL").ok()?;
++        cx.executor().allow_parking();
++        cx.update(|cx| gpui_tokio::init(cx));
++        let profile = crate::connection::profile::ConnectionProfile::from_url(&url)?;
++        let password = tokio_postgres::Config::from_str(&url).ok().and_then(|cfg| {
++            cfg.get_password()
++                .and_then(|p| String::from_utf8(p.to_vec()).ok())
++        });
++        cx.update(|cx| Connection::connect(profile, password, cx))
++            .await
++            .ok()
++    }
++
++    #[gpui::test]
++    #[ignore]
++    async fn live_load_metadata_reports_users_columns_and_pk(cx: &mut gpui::TestAppContext) {
++        let Some(conn) = live_connection(cx).await else {
++            return;
++        };
++        let cache = cx.update(|cx| conn.load_metadata(cx)).await.unwrap();
++        let users = cache
++            .relations
++            .iter()
++            .find(|r| r.schema == "public" && r.name == "users")
++            .expect("expected public.users relation in metadata cache");
++        let names: Vec<_> = users.columns.iter().map(|c| c.name.as_str()).collect();
++        assert_eq!(names, vec!["id", "name", "email"]);
++        assert!(
++            users.columns[0].is_primary_key,
++            "users.id is the seeded PRIMARY KEY"
++        );
++        assert!(!users.columns[1].is_primary_key);
++        assert!(!users.columns[2].is_primary_key);
++    }
++}

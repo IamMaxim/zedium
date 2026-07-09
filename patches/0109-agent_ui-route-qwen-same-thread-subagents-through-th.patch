@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Wed, 1 Jul 2026 02:10:14 +0300
+Subject: [PATCH] agent_ui: route qwen same-thread subagents through the
+ unified card
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Deletes render_subagent_group — qwen subagents now render through the
+exact same render_subagent_card function native uses (generalized in
+the previous task), eliminating the hand-styled approximation that
+caused the visual mismatch.
+---
+ .../src/conversation_view/thread_view.rs      | 116 +-----------------
+ 1 file changed, 5 insertions(+), 111 deletions(-)
+
+diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
+index c9b4ca8b17..086b92141d 100644
+--- a/crates/agent_ui/src/conversation_view/thread_view.rs
++++ b/crates/agent_ui/src/conversation_view/thread_view.rs
+@@ -7198,9 +7198,13 @@ impl ThreadView {
+ 
+         div().w_full().map(|this| {
+             if is_same_thread_subagent_root {
+-                this.child(self.render_subagent_group(
++                let source = SubagentSource::SameThread {
++                    root: tool_call.id.clone(),
++                };
++                this.child(self.render_subagent_card(
+                     active_session_id,
+                     entry_ix,
++                    Some(&source),
+                     tool_call,
+                     focus_handle,
+                     window,
+@@ -9046,116 +9050,6 @@ impl ThreadView {
+         )
+     }
+ 
+-    /// Renders a same-thread (e.g. qwen) subagent root: the root tool call's
+-    /// summary plus a disclosure that reveals the subagent's member steps inline.
+-    /// The members are otherwise hidden from the flat transcript.
+-    fn render_subagent_group(
+-        &self,
+-        active_session_id: &acp::SessionId,
+-        entry_ix: usize,
+-        tool_call: &ToolCall,
+-        focus_handle: &FocusHandle,
+-        window: &Window,
+-        cx: &Context<Self>,
+-    ) -> Div {
+-        let thread = self.thread.read(cx);
+-        let index = thread.subagent_index();
+-        let label = index
+-            .root_label(&tool_call.id)
+-            .unwrap_or_else(|| "Subagent".into());
+-        let member_ids = index.members_of(&tool_call.id);
+-
+-        let entries = thread.entries();
+-        let total_entries = entries.len();
+-        let member_indices: Vec<usize> = entries
+-            .iter()
+-            .enumerate()
+-            .filter_map(|(ix, entry)| match entry {
+-                AgentThreadEntry::ToolCall(call) if member_ids.contains(&call.id) => Some(ix),
+-                _ => None,
+-            })
+-            .collect();
+-        let member_count = member_indices.len();
+-
+-        let is_expanded = self.expanded_tool_calls.contains(&tool_call.id);
+-
+-        let summary = self.render_tool_call(
+-            active_session_id,
+-            entry_ix,
+-            tool_call,
+-            focus_handle,
+-            ToolCallLayout::Standalone,
+-            window,
+-            cx,
+-        );
+-
+-        let member_rows = (is_expanded && member_count > 0).then(|| {
+-            v_flex()
+-                .w_full()
+-                .gap_1()
+-                .children(member_indices.iter().copied().filter_map(|ix| {
+-                    entries
+-                        .get(ix)
+-                        .map(|entry| self.render_entry(ix, total_entries, entry, window, cx))
+-                }))
+-        });
+-
+-        let toggle = (member_count > 0).then(|| {
+-            h_flex()
+-                .id(SharedString::from(format!("subagent-group-toggle-{entry_ix}")))
+-                .gap_1p5()
+-                .cursor_pointer()
+-                .child(
+-                    Disclosure::new(
+-                        SharedString::from(format!("subagent-group-disclosure-{entry_ix}")),
+-                        is_expanded,
+-                    )
+-                    .opened_icon(IconName::ChevronUp)
+-                    .closed_icon(IconName::ChevronDown),
+-                )
+-                .child(
+-                    Label::new(format!("{label} subagent · {member_count} steps"))
+-                        .size(LabelSize::Small)
+-                        .color(Color::Muted),
+-                )
+-                .child(
+-                    IconButton::new(
+-                        SharedString::from(format!("subagent-group-open-{entry_ix}")),
+-                        IconName::Maximize,
+-                    )
+-                    .icon_size(IconSize::Small)
+-                    .tooltip(Tooltip::text("Open Subagent Transcript"))
+-                    .on_click(cx.listener({
+-                        let id = tool_call.id.clone();
+-                        move |this, _event, _window, cx| {
+-                            this.focused_subagent = Some(id.clone());
+-                            this.list_state.scroll_to(ListOffset::default());
+-                            cx.notify();
+-                        }
+-                    })),
+-                )
+-                .on_click(cx.listener({
+-                    let id = tool_call.id.clone();
+-                    move |this, _event, _window, cx| {
+-                        if this.expanded_tool_calls.contains(&id) {
+-                            this.expanded_tool_calls.remove(&id);
+-                        } else {
+-                            this.expanded_tool_calls.insert(id.clone());
+-                        }
+-                        cx.notify();
+-                    }
+-                }))
+-        });
+-
+-        v_flex()
+-            .mx_5()
+-            .my_1p5()
+-            .gap_1p5()
+-            .when_some(toggle, |this, toggle| this.child(toggle))
+-            .when_some(member_rows, |this, rows| this.child(rows))
+-            .child(summary)
+-    }
+-
+     fn render_subagent_tool_call(
+         &self,
+         active_session_id: &acp::SessionId,

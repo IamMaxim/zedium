@@ -1,0 +1,256 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 2 Jul 2026 01:16:22 +0300
+Subject: [PATCH] feat(db): add database settings section for results font and
+ page size
+
+Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01MQKuAnEREjToPLedE7KAqP
+---
+ assets/settings/default.json                  |  11 ++
+ crates/database_client/src/database_client.rs |   1 +
+ crates/database_client/src/settings.rs        | 145 ++++++++++++++++++
+ crates/settings/src/vscode_import.rs          |   1 +
+ .../settings_content/src/settings_content.rs  |  24 +++
+ 5 files changed, 182 insertions(+)
+ create mode 100644 crates/database_client/src/settings.rs
+
+diff --git a/assets/settings/default.json b/assets/settings/default.json
+index 1cc168233c..f703597fc7 100644
+--- a/assets/settings/default.json
++++ b/assets/settings/default.json
+@@ -2675,6 +2675,17 @@
+   "context_servers": {},
+   // Configures agent servers available in the agent panel.
+   "agent_servers": {},
++  // Settings for the database client panel and query results.
++  "database": {
++    // Font family for the query results grid.
++    // Defaults to the buffer font family when null.
++    "results_font_family": null,
++    // Font size for the query results grid.
++    // Defaults to the buffer font size when null.
++    "results_font_size": null,
++    // Number of rows fetched per page of query results (minimum 50).
++    "page_size": 500
++  },
+   "debugger": {
+     "stepping_granularity": "line",
+     "save_breakpoints": true,
+diff --git a/crates/database_client/src/database_client.rs b/crates/database_client/src/database_client.rs
+index d32211367a..796b9879a6 100644
+--- a/crates/database_client/src/database_client.rs
++++ b/crates/database_client/src/database_client.rs
+@@ -8,6 +8,7 @@ mod connection_modal;
+ mod panel;
+ mod persistence;
+ pub mod query_view;
++pub mod settings;
+ mod tree;
+ 
+ pub use connection::client::DEFAULT_RESULT_LIMIT;
+diff --git a/crates/database_client/src/settings.rs b/crates/database_client/src/settings.rs
+new file mode 100644
+index 0000000000..5328f86311
+--- /dev/null
++++ b/crates/database_client/src/settings.rs
+@@ -0,0 +1,145 @@
++//! The `"database"` settings section: results-grid font and pagination.
++
++use gpui::{App, Pixels, SharedString};
++use settings::{FontFamilyName, IntoGpui, RegisterSetting, Settings, SettingsContent};
++use theme_settings::ThemeSettings;
++
++/// Rows fetched per results page when `page_size` is not configured.
++pub const DEFAULT_PAGE_SIZE: usize = 500;
++/// Lower bound applied to a configured `page_size`.
++pub const MIN_PAGE_SIZE: usize = 50;
++
++/// Typed view of the `"database"` settings section.
++#[derive(Clone, Debug, PartialEq, RegisterSetting)]
++pub struct DatabaseClientSettings {
++    /// Results-grid font family; `None` falls back to the buffer font family.
++    pub results_font_family: Option<FontFamilyName>,
++    /// Results-grid font size; `None` falls back to the buffer font size.
++    pub results_font_size: Option<Pixels>,
++    /// Rows fetched per results page; always at least [`MIN_PAGE_SIZE`].
++    pub page_size: usize,
++}
++
++impl Settings for DatabaseClientSettings {
++    fn from_settings(content: &SettingsContent) -> Self {
++        let database = content.database.as_ref();
++        Self {
++            results_font_family: database.and_then(|database| database.results_font_family.clone()),
++            results_font_size: database
++                .and_then(|database| database.results_font_size)
++                .map(|size| size.into_gpui()),
++            page_size: database
++                .and_then(|database| database.page_size)
++                .unwrap_or(DEFAULT_PAGE_SIZE)
++                .max(MIN_PAGE_SIZE),
++        }
++    }
++}
++
++impl DatabaseClientSettings {
++    /// The results-grid font family, falling back to the buffer font family.
++    pub fn resolved_results_font_family(&self, cx: &App) -> SharedString {
++        self.results_font_family.as_ref().map_or_else(
++            || ThemeSettings::get_global(cx).buffer_font.family.clone(),
++            |family| family.0.clone().into(),
++        )
++    }
++
++    /// The results-grid font size, falling back to the buffer font size.
++    pub fn resolved_results_font_size(&self, cx: &App) -> Pixels {
++        self.results_font_size
++            .map(theme_settings::clamp_font_size)
++            .unwrap_or_else(|| ThemeSettings::get_global(cx).buffer_font_size(cx))
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use gpui::{BorrowAppContext, px};
++    use settings::SettingsStore;
++
++    fn init_settings(cx: &mut App) {
++        let settings_store = SettingsStore::test(cx);
++        cx.set_global(settings_store);
++    }
++
++    fn set_database_settings(
++        cx: &mut App,
++        update: impl FnOnce(&mut settings::DatabaseSettingsContent),
++    ) {
++        cx.update_global::<SettingsStore, _>(|store, cx| {
++            store.update_user_settings(cx, |content| {
++                update(content.database.get_or_insert_default());
++            });
++        });
++    }
++
++    #[gpui::test]
++    fn defaults_match_default_json(cx: &mut App) {
++        init_settings(cx);
++        let settings = DatabaseClientSettings::get_global(cx);
++        assert_eq!(settings.page_size, DEFAULT_PAGE_SIZE);
++        assert_eq!(settings.results_font_family, None);
++        assert_eq!(settings.results_font_size, None);
++    }
++
++    #[gpui::test]
++    fn page_size_is_clamped_to_minimum(cx: &mut App) {
++        init_settings(cx);
++        set_database_settings(cx, |database| database.page_size = Some(10));
++        assert_eq!(
++            DatabaseClientSettings::get_global(cx).page_size,
++            MIN_PAGE_SIZE
++        );
++
++        set_database_settings(cx, |database| database.page_size = Some(2000));
++        assert_eq!(DatabaseClientSettings::get_global(cx).page_size, 2000);
++    }
++
++    #[gpui::test]
++    fn results_font_settings_pass_through(cx: &mut App) {
++        init_settings(cx);
++        set_database_settings(cx, |database| {
++            database.results_font_family = Some(settings::FontFamilyName("Zed Plex Mono".into()));
++            database.results_font_size = Some(settings::FontSize::from(13.0));
++        });
++        let settings = DatabaseClientSettings::get_global(cx);
++        assert_eq!(
++            settings.results_font_family,
++            Some(settings::FontFamilyName("Zed Plex Mono".into()))
++        );
++        assert_eq!(settings.results_font_size, Some(px(13.0)));
++    }
++
++    #[gpui::test]
++    fn resolved_fonts_fall_back_to_buffer_font(cx: &mut App) {
++        init_settings(cx);
++        theme_settings::init(theme::LoadThemes::JustBase, cx);
++
++        let theme_settings = ThemeSettings::get_global(cx);
++        let expected_family = theme_settings.buffer_font.family.clone();
++        let expected_size = theme_settings.buffer_font_size(cx);
++
++        let settings = DatabaseClientSettings::get_global(cx).clone();
++        assert_eq!(settings.resolved_results_font_family(cx), expected_family);
++        assert_eq!(settings.resolved_results_font_size(cx), expected_size);
++    }
++
++    #[gpui::test]
++    fn resolved_fonts_use_overrides_when_set(cx: &mut App) {
++        init_settings(cx);
++        theme_settings::init(theme::LoadThemes::JustBase, cx);
++        set_database_settings(cx, |database| {
++            database.results_font_family = Some(settings::FontFamilyName("Zed Plex Mono".into()));
++            database.results_font_size = Some(settings::FontSize::from(13.0));
++        });
++
++        let settings = DatabaseClientSettings::get_global(cx).clone();
++        assert_eq!(
++            settings.resolved_results_font_family(cx),
++            SharedString::from("Zed Plex Mono")
++        );
++        assert_eq!(settings.resolved_results_font_size(cx), px(13.0));
++    }
++}
+diff --git a/crates/settings/src/vscode_import.rs b/crates/settings/src/vscode_import.rs
+index cd4a4c5356..0f6ab565dc 100644
+--- a/crates/settings/src/vscode_import.rs
++++ b/crates/settings/src/vscode_import.rs
+@@ -180,6 +180,7 @@ impl VsCodeSettings {
+             calls: None,
+             collaboration_panel: None,
+             credentials_url: None,
++            database: None,
+             debugger: None,
+             diagnostics: None,
+             editor: self.editor_settings_content(),
+diff --git a/crates/settings_content/src/settings_content.rs b/crates/settings_content/src/settings_content.rs
+index 9ac8b4b14f..8fefd30a3d 100644
+--- a/crates/settings_content/src/settings_content.rs
++++ b/crates/settings_content/src/settings_content.rs
+@@ -164,6 +164,9 @@ pub struct SettingsContent {
+     /// Configuration for the collab panel visual settings.
+     pub collaboration_panel: Option<PanelSettingsContent>,
+ 
++    /// Configuration for the database client panel and query results.
++    pub database: Option<DatabaseSettingsContent>,
++
+     pub debugger: Option<DebuggerSettingsContent>,
+ 
+     /// Configuration for Diagnostics-related features.
+@@ -1229,6 +1232,27 @@ pub struct ReplSettingsContent {
+     pub output_max_height_lines: Option<usize>,
+ }
+ 
++/// Settings for the database client's query results grid and pagination.
++#[with_fallible_options]
++#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
++pub struct DatabaseSettingsContent {
++    /// Sets the font family for the query results grid.
++    ///
++    /// If this option is not included, the results grid will default to
++    /// matching the buffer's font family.
++    pub results_font_family: Option<FontFamilyName>,
++    /// Sets the font size for the query results grid.
++    ///
++    /// If this option is not included, the results grid will default to
++    /// matching the buffer's font size.
++    pub results_font_size: Option<FontSize>,
++    /// Number of rows fetched per page of query results.
++    /// Values below 50 are clamped to 50.
++    ///
++    /// Default: 500
++    pub page_size: Option<usize>,
++}
++
+ /// Settings for configuring the which-key popup behaviour.
+ #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
+ pub struct WhichKeySettingsContent {

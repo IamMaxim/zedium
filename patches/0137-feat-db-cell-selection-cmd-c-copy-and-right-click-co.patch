@@ -1,0 +1,92 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 2 Jul 2026 11:16:33 +0300
+Subject: [PATCH] feat(db): cell selection, cmd-c copy, and right-click context
+ menu in results grid
+
+---
+ crates/database_client/src/results_grid.rs | 66 +++++++++++++++++++++-
+ 1 file changed, 64 insertions(+), 2 deletions(-)
+
+diff --git a/crates/database_client/src/results_grid.rs b/crates/database_client/src/results_grid.rs
+index ffca359a6b..30122c1838 100644
+--- a/crates/database_client/src/results_grid.rs
++++ b/crates/database_client/src/results_grid.rs
+@@ -232,8 +232,17 @@ impl ResultsGrid {
+         cx.notify();
+     }
+ 
+-    fn copy_selected_cell(&mut self, _cx: &mut Context<Self>) {
+-        // Implemented in the selection/copy step.
++    fn copy_selected_cell(&mut self, cx: &mut Context<Self>) {
++        let Some((row, col)) = self.selected_cell else {
++            return;
++        };
++        let Some(result) = &self.result else {
++            return;
++        };
++        let Some(cell) = result.rows.get(row).and_then(|row| row.get(col)) else {
++            return;
++        };
++        cx.write_to_clipboard(ClipboardItem::new_string(cell.clone().unwrap_or_default()));
+     }
+ 
+     fn deploy_cell_context_menu(
+@@ -658,4 +667,57 @@ mod tests {
+             assert!(grid.sortable);
+         });
+     }
++
++    #[gpui::test]
++    fn copy_selected_cell_writes_raw_value_and_empty_for_null(cx: &mut gpui::TestAppContext) {
++        init_test(cx);
++        let grid = cx.new(ResultsGrid::new);
++        let result = QueryResult {
++            columns: vec!["a".into(), "b".into()],
++            rows: vec![vec![Some("hello".into()), None]],
++            command_tag: None,
++            truncated: false,
++        };
++        grid.update(cx, |grid, cx| {
++            grid.set_result(Some(result), false, cx);
++            grid.selected_cell = Some((0, 0));
++            grid.copy_selected_cell(cx);
++        });
++        let copied = cx.update(|cx| cx.read_from_clipboard());
++        assert_eq!(
++            copied.and_then(|item| item.text()),
++            Some("hello".to_string())
++        );
++
++        grid.update(cx, |grid, cx| {
++            grid.selected_cell = Some((0, 1));
++            grid.copy_selected_cell(cx);
++        });
++        let copied = cx
++            .update(|cx| cx.read_from_clipboard())
++            .expect("copying a NULL cell must still write an (empty) clipboard item");
++        // ClipboardItem::text() concatenates string entries and returns None
++        // when the result is empty — an empty string has no text to return.
++        assert_eq!(copied.text(), None);
++    }
++
++    #[gpui::test]
++    async fn grid_renders_without_panicking(cx: &mut gpui::TestAppContext) {
++        init_test(cx);
++        let (_grid, cx) = cx.add_window_view(|_window, cx| {
++            let mut grid = ResultsGrid::new(cx);
++            let result = QueryResult {
++                columns: vec!["id".into(), "name".into()],
++                rows: vec![
++                    vec![Some("1".into()), Some("alice".into())],
++                    vec![Some("2".into()), None],
++                ],
++                command_tag: None,
++                truncated: false,
++            };
++            grid.set_result(Some(result), true, cx);
++            grid
++        });
++        cx.run_until_parked();
++    }
+ }

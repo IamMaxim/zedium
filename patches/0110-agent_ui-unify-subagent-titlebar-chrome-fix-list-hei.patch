@@ -1,0 +1,574 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Wed, 1 Jul 2026 02:21:04 +0300
+Subject: [PATCH] agent_ui: unify subagent titlebar chrome, fix list-height
+ cache bug
+
+Every focused_subagent toggle (the restored pop-out open button, the
+back button, and the group-disclosure expand/collapse) now calls
+ListState::reset(entry_count) before notifying, fixing the parent
+transcript scroll corruption that occurred on first pop-out open
+(GPUI's list.rs requires this when an off-screen item's height changes,
+which a visibility-flip across many entries clearly is).
+
+Also extracts the native subagent titlebar's visual chrome into a
+shared render_subagent_titlebar_chrome helper so qwen's focused
+breadcrumb is pixel-identical, generalizes is_entry_visible to cover
+text entries and recursive nesting via the new SubagentIndex::
+is_in_subtree_of (which, unlike root_of, does not short-circuit at a
+nested root), and adds recursive nested-card dispatch in
+render_subagent_expanded_content via children_of.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_015pwsNfhcLdUaT7p6VBfYnJ
+---
+ crates/acp_thread/src/acp_thread.rs           |  78 ++++
+ .../src/conversation_view/thread_view.rs      | 349 +++++++++++-------
+ 2 files changed, 303 insertions(+), 124 deletions(-)
+
+diff --git a/crates/acp_thread/src/acp_thread.rs b/crates/acp_thread/src/acp_thread.rs
+index c99c451c85..f609224587 100644
+--- a/crates/acp_thread/src/acp_thread.rs
++++ b/crates/acp_thread/src/acp_thread.rs
+@@ -466,6 +466,30 @@ impl SubagentIndex {
+             .collect()
+     }
+ 
++    /// Whether `id` lies in the subtree rooted at `root` (inclusive of `root`
++    /// itself). Unlike [`Self::root_of`], this does not stop at the first root
++    /// it meets while walking the membership chain, so a *nested* root that is
++    /// also a member of `root` (and anything beneath it) is still reported as
++    /// in-subtree. `root_of` short-circuits at such a nested root and would
++    /// otherwise wrongly exclude it from its outer ancestor's subtree, which
++    /// matters when deciding entry visibility while focused on an outer root.
++    pub fn is_in_subtree_of(&self, id: &acp::ToolCallId, root: &acp::ToolCallId) -> bool {
++        if id == root {
++            return true;
++        }
++        let mut current = id.clone();
++        for _ in 0..Self::MAX_WALK_DEPTH {
++            let Some(membership) = self.membership.get(&current) else {
++                return false;
++            };
++            if &membership.parent == root {
++                return true;
++            }
++            current = membership.parent.clone();
++        }
++        false
++    }
++
+     /// Direct children of `parent` (one parent hop only — does not flatten nested
+     /// subtrees), in document order. Mixes tool-call and text/thought entries.
+     /// `parent` may be a top-level root or a nested root; the caller decides which
+@@ -4136,6 +4160,60 @@ mod tests {
+         assert_eq!(orphan.root_of(&child), None);
+     }
+ 
++    #[test]
++    fn subagent_index_is_in_subtree_handles_nested_roots() {
++        // Outer root R; N is a nested subagent that is BOTH a root in its own
++        // right and a member of R; leaf L is a member of N.
++        let mut index = SubagentIndex::default();
++        let outer = acp::ToolCallId::new("R");
++        let nested = acp::ToolCallId::new("N");
++        let leaf = acp::ToolCallId::new("L");
++
++        index.apply(
++            &outer,
++            SubagentClassification::Root {
++                subagent_type: Some(SharedString::from("Explore")),
++                subtree: SubagentSubtree::SameThread,
++            },
++        );
++        index.apply(
++            &nested,
++            SubagentClassification::Member {
++                parent: outer.clone(),
++                subagent_type: SharedString::from("Explore"),
++            },
++        );
++        index.apply(
++            &nested,
++            SubagentClassification::Root {
++                subagent_type: Some(SharedString::from("Explore")),
++                subtree: SubagentSubtree::SameThread,
++            },
++        );
++        index.apply(
++            &leaf,
++            SubagentClassification::Member {
++                parent: nested.clone(),
++                subagent_type: SharedString::from("Explore"),
++            },
++        );
++
++        // `root_of` short-circuits at the nested root: it resolves N (and L) to
++        // N, NOT to the outer ancestor R. This is the trap that would wrongly
++        // hide nested entries while focused on R.
++        assert_eq!(index.root_of(&nested).as_ref(), Some(&nested));
++        assert_eq!(index.root_of(&leaf).as_ref(), Some(&nested));
++
++        // `is_in_subtree_of` does not short-circuit, so the entire nested
++        // subtree is correctly reported as part of R's subtree.
++        assert!(index.is_in_subtree_of(&outer, &outer));
++        assert!(index.is_in_subtree_of(&nested, &outer));
++        assert!(index.is_in_subtree_of(&leaf, &outer));
++        // N's own subtree is still queryable directly, and R is not under N.
++        assert!(index.is_in_subtree_of(&leaf, &nested));
++        assert!(!index.is_in_subtree_of(&outer, &nested));
++    }
++
+     #[test]
+     fn subagent_index_tracks_text_entry_membership() {
+         let mut index = SubagentIndex::default();
+diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
+index 086b92141d..26ed72222e 100644
+--- a/crates/agent_ui/src/conversation_view/thread_view.rs
++++ b/crates/agent_ui/src/conversation_view/thread_view.rs
+@@ -3887,88 +3887,114 @@ impl ThreadView {
+             })
+     }
+ 
++    /// Shared visual chrome for both the native subagent titlebar (shown atop a
++    /// popped-out child-session subagent) and the same-thread focused breadcrumb,
++    /// so the two stay pixel-identical. `title` is a slot so native can pass its
++    /// inline title editor while qwen passes a plain label. `on_back` drives the
++    /// trailing button (minimize for native, back-to-transcript for focused), and
++    /// `stop`, when present, renders a leading stop button.
++    fn render_subagent_titlebar_chrome(
++        &self,
++        title: AnyElement,
++        is_done: bool,
++        is_failed_or_cancelled: bool,
++        back_icon: IconName,
++        back_tooltip: &'static str,
++        on_back: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
++        stop: Option<impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static>,
++        cx: &mut Context<Self>,
++    ) -> Div {
++        let max_content_width = AgentSettings::get_global(cx).max_content_width;
++        h_flex()
++            .w_full()
++            .h(Tab::container_height(cx))
++            .border_b_1()
++            .when(is_done && is_failed_or_cancelled, |this| this.border_dashed())
++            .border_color(cx.theme().colors().border)
++            .bg(cx.theme().colors().editor_background.opacity(0.2))
++            .child(
++                h_flex()
++                    .size_full()
++                    .when_some(max_content_width, |this, max_w| this.max_w(max_w).mx_auto())
++                    .pl_2()
++                    .pr_1()
++                    .flex_shrink_0()
++                    .justify_between()
++                    .gap_1()
++                    .child(
++                        h_flex()
++                            .flex_1()
++                            .gap_2()
++                            .child(
++                                Icon::new(IconName::ForwardArrowUp)
++                                    .size(IconSize::Small)
++                                    .color(Color::Muted),
++                            )
++                            .child(title)
++                            .when(is_done && is_failed_or_cancelled, |this| {
++                                this.child(Icon::new(IconName::Close).color(Color::Error))
++                            })
++                            .when(is_done && !is_failed_or_cancelled, |this| {
++                                this.child(Icon::new(IconName::Check).color(Color::Success))
++                            }),
++                    )
++                    .child(
++                        h_flex()
++                            .gap_0p5()
++                            .when_some(stop, |this, stop| {
++                                this.child(
++                                    IconButton::new("subagent-titlebar-stop", IconName::Stop)
++                                        .icon_size(IconSize::Small)
++                                        .icon_color(Color::Error)
++                                        .tooltip(Tooltip::text("Stop Subagent"))
++                                        .on_click(cx.listener(move |this, _, window, cx| {
++                                            stop(this, window, cx)
++                                        })),
++                                )
++                            })
++                            .child(
++                                IconButton::new("subagent-titlebar-back", back_icon)
++                                    .icon_size(IconSize::Small)
++                                    .tooltip(Tooltip::text(back_tooltip))
++                                    .on_click(cx.listener(move |this, _, window, cx| {
++                                        on_back(this, window, cx)
++                                    })),
++                            ),
++                    ),
++            )
++    }
++
+     pub(crate) fn render_subagent_titlebar(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+         if self.parent_session_id.is_none() {
+             return None;
+         }
+         let parent_session_id = self.thread.read(cx).parent_session_id()?.clone();
+ 
+-        let server_view = self.server_view.clone();
+-        let thread = self.thread.clone();
+-        let is_done = thread.read(cx).status() == ThreadStatus::Idle;
++        let is_done = self.thread.read(cx).status() == ThreadStatus::Idle;
+         let is_canceled_or_failed = self.is_subagent_canceled_or_failed(cx);
+ 
+-        let max_content_width = AgentSettings::get_global(cx).max_content_width;
+-
+-        Some(
+-            h_flex()
+-                .w_full()
+-                .h(Tab::container_height(cx))
+-                .border_b_1()
+-                .when(is_done && is_canceled_or_failed, |this| {
+-                    this.border_dashed()
+-                })
+-                .border_color(cx.theme().colors().border)
+-                .bg(cx.theme().colors().editor_background.opacity(0.2))
+-                .child(
+-                    h_flex()
+-                        .size_full()
+-                        .when_some(max_content_width, |this, max_w| this.max_w(max_w).mx_auto())
+-                        .pl_2()
+-                        .pr_1()
+-                        .flex_shrink_0()
+-                        .justify_between()
+-                        .gap_1()
+-                        .child(
+-                            h_flex()
+-                                .flex_1()
+-                                .gap_2()
+-                                .child(
+-                                    Icon::new(IconName::ForwardArrowUp)
+-                                        .size(IconSize::Small)
+-                                        .color(Color::Muted),
+-                                )
+-                                .child(self.title_editor.clone())
+-                                .when(is_done && is_canceled_or_failed, |this| {
+-                                    this.child(Icon::new(IconName::Close).color(Color::Error))
+-                                })
+-                                .when(is_done && !is_canceled_or_failed, |this| {
+-                                    this.child(Icon::new(IconName::Check).color(Color::Success))
+-                                }),
+-                        )
+-                        .child(
+-                            h_flex()
+-                                .gap_0p5()
+-                                .when(!is_done, |this| {
+-                                    this.child(
+-                                        IconButton::new("stop_subagent", IconName::Stop)
+-                                            .icon_size(IconSize::Small)
+-                                            .icon_color(Color::Error)
+-                                            .tooltip(Tooltip::text("Stop Subagent"))
+-                                            .on_click(move |_, _, cx| {
+-                                                thread.update(cx, |thread, cx| {
+-                                                    thread.cancel(cx).detach();
+-                                                });
+-                                            }),
+-                                    )
+-                                })
+-                                .child(
+-                                    IconButton::new("minimize_subagent", IconName::Dash)
+-                                        .icon_size(IconSize::Small)
+-                                        .tooltip(Tooltip::text("Minimize Subagent"))
+-                                        .on_click(move |_, window, cx| {
+-                                            let _ = server_view.update(cx, |server_view, cx| {
+-                                                server_view.navigate_to_thread(
+-                                                    parent_session_id.clone(),
+-                                                    window,
+-                                                    cx,
+-                                                );
+-                                            });
+-                                        }),
+-                                ),
+-                        ),
+-                ),
+-        )
++        Some(self.render_subagent_titlebar_chrome(
++            self.title_editor.clone().into_any_element(),
++            is_done,
++            is_canceled_or_failed,
++            IconName::Dash,
++            "Minimize Subagent",
++            move |this, window, cx| {
++                this.server_view
++                    .update(cx, |server_view, cx| {
++                        server_view.navigate_to_thread(parent_session_id.clone(), window, cx);
++                    })
++                    .ok();
++            },
++            (!is_done).then_some(
++                |this: &mut Self, _window: &mut Window, cx: &mut Context<Self>| {
++                    this.thread.update(cx, |thread, cx| {
++                        thread.cancel(cx).detach();
++                    });
++                },
++            ),
++            cx,
++        ))
+     }
+ 
+     pub(crate) fn render_message_editor(
+@@ -5398,7 +5424,7 @@ impl ThreadView {
+                     // hidden (they render inside their root's group); in focused
+                     // (pop-out) mode only the focused subtree is shown. The list slot
+                     // is kept (zero-height) so list indexing stays aligned.
+-                    if !this.is_entry_visible(entry, cx) {
++                    if !this.is_entry_visible(index, entry, cx) {
+                         return Empty.into_any();
+                     }
+                     let rendered = this.render_entry(index, entries.len(), entry, window, cx);
+@@ -8989,65 +9015,84 @@ impl ThreadView {
+     /// Whether an entry should appear in the flat transcript list. In normal mode
+     /// same-thread subagent members are hidden (shown inside their root's group);
+     /// in focused mode only the focused subagent's subtree is shown.
+-    fn is_entry_visible(&self, entry: &AgentThreadEntry, cx: &App) -> bool {
++    fn is_entry_visible(&self, entry_ix: usize, entry: &AgentThreadEntry, cx: &App) -> bool {
+         let index = self.thread.read(cx).subagent_index();
+         match &self.focused_subagent {
++            // While focused on `root`, show its whole subtree and nothing else.
++            // `is_in_subtree_of` is used instead of `root_of(..) == Some(root)`
++            // because `root_of` short-circuits at a nested root and would
++            // wrongly hide a nested subagent (and its entries) that lives under
++            // the focused outer root.
+             Some(root) => match entry {
+                 AgentThreadEntry::ToolCall(tool_call) => {
+-                    &tool_call.id == root || index.root_of(&tool_call.id).as_ref() == Some(root)
++                    index.is_in_subtree_of(&tool_call.id, root)
+                 }
+-                _ => false,
++                _ => index
++                    .entry_membership_of(entry_ix)
++                    .is_some_and(|membership| index.is_in_subtree_of(&membership.parent, root)),
+             },
++            // In normal mode, same-thread subagent members (tool calls and the
++            // text/thought chunks they produce) are hidden; they render inside
++            // their root's group card instead.
+             None => match entry {
+                 AgentThreadEntry::ToolCall(tool_call) => !index.is_member(&tool_call.id),
+-                _ => true,
++                _ => !index.is_text_member(entry_ix),
+             },
+         }
+     }
+ 
+     /// Breadcrumb shown above the transcript while focused on a single subagent,
+     /// with a button to return to the full transcript.
+-    fn render_focused_subagent_bar(&self, cx: &Context<Self>) -> Option<Div> {
++    fn render_focused_subagent_bar(&self, cx: &mut Context<Self>) -> Option<Div> {
+         let root = self.focused_subagent.clone()?;
+-        let label = self
+-            .thread
+-            .read(cx)
+-            .subagent_index()
+-            .root_label(&root)
+-            .unwrap_or_else(|| "Subagent".into());
+-        let max_content_width = AgentSettings::get_global(cx).max_content_width;
++        let (label, is_done, is_failed_or_cancelled) = {
++            let thread = self.thread.read(cx);
++            let label = thread
++                .subagent_index()
++                .root_label(&root)
++                .unwrap_or_else(|| "Subagent".into());
++            let (_, tool_call) = thread.tool_call(&root)?;
++            let is_done = !matches!(
++                tool_call.status,
++                ToolCallStatus::Pending
++                    | ToolCallStatus::InProgress
++                    | ToolCallStatus::WaitingForConfirmation { .. }
++            );
++            let is_failed_or_cancelled = matches!(
++                tool_call.status,
++                ToolCallStatus::Failed | ToolCallStatus::Rejected | ToolCallStatus::Canceled
++            );
++            (label, is_done, is_failed_or_cancelled)
++        };
+ 
+-        Some(
+-            h_flex()
+-                .w_full()
+-                .h(Tab::container_height(cx))
+-                .border_b_1()
+-                .border_color(cx.theme().colors().border)
+-                .bg(cx.theme().colors().editor_background.opacity(0.2))
+-                .child(
+-                    h_flex()
+-                        .size_full()
+-                        .when_some(max_content_width, |this, max_w| this.max_w(max_w).mx_auto())
+-                        .pl_1()
+-                        .pr_2()
+-                        .gap_1()
+-                        .child(
+-                            IconButton::new("focused-subagent-back", IconName::ArrowLeft)
+-                                .icon_size(IconSize::Small)
+-                                .tooltip(Tooltip::text("Back to Transcript"))
+-                                .on_click(cx.listener(|this, _event, _window, cx| {
+-                                    this.focused_subagent = None;
+-                                    cx.notify();
+-                                })),
+-                        )
+-                        .child(
+-                            Icon::new(IconName::ForwardArrowUp)
+-                                .size(IconSize::Small)
+-                                .color(Color::Muted),
+-                        )
+-                        .child(Label::new(format!("{label} subagent")).size(LabelSize::Small)),
+-                ),
+-        )
++        Some(self.render_subagent_titlebar_chrome(
++            Label::new(format!("{label} subagent"))
++                .size(LabelSize::Small)
++                .into_any_element(),
++            is_done,
++            is_failed_or_cancelled,
++            IconName::ArrowLeft,
++            "Back to Transcript",
++            |this, _window, cx| {
++                this.focused_subagent = None;
++                let entry_count = this.thread.read(cx).entries().len();
++                this.list_state.reset(entry_count);
++                cx.notify();
++            },
++            // For a same-thread subagent there is no separate session to cancel,
++            // so "Stop Subagent" cancels the parent thread's running turn. This is
++            // an intentional behavioral difference from native: qwen's subagent
++            // runs in the same turn, so stopping the subagent and stopping the turn
++            // are the same operation.
++            (!is_done).then_some(
++                |this: &mut Self, _window: &mut Window, cx: &mut Context<Self>| {
++                    this.thread.update(cx, |thread, cx| {
++                        thread.cancel(cx).detach();
++                    });
++                },
++            ),
++            cx,
++        ))
+     }
+ 
+     fn render_subagent_tool_call(
+@@ -9232,6 +9277,13 @@ impl ThreadView {
+             _ => None,
+         };
+ 
++        // A same-thread (e.g. qwen) root has no separate session to maximize into;
++        // its "pop out" instead focuses the flat transcript on this subtree.
++        let same_thread_root = match source {
++            Some(SubagentSource::SameThread { root }) => Some(root.clone()),
++            _ => None,
++        };
++
+         let is_pending_tool_call = child_thread_view
+             .and_then(|tv| {
+                 let sid = tv.read(cx).thread.read(cx).session_id();
+@@ -9394,8 +9446,13 @@ impl ThreadView {
+                                                 this.expanded_tool_calls
+                                                     .insert(tool_call_id.clone());
+                                             }
+-                                            let expanded =
+-                                                this.expanded_tool_calls.contains(&tool_call_id);
++                                            // Expanding/collapsing the card preview
++                                            // changes this entry's height; reset the
++                                            // list so its cached height is invalidated
++                                            // (see the focused-view scroll fix).
++                                            let entry_count =
++                                                this.thread.read(cx).entries().len();
++                                            this.list_state.reset(entry_count);
+                                             cx.notify();
+                                         }
+                                     }))
+@@ -9421,6 +9478,27 @@ impl ThreadView {
+                                     },
+                                 ),
+                         )
++                    })
++                    .when_some(same_thread_root.clone(), |buttons, root| {
++                        buttons.child(
++                            IconButton::new(
++                                SharedString::from(format!("subagent-group-open-{entry_ix}")),
++                                IconName::Maximize,
++                            )
++                            .icon_size(IconSize::Small)
++                            .tooltip(Tooltip::text("Open Subagent Transcript"))
++                            .on_click(cx.listener(move |this, _event, _window, cx| {
++                                // Enter the focused (pop-out) view for this subtree.
++                                // Resetting the list invalidates every entry's cached
++                                // height before the visibility flip, preventing the
++                                // parent transcript's scroll position from corrupting.
++                                this.focused_subagent = Some(root.clone());
++                                let entry_count = this.thread.read(cx).entries().len();
++                                this.list_state.reset(entry_count);
++                                this.list_state.scroll_to(ListOffset::default());
++                                cx.notify();
++                            })),
++                        )
+                     }),
+             )
+             .when_some(child_thread_view, |this, thread_view| {
+@@ -9478,8 +9556,10 @@ impl ThreadView {
+                 } else {
+                     this.when(is_expanded, |this| {
+                         this.child(self.render_subagent_expanded_content(
++                            active_session_id,
+                             &SubagentSource::ChildThread(thread_view.clone()),
+                             tool_call,
++                            focus_handle,
+                             window,
+                             cx,
+                         ))
+@@ -9500,8 +9580,10 @@ impl ThreadView {
+ 
+     fn render_subagent_expanded_content(
+         &self,
++        active_session_id: &acp::SessionId,
+         source: &SubagentSource,
+         tool_call: &ToolCall,
++        focus_handle: &FocusHandle,
+         window: &Window,
+         cx: &Context<Self>,
+     ) -> impl IntoElement {
+@@ -9575,16 +9657,35 @@ impl ThreadView {
+                 let thread = self.thread.read(cx);
+                 let entries = thread.entries();
+                 let total_entries = entries.len();
+-                let mut indices = thread.subagent_index().children_of(root, entries);
++                let index = thread.subagent_index();
++                let mut indices = index.children_of(root, entries);
+                 let start = indices.len().saturating_sub(MAX_PREVIEW_ENTRIES);
+                 let indices = indices.split_off(start);
+ 
+                 let rendered: Vec<AnyElement> = indices
+                     .iter()
+                     .filter_map(|&ix| {
+-                        entries
+-                            .get(ix)
+-                            .map(|entry| self.render_entry(ix, total_entries, entry, window, cx))
++                        let entry = entries.get(ix)?;
++                        // A direct child that is itself a same-thread root is a
++                        // nested subagent: render it recursively as its own card
++                        // rather than as a flat tool call, so nesting is preserved.
++                        if let AgentThreadEntry::ToolCall(child) = entry
++                            && index.is_same_thread_root(&child.id)
++                        {
++                            let source = SubagentSource::SameThread {
++                                root: child.id.clone(),
++                            };
++                            return Some(self.render_subagent_card(
++                                active_session_id,
++                                ix,
++                                Some(&source),
++                                child,
++                                focus_handle,
++                                window,
++                                cx,
++                            ));
++                        }
++                        Some(self.render_entry(ix, total_entries, entry, window, cx))
+                     })
+                     .collect();
+ 

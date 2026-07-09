@@ -1,0 +1,112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 22:36:02 +0300
+Subject: [PATCH] database_client: add Read-only checkbox to connection modal
+
+---
+ .../database_client/src/connection_modal.rs   | 43 +++++++++++++++++--
+ 1 file changed, 39 insertions(+), 4 deletions(-)
+
+diff --git a/crates/database_client/src/connection_modal.rs b/crates/database_client/src/connection_modal.rs
+index abc283818c..c4fc7e3de1 100644
+--- a/crates/database_client/src/connection_modal.rs
++++ b/crates/database_client/src/connection_modal.rs
+@@ -9,7 +9,7 @@ use gpui::{
+     ParentElement, Render, Styled, TaskExt as _, Window,
+ };
+ use menu::{Cancel, Confirm};
+-use ui::prelude::*;
++use ui::{Checkbox, ToggleState, prelude::*};
+ use workspace::ModalView;
+ 
+ pub struct ConnectionModal {
+@@ -23,6 +23,12 @@ pub struct ConnectionModal {
+     ssl_mode: SslMode,
+     /// When `Some`, we are editing an existing profile rather than creating a new one.
+     edit_profile: Option<ConnectionProfile>,
++    read_only: bool,
++}
++
++/// A trivial toggle used by the checkbox click.
++pub(crate) fn toggled(current: bool) -> bool {
++    !current
+ }
+ 
+ impl ConnectionModal {
+@@ -68,6 +74,7 @@ impl ConnectionModal {
+             password_input,
+             ssl_mode: SslMode::default(),
+             edit_profile: None,
++            read_only: false,
+         }
+     }
+ 
+@@ -124,6 +131,7 @@ impl ConnectionModal {
+             user_input,
+             password_input,
+             ssl_mode,
++            read_only: profile.read_only,
+             edit_profile: Some(profile),
+         }
+     }
+@@ -152,7 +160,7 @@ impl ConnectionModal {
+                 database,
+                 user,
+                 ssl_mode: self.ssl_mode,
+-                read_only: false,
++                read_only: self.read_only,
+             };
+             let mut profiles = store::load_profiles();
+             store::replace_profile_by_id(&mut profiles, profile.clone());
+@@ -181,7 +189,7 @@ impl ConnectionModal {
+                 database,
+                 user,
+                 ssl_mode: self.ssl_mode,
+-                read_only: false,
++                read_only: self.read_only,
+             };
+ 
+             let mut profiles = store::load_profiles();
+@@ -211,6 +219,11 @@ impl ConnectionModal {
+         };
+         cx.notify();
+     }
++
++    fn toggle_read_only(&mut self, cx: &mut Context<Self>) {
++        self.read_only = toggled(self.read_only);
++        cx.notify();
++    }
+ }
+ 
+ impl ModalView for ConnectionModal {}
+@@ -273,7 +286,29 @@ impl Render for ConnectionModal {
+                         |this, _, window, cx| {
+                             this.cycle_ssl_mode(window, cx);
+                         },
+-                    ))),
++                    )))
++                    .child(
++                        h_flex()
++                            .gap_1p5()
++                            .child(
++                                Checkbox::new("read-only", ToggleState::from(self.read_only))
++                                    .on_click(cx.listener(|this, _, _window, cx| {
++                                        this.toggle_read_only(cx)
++                                    })),
++                            )
++                            .child(Label::new("Read-only (disable all edits)")),
++                    ),
+             )
+     }
+ }
++
++#[cfg(test)]
++mod tests {
++    use super::toggled;
++
++    #[test]
++    fn read_only_toggles() {
++        assert!(toggled(false));
++        assert!(!toggled(true));
++    }
++}

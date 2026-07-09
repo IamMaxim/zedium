@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 17:43:21 +0300
+Subject: [PATCH] database_client: gate autocomplete metadata sweep on
+ database.metadata_cache setting
+
+---
+ assets/settings/default.json                    |  5 ++++-
+ crates/database_client/src/query_view.rs        |  6 ++++--
+ crates/database_client/src/settings.rs          | 17 +++++++++++++++++
+ crates/settings_content/src/settings_content.rs |  5 +++++
+ 4 files changed, 30 insertions(+), 3 deletions(-)
+
+diff --git a/assets/settings/default.json b/assets/settings/default.json
+index 3f66b2b3e4..1232e57802 100644
+--- a/assets/settings/default.json
++++ b/assets/settings/default.json
+@@ -2717,7 +2717,10 @@
+       // Icon size (px) of the Run button. Clamped to the range 6-48.
+       // Unset = current icon size.
+       "icon_size": null
+-    }
++    },
++    // Enables the one-time schema metadata sweep that powers SQL
++    // autocomplete in query editors.
++    "metadata_cache": true
+   },
+   "debugger": {
+     "stepping_granularity": "line",
+diff --git a/crates/database_client/src/query_view.rs b/crates/database_client/src/query_view.rs
+index d847354a52..d348d29805 100644
+--- a/crates/database_client/src/query_view.rs
++++ b/crates/database_client/src/query_view.rs
+@@ -215,8 +215,10 @@ impl QueryView {
+             })));
+         });
+ 
+-        // Metadata sweep for autocomplete (always on; a disable setting is wired in a later plan).
+-        if let Some(connection) = connection.clone() {
++        // Metadata sweep for autocomplete, gated on `database.metadata_cache`.
++        if DatabaseClientSettings::get_global(cx).metadata_cache
++            && let Some(connection) = connection.clone()
++        {
+             cx.spawn({
+                 let metadata = metadata.clone();
+                 async move |_this, cx| {
+diff --git a/crates/database_client/src/settings.rs b/crates/database_client/src/settings.rs
+index 6519c746d5..df6bf6b6ca 100644
+--- a/crates/database_client/src/settings.rs
++++ b/crates/database_client/src/settings.rs
+@@ -60,6 +60,8 @@ pub struct DatabaseClientSettings {
+     pub sidebar: DatabaseSidebarSettings,
+     /// Query console toolbar density knobs.
+     pub toolbar: DatabaseToolbarSettings,
++    /// Whether to populate the autocomplete metadata cache on connection.
++    pub metadata_cache: bool,
+ }
+ 
+ impl Settings for DatabaseClientSettings {
+@@ -97,6 +99,9 @@ impl Settings for DatabaseClientSettings {
+                     icon_size: toolbar.icon_size,
+                 })
+                 .unwrap_or_default(),
++            metadata_cache: database
++                .and_then(|database| database.metadata_cache)
++                .unwrap_or(true),
+         }
+     }
+ }
+@@ -159,6 +164,18 @@ mod tests {
+         assert_eq!(settings.results_line_height, None);
+         assert_eq!(settings.sidebar, DatabaseSidebarSettings::default());
+         assert_eq!(settings.toolbar, DatabaseToolbarSettings::default());
++        assert!(settings.metadata_cache);
++    }
++
++    #[gpui::test]
++    fn metadata_cache_defaults_on_and_can_be_disabled(cx: &mut App) {
++        init_settings(cx);
++        assert!(
++            DatabaseClientSettings::get_global(cx).metadata_cache,
++            "metadata_cache must default to true"
++        );
++        set_database_settings(cx, |database| database.metadata_cache = Some(false));
++        assert!(!DatabaseClientSettings::get_global(cx).metadata_cache);
+     }
+ 
+     #[gpui::test]
+diff --git a/crates/settings_content/src/settings_content.rs b/crates/settings_content/src/settings_content.rs
+index d80d7c9393..cbde567dca 100644
+--- a/crates/settings_content/src/settings_content.rs
++++ b/crates/settings_content/src/settings_content.rs
+@@ -1267,6 +1267,11 @@ pub struct DatabaseSettingsContent {
+     /// Density settings for the query console toolbar (Run button, status
+     /// labels).
+     pub toolbar: Option<DatabaseToolbarSettingsContent>,
++    /// Enables the one-time schema metadata sweep that powers SQL autocomplete
++    /// in query editors.
++    ///
++    /// Default: true
++    pub metadata_cache: Option<bool>,
+ }
+ 
+ /// Density settings for the database client sidebar tree.

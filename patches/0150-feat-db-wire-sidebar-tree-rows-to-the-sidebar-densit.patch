@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 13:41:19 +0300
+Subject: [PATCH] feat(db): wire sidebar tree rows to the sidebar density
+ settings
+
+---
+ crates/database_client/src/panel.rs | 26 +++++++++++++++++++++++---
+ 1 file changed, 23 insertions(+), 3 deletions(-)
+
+diff --git a/crates/database_client/src/panel.rs b/crates/database_client/src/panel.rs
+index 01a39234fe..b32093ba46 100644
+--- a/crates/database_client/src/panel.rs
++++ b/crates/database_client/src/panel.rs
+@@ -3,6 +3,7 @@ use std::collections::{HashMap, HashSet};
+ use crate::{
+     CollapseSelectedEntry, ExpandSelectedEntry, ToggleFocus,
+     connection::{client::Connection, introspect::RelationKind, profile::ConnectionProfile, store},
++    settings::DatabaseClientSettings,
+     tree::{NodeKind, TreeNode, TreeState},
+ };
+ use anyhow::Result;
+@@ -757,7 +758,21 @@ impl DatabasePanel {
+ 
+     fn render_tree_node(&self, ix: usize, node: &TreeNode, cx: &mut Context<Self>) -> AnyElement {
+         let theme_settings = ThemeSettings::get_global(cx);
+-        let row_height = theme_settings.ui_font_size(cx) * theme_settings.ui_line_height();
++        let sidebar_settings = DatabaseClientSettings::get_global(cx).sidebar;
++        let ui_font_size = f32::from(theme_settings.ui_font_size(cx));
++        let row_rem_size = sidebar_settings.font_size.unwrap_or(ui_font_size);
++        let row_font_size = px(row_rem_size);
++        let row_icon_size = sidebar_settings
++            .icon_size
++            .map(|size| ui::bar_icon_size(size, row_rem_size))
++            .unwrap_or(IconSize::Small);
++        let row_padding = sidebar_settings
++            .padding
++            .map(|padding| px(ui::clamp_bar_padding(padding)));
++        let row_height = match row_padding {
++            Some(padding) => row_font_size * theme_settings.ui_line_height() + 2.0 * padding,
++            None => theme_settings.ui_font_size(cx) * theme_settings.ui_line_height(),
++        };
+ 
+         let is_empty = matches!(node.kind, NodeKind::Empty);
+         let has_context_menu = matches!(
+@@ -805,7 +820,7 @@ impl DatabasePanel {
+                     }),
+             )
+             .when_some(icon, |this, icon| {
+-                this.child(Icon::new(icon).size(IconSize::Small).color(icon_color))
++                this.child(Icon::new(icon).size(row_icon_size).color(icon_color))
+             })
+             .child(
+                 Label::new(label_text)
+@@ -828,7 +843,12 @@ impl DatabasePanel {
+             .spacing(ListItemSpacing::Dense)
+             .selectable(!is_empty)
+             .toggle_state(is_selected)
+-            .child(content)
++            .child(
++                ui::utils::WithRemSize::new(row_font_size)
++                    .w_full()
++                    .text_size(row_font_size)
++                    .child(content),
++            )
+             .when(!is_empty, |item| {
+                 item.on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
+                     cx.stop_propagation();

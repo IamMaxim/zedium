@@ -1,0 +1,103 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sat, 4 Jul 2026 16:30:41 +0300
+Subject: [PATCH] database_client: normalize pre-existing rustfmt drift in
+ results_grid/settings
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018Rpitr6Ztn5nr3BMaHvESX
+---
+ crates/database_client/src/results_grid.rs | 38 ++++++++++++++++++----
+ crates/database_client/src/settings.rs     |  3 +-
+ 2 files changed, 33 insertions(+), 8 deletions(-)
+
+diff --git a/crates/database_client/src/results_grid.rs b/crates/database_client/src/results_grid.rs
+index 1921d87255..460d18cbea 100644
+--- a/crates/database_client/src/results_grid.rs
++++ b/crates/database_client/src/results_grid.rs
+@@ -608,7 +608,12 @@ mod tests {
+     fn width_estimation_uses_header_and_cells_with_clamps() {
+         let columns = vec!["id".to_string(), "a_rather_long_header_name".to_string()];
+         let rows = vec![vec![cell("1"), cell("x")], vec![cell("22"), cell("yy")]];
+-        let widths = estimate_column_widths(&columns, &rows, 14.0, crate::settings::DEFAULT_RESULTS_ROW_PADDING);
++        let widths = estimate_column_widths(
++            &columns,
++            &rows,
++            14.0,
++            crate::settings::DEFAULT_RESULTS_ROW_PADDING,
++        );
+         assert_eq!(widths.len(), 2);
+         // "id" and its cells are tiny -> clamped up to the minimum.
+         assert_eq!(widths[0], MIN_COLUMN_WIDTH);
+@@ -625,14 +630,24 @@ mod tests {
+     fn width_estimation_clamps_long_cells_and_ignores_rows_past_sample() {
+         let columns = vec!["c".to_string()];
+         let rows = vec![vec![cell(&"x".repeat(500))]]; // way over max
+-        let widths = estimate_column_widths(&columns, &rows, 14.0, crate::settings::DEFAULT_RESULTS_ROW_PADDING);
++        let widths = estimate_column_widths(
++            &columns,
++            &rows,
++            14.0,
++            crate::settings::DEFAULT_RESULTS_ROW_PADDING,
++        );
+         assert_eq!(widths[0], MAX_COLUMN_WIDTH);
+ 
+         // Row 51 must not affect the estimate.
+         let mut rows_past_sample: Vec<Vec<Option<String>>> =
+             (0..50).map(|_| vec![cell("ab")]).collect();
+         rows_past_sample.push(vec![cell(&"y".repeat(500))]);
+-        let widths = estimate_column_widths(&columns, &rows_past_sample, 14.0, crate::settings::DEFAULT_RESULTS_ROW_PADDING);
++        let widths = estimate_column_widths(
++            &columns,
++            &rows_past_sample,
++            14.0,
++            crate::settings::DEFAULT_RESULTS_ROW_PADDING,
++        );
+         assert!(widths[0] < MAX_COLUMN_WIDTH);
+     }
+ 
+@@ -640,8 +655,18 @@ mod tests {
+     fn width_estimation_treats_null_as_four_chars() {
+         // NULL renders as the 4-char literal "NULL"; it must count as 4, not 0.
+         let columns = vec!["c".to_string()];
+-        let with_null = estimate_column_widths(&columns, &[vec![None]], 14.0, crate::settings::DEFAULT_RESULTS_ROW_PADDING);
+-        let with_text = estimate_column_widths(&columns, &[vec![cell("NULL")]], 14.0, crate::settings::DEFAULT_RESULTS_ROW_PADDING);
++        let with_null = estimate_column_widths(
++            &columns,
++            &[vec![None]],
++            14.0,
++            crate::settings::DEFAULT_RESULTS_ROW_PADDING,
++        );
++        let with_text = estimate_column_widths(
++            &columns,
++            &[vec![cell("NULL")]],
++            14.0,
++            crate::settings::DEFAULT_RESULTS_ROW_PADDING,
++        );
+         assert_eq!(with_null, with_text);
+     }
+ 
+@@ -660,7 +685,8 @@ mod tests {
+     #[test]
+     fn row_number_width_grows_with_digit_count() {
+         let narrow = row_number_column_width(9, 14.0, crate::settings::DEFAULT_RESULTS_ROW_PADDING);
+-        let wide = row_number_column_width(12_345, 14.0, crate::settings::DEFAULT_RESULTS_ROW_PADDING);
++        let wide =
++            row_number_column_width(12_345, 14.0, crate::settings::DEFAULT_RESULTS_ROW_PADDING);
+         assert!(wide > narrow);
+         assert!(narrow >= 1.0 * 14.0 * 0.5);
+     }
+diff --git a/crates/database_client/src/settings.rs b/crates/database_client/src/settings.rs
+index 7ef93149f2..6519c746d5 100644
+--- a/crates/database_client/src/settings.rs
++++ b/crates/database_client/src/settings.rs
+@@ -66,8 +66,7 @@ impl Settings for DatabaseClientSettings {
+     fn from_settings(content: &SettingsContent) -> Self {
+         let database = content.database.as_ref();
+         Self {
+-            results_font_family: database
+-                .and_then(|database| database.results_font_family.clone()),
++            results_font_family: database.and_then(|database| database.results_font_family.clone()),
+             results_font_size: database
+                 .and_then(|database| database.results_font_size)
+                 .map(|size| size.into_gpui()),
