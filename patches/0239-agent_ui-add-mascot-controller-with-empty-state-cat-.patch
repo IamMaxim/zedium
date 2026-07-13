@@ -1,0 +1,1262 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Fri, 10 Jul 2026 01:04:53 +0300
+Subject: [PATCH] agent_ui: add mascot controller with empty-state cat and
+ composer companion
+
+---
+ crates/agent_ui/src/agent_ui.rs               |   1 +
+ .../src/conversation_view/thread_view.rs      | 226 ++++-
+ crates/agent_ui/src/mascot.rs                 | 883 ++++++++++++++++++
+ 3 files changed, 1085 insertions(+), 25 deletions(-)
+ create mode 100644 crates/agent_ui/src/mascot.rs
+
+diff --git a/crates/agent_ui/src/agent_ui.rs b/crates/agent_ui/src/agent_ui.rs
+index b142cbad73..205f8661ce 100644
+--- a/crates/agent_ui/src/agent_ui.rs
++++ b/crates/agent_ui/src/agent_ui.rs
+@@ -18,6 +18,7 @@ mod favorite_models;
+ mod inline_assistant;
+ mod inline_prompt_editor;
+ mod language_model_selector;
++mod mascot;
+ mod mention_set;
+ mod message_editor;
+ mod mode_selector;
+diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
+index 70aa2ad7cf..8dc0ef0f21 100644
+--- a/crates/agent_ui/src/conversation_view/thread_view.rs
++++ b/crates/agent_ui/src/conversation_view/thread_view.rs
+@@ -1,6 +1,7 @@
+ use crate::{
+     DEFAULT_THREAD_TITLE, SelectPermissionGranularity,
+     agent_configuration::configure_context_server_modal::default_markdown_style,
++    mascot::{HOP_DURATION, MascotController},
+     open_abs_path_at_point,
+     thread_metadata_store::{ThreadId, ThreadMetadataStore},
+ };
+@@ -26,10 +27,10 @@ use language_model::{
+     FastModeConfirmation, LanguageModel, LanguageModelEffortLevel, LanguageModelId,
+     LanguageModelProviderId, LanguageModelRegistry, Speed,
+ };
+-use settings::{update_settings_file, update_settings_file_with_completion};
++use settings::{AnimationLevel, update_settings_file, update_settings_file_with_completion};
+ use ui::{
+-    ButtonLike, CalloutBorderPosition, SpinnerLabel, SpinnerVariant, SplitButton, SplitButtonStyle,
+-    Tab,
++    ButtonLike, CalloutBorderPosition, MascotPlayer, MascotState, SpinnerLabel, SpinnerVariant,
++    SplitButton, SplitButtonStyle, Tab,
+ };
+ use workspace::notifications::NotificationId;
+ use workspace::{OpenOptions, SERIALIZATION_THROTTLE_TIME};
+@@ -627,6 +628,7 @@ pub struct ThreadView {
+     pub show_codex_windows_warning: bool,
+     pub multi_root_callout_dismissed: bool,
+     pub generating_indicator_in_list: bool,
++    pub(crate) mascot: Option<Entity<MascotController>>,
+     pub skill_loading_issues: Vec<SkillLoadingIssue>,
+     /// Issues the user has explicitly dismissed. Each entry is matched against
+     /// emitted issues by full equality; when an issue no longer appears in the
+@@ -1006,6 +1008,7 @@ impl ThreadView {
+             show_codex_windows_warning,
+             multi_root_callout_dismissed: false,
+             generating_indicator_in_list: false,
++            mascot: None,
+             skill_loading_issues: Vec::new(),
+             dismissed_skill_loading_issues: HashSet::default(),
+         };
+@@ -1091,11 +1094,18 @@ impl ThreadView {
+             MessageEditorEvent::Cancel => self.cancel_generation(cx),
+             MessageEditorEvent::Focus => {
+                 self.cancel_editing(&Default::default(), window, cx);
++                if let Some(mascot) = &self.mascot {
++                    mascot.update(cx, |mascot, cx| mascot.notify_typing(cx));
++                }
+             }
+             MessageEditorEvent::LostFocus => {}
+             MessageEditorEvent::SlashAutocompleteOpened => {}
+             MessageEditorEvent::InputAttempted { .. } => {}
+-            MessageEditorEvent::Edited => {}
++            MessageEditorEvent::Edited => {
++                if let Some(mascot) = &self.mascot {
++                    mascot.update(cx, |mascot, cx| mascot.notify_typing(cx));
++                }
++            }
+         }
+     }
+ 
+@@ -1150,6 +1160,137 @@ impl ThreadView {
+         self.parent_session_id.is_some()
+     }
+ 
++    /// Lazily creates the mascot controller. Re-checked on every call so
++    /// toggling `agent.mascot` at runtime adds/removes the cat without a
++    /// panel restart. Subagent views never get their own cat.
++    fn ensure_mascot(&mut self, cx: &mut Context<Self>) -> Option<Entity<MascotController>> {
++        if self.is_subagent() || !AgentSettings::get_global(cx).mascot {
++            self.mascot = None;
++            return None;
++        }
++        if self.mascot.is_none() {
++            let thread = self.thread.clone();
++            let mascot = cx.new(|cx| MascotController::new(thread, cx));
++            self._subscriptions
++                .push(cx.observe(&mascot, |_, _, cx| cx.notify()));
++            self.mascot = Some(mascot);
++        }
++        self.mascot.clone()
++    }
++
++    /// Reads (state, crossfade_from, animated) for a mascot render. Must be
++    /// called at most once per frame: it consumes the cross-fade source and
++    /// prunes expired one-shots.
++    fn mascot_render_params(
++        &self,
++        mascot: &Entity<MascotController>,
++        cx: &mut App,
++    ) -> (MascotState, Option<MascotState>, bool) {
++        let animated = AgentSettings::get_global(cx).animations == AnimationLevel::Full;
++        let (state, crossfade_from) = mascot.update(cx, |mascot, cx| {
++            let state = mascot.current_state(cx);
++            let crossfade_from = if animated {
++                mascot.take_crossfade_from()
++            } else {
++                None
++            };
++            (state, crossfade_from)
++        });
++        (state, crossfade_from, animated)
++    }
++
++    fn render_empty_state_mascot(
++        &self,
++        mascot: &Entity<MascotController>,
++        cx: &mut Context<Self>,
++    ) -> AnyElement {
++        const GREETINGS: [&str; 4] = [
++            "What are we building?",
++            "Ready when you are.",
++            "Let's make something.",
++            "All ears.",
++        ];
++        let greeting = GREETINGS[self.thread.entity_id().as_u64() as usize % GREETINGS.len()];
++        let (state, crossfade_from, animated) = self.mascot_render_params(mascot, cx);
++        v_flex()
++            .w_full()
++            .items_center()
++            .pt_8()
++            .pb_2()
++            .gap_2()
++            .child(
++                div()
++                    .id("mascot-empty-state")
++                    .cursor_pointer()
++                    .on_click(cx.listener(|this, _, _, cx| {
++                        if let Some(mascot) = &this.mascot {
++                            mascot.update(cx, |mascot, cx| mascot.pet(cx));
++                        }
++                    }))
++                    .child(
++                        MascotPlayer::new("mascot-empty-player", state)
++                            .size(px(96.))
++                            .animated(animated)
++                            .crossfade_from(crossfade_from),
++                    ),
++            )
++            .child(
++                Label::new(greeting)
++                    .size(LabelSize::Small)
++                    .color(Color::Muted),
++            )
++            .into_any_element()
++    }
++
++    /// The 24px companion that "sits on" the composer's top border during an
++    /// active conversation. Positioned absolutely so it overlaps the border
++    /// (2px of the cat below the line, the rest above it). Walks along the
++    /// border and hops on completion when full animations are enabled.
++    fn render_mascot_companion(
++        &self,
++        mascot: &Entity<MascotController>,
++        cx: &mut Context<Self>,
++    ) -> AnyElement {
++        let (state, crossfade_from, animated) = self.mascot_render_params(mascot, cx);
++        let motion = mascot.update(cx, |mascot, cx| mascot.companion_motion(cx));
++        let base = div()
++            .absolute()
++            .top(px(-22.))
++            .id("mascot-companion")
++            .cursor_pointer()
++            .on_click(cx.listener(|this, _, _, cx| {
++                if let Some(mascot) = &this.mascot {
++                    mascot.update(cx, |mascot, cx| mascot.pet(cx));
++                }
++            }))
++            .child(
++                MascotPlayer::new("mascot-companion-player", state)
++                    .size(px(24.))
++                    .animated(animated)
++                    .crossfade_from(crossfade_from),
++            );
++        match (animated, motion.walk, motion.hop) {
++            (true, Some((walk_seq, from, to, duration)), _) => base
++                .with_animation(
++                    ("mascot-walk", walk_seq),
++                    Animation::new(duration),
++                    move |this, delta| this.right(px(from + (to - from) * delta)),
++                )
++                .into_any_element(),
++            (true, None, Some(hop_seq)) => base
++                .right(px(motion.offset))
++                .with_animation(
++                    ("mascot-hop", hop_seq),
++                    Animation::new(HOP_DURATION),
++                    move |this, delta| {
++                        this.top(px(-22. - 10. * (delta * std::f32::consts::PI).sin()))
++                    },
++                )
++                .into_any_element(),
++            _ => base.right(px(motion.offset)).into_any_element(),
++        }
++    }
++
+     /// Returns the currently active editor, either for a message that is being
+     /// edited or the editor for a new message.
+     pub(crate) fn active_editor(&self, cx: &App) -> Entity<MessageEditor> {
+@@ -1305,6 +1446,9 @@ impl ThreadView {
+     // turns
+ 
+     pub fn start_turn(&mut self, cx: &mut Context<Self>) -> usize {
++        if let Some(mascot) = &self.mascot {
++            mascot.update(cx, |mascot, cx| mascot.notify_generation_started(cx));
++        }
+         self.turn_fields.turn_generation += 1;
+         let generation = self.turn_fields.turn_generation;
+         self.turn_fields.turn_started_at = Some(Instant::now());
+@@ -1596,7 +1740,7 @@ impl ThreadView {
+ 
+         let task = cx.spawn_in(window, async move |this, cx| {
+             let Some((contents, tracked_buffers)) = contents_task.await? else {
+-                return Ok(());
++                return Ok(None);
+             };
+ 
+             let generation = this.update(cx, |this, cx| {
+@@ -1678,26 +1822,33 @@ impl ThreadView {
+             } else {
+                 "failure"
+             };
+-            res.map(|_| ())
++            res.map(|response| response.map(|response| response.stop_reason))
+         });
+ 
+         cx.spawn(async move |this, cx| {
+-            if let Err(err) = task.await {
+-                this.update(cx, |this, cx| {
+-                    this.handle_thread_error(err, cx);
+-                })
+-                .ok();
+-            } else {
+-                this.update(cx, |this, cx| {
+-                    let should_be_following = this
+-                        .workspace
+-                        .update(cx, |workspace, _| {
+-                            workspace.is_being_followed(CollaboratorId::Agent)
+-                        })
+-                        .unwrap_or_default();
+-                    this.should_be_following = should_be_following;
+-                })
+-                .ok();
++            match task.await {
++                Err(err) => {
++                    this.update(cx, |this, cx| {
++                        this.handle_thread_error(err, cx);
++                    })
++                    .ok();
++                }
++                Ok(stop_reason) => {
++                    this.update(cx, |this, cx| {
++                        let ended_turn = matches!(stop_reason, Some(acp::StopReason::EndTurn));
++                        if ended_turn && let Some(mascot) = &this.mascot {
++                            mascot.update(cx, |mascot, cx| mascot.notify_completed(cx));
++                        }
++                        let should_be_following = this
++                            .workspace
++                            .update(cx, |workspace, _| {
++                                workspace.is_being_followed(CollaboratorId::Agent)
++                            })
++                            .unwrap_or_default();
++                        this.should_be_following = should_be_following;
++                    })
++                    .ok();
++                }
+             }
+         })
+         .detach();
+@@ -1752,6 +1903,9 @@ impl ThreadView {
+         let error = error.into();
+         self.emit_thread_error_telemetry(&error, cx);
+         self.thread_error = Some(error);
++        if let Some(mascot) = &self.mascot {
++            mascot.update(cx, |mascot, cx| mascot.notify_error(cx));
++        }
+         cx.notify();
+     }
+ 
+@@ -1873,14 +2027,24 @@ impl ThreadView {
+ 
+         let task = thread.update(cx, |thread, cx| thread.retry(cx));
+         cx.emit(AcpThreadViewEvent::Interacted);
++        if let Some(mascot) = &self.mascot {
++            mascot.update(cx, |mascot, cx| mascot.notify_generation_started(cx));
++        }
+         self.sync_generating_indicator(cx);
+         cx.notify();
+         cx.spawn(async move |this, cx| {
+             let result = task.await;
+ 
+-            this.update(cx, |this, cx| {
+-                if let Err(err) = result {
+-                    this.handle_thread_error(err, cx);
++            this.update(cx, |this, cx| match result {
++                Err(err) => this.handle_thread_error(err, cx),
++                Ok(response) => {
++                    let ended_turn = matches!(
++                        response.map(|response| response.stop_reason),
++                        Some(acp::StopReason::EndTurn)
++                    );
++                    if ended_turn && let Some(mascot) = &this.mascot {
++                        mascot.update(cx, |mascot, cx| mascot.notify_completed(cx));
++                    }
+                 }
+             })
+         })
+@@ -4020,6 +4184,12 @@ impl ThreadView {
+         let max_content_width = AgentSettings::get_global(cx).max_content_width;
+         let has_messages = self.list_state.item_count() > 0;
+         let fills_container = !has_messages || editor_expanded;
++        let companion = if has_messages {
++            self.ensure_mascot(cx)
++                .map(|mascot| self.render_mascot_companion(&mascot, cx))
++        } else {
++            None
++        };
+ 
+         h_flex()
+             .p_2()
+@@ -4035,6 +4205,8 @@ impl ThreadView {
+                     this.flex_1().size_full()
+                 }
+             })
++            .when(companion.is_some(), |this| this.relative())
++            .children(companion)
+             .child(
+                 v_flex()
+                     .when_some(max_content_width, |this, max_w| this.flex_basis(max_w))
+@@ -10779,6 +10951,7 @@ impl Render for ThreadView {
+     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+         let has_messages = self.list_state.item_count() > 0;
+         let list_state = self.list_state.clone();
++        let mascot = self.ensure_mascot(cx);
+ 
+         let conversation = v_flex()
+             .when(self.resumed_without_history, |this| {
+@@ -10791,6 +10964,9 @@ impl Render for ThreadView {
+                         .child(self.render_entries(cx))
+                         .vertical_scrollbar_for(&list_state, window, cx)
+                         .into_any()
++                } else if let Some(mascot) = mascot.as_ref() {
++                    this.child(self.render_empty_state_mascot(mascot, cx))
++                        .into_any()
+                 } else {
+                     this.into_any()
+                 }
+diff --git a/crates/agent_ui/src/mascot.rs b/crates/agent_ui/src/mascot.rs
+new file mode 100644
+index 0000000000..cfad2c1584
+--- /dev/null
++++ b/crates/agent_ui/src/mascot.rs
+@@ -0,0 +1,883 @@
++use std::time::{Duration, Instant};
++
++use acp_thread::{AcpThread, AcpThreadEvent, AgentThreadEntry, ThreadStatus};
++use agent_settings::AgentSettings;
++use gpui::{App, Context, Entity, Subscription, Task};
++use settings::{AnimationLevel, Settings};
++use ui::MascotState;
++
++pub const LISTENING_WINDOW: Duration = Duration::from_secs(2);
++pub const SLEEP_AFTER: Duration = Duration::from_secs(5 * 60);
++pub const FIDGET_MIN_DELAY: Duration = Duration::from_secs(20);
++pub const FIDGET_MAX_DELAY: Duration = Duration::from_secs(60);
++pub const GLANCE_MIN_DELAY: Duration = Duration::from_secs(8);
++pub const GLANCE_MAX_DELAY: Duration = Duration::from_secs(15);
++pub const PERK_DURATION: Duration = Duration::from_millis(1500);
++pub const WALK_MIN_DELAY: Duration = Duration::from_secs(120);
++pub const WALK_MAX_DELAY: Duration = Duration::from_secs(300);
++pub const WALK_SPEED_PX_PER_SEC: f32 = 14.0;
++pub const WALK_OFFSET_MIN: f32 = 16.0;
++pub const WALK_OFFSET_MAX: f32 = 160.0;
++/// Walks shorter than this read as jitter; the walk opportunity is skipped
++/// (the scheduler simply re-arms for the next one).
++pub const MIN_WALK_DISTANCE: f32 = 24.0;
++pub const HOP_DURATION: Duration = Duration::from_millis(300);
++
++/// The executor clock, which gpui's test executor can fake; `Instant::now()`
++/// must never appear in this controller or deadline tests would flake.
++fn executor_now(cx: &App) -> Instant {
++    cx.background_executor().now()
++}
++
++/// Spec 2026-07-10 §4.1 weights: blink 40%, tail flick 25%, look 15%,
++/// groom 10%, stretch 10%.
++pub fn pick_fidget(roll: f32) -> MascotState {
++    if roll < 0.40 {
++        MascotState::Blink
++    } else if roll < 0.65 {
++        MascotState::TailFlick
++    } else if roll < 0.80 {
++        MascotState::Look
++    } else if roll < 0.90 {
++        MascotState::Groom
++    } else {
++        MascotState::Stretch
++    }
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum WalkDirection {
++    Left,
++    Right,
++}
++
++/// Offsets are measured from the composer's right edge, so a growing offset
++/// moves the cat left.
++#[derive(Debug, Clone, Copy)]
++pub struct Walk {
++    pub from: f32,
++    pub to: f32,
++    pub started_at: Instant,
++}
++
++impl Walk {
++    pub fn duration(&self) -> Duration {
++        Duration::from_secs_f32(((self.to - self.from).abs() / WALK_SPEED_PX_PER_SEC).max(0.01))
++    }
++
++    pub fn end(&self) -> Instant {
++        self.started_at + self.duration()
++    }
++
++    pub fn direction(&self) -> WalkDirection {
++        if self.to > self.from {
++            WalkDirection::Left
++        } else {
++            WalkDirection::Right
++        }
++    }
++
++    pub fn position_at(&self, now: Instant) -> f32 {
++        let progress = (now.saturating_duration_since(self.started_at).as_secs_f32()
++            / self.duration().as_secs_f32())
++        .clamp(0., 1.);
++        self.from + (self.to - self.from) * progress
++    }
++}
++
++pub fn walk_target(roll: f32) -> f32 {
++    WALK_OFFSET_MIN + (WALK_OFFSET_MAX - WALK_OFFSET_MIN) * roll.clamp(0., 0.999)
++}
++
++/// Snapshot of everything that influences which mascot clip should render.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub struct MascotInputs {
++    pub generating: bool,
++    pub typing: bool,
++    /// The active one-shot/held state, plus whether its deadline has passed.
++    pub transient: Option<(MascotState, bool)>,
++    pub asleep: bool,
++    pub walking: Option<WalkDirection>,
++}
++
++/// Spec §2.2 priority: petted > concerned > happy > thinking > listening >
++/// sleeping > idle. Transients (petted/concerned/happy/stretch) outrank all
++/// base states while unexpired; expired transients are ignored.
++pub fn resolve(inputs: MascotInputs) -> MascotState {
++    if let Some((state, expired)) = inputs.transient
++        && !expired
++    {
++        return state;
++    }
++    if inputs.generating {
++        MascotState::Thinking
++    } else if inputs.typing {
++        MascotState::Listening
++    } else if let Some(direction) = inputs.walking {
++        match direction {
++            WalkDirection::Left => MascotState::WalkLeft,
++            WalkDirection::Right => MascotState::WalkRight,
++        }
++    } else if inputs.asleep {
++        MascotState::Sleeping
++    } else {
++        MascotState::Idle
++    }
++}
++
++fn transient_priority(state: MascotState) -> u8 {
++    match state {
++        MascotState::Petted => 4,
++        MascotState::Concerned => 3,
++        MascotState::Happy => 2,
++        MascotState::Stretch => 1,
++        _ => 0,
++    }
++}
++
++/// Whether `incoming` may claim the single transient slot.
++fn should_replace_transient(current: Option<(MascotState, bool)>, incoming: MascotState) -> bool {
++    match current {
++        Some((state, expired)) => {
++            expired || transient_priority(incoming) >= transient_priority(state)
++        }
++        None => true,
++    }
++}
++
++pub struct MascotController {
++    thread: Entity<AcpThread>,
++    typing_until: Option<Instant>,
++    /// One-shot/held state. `None` deadline = hold until the next interaction
++    /// (only `Concerned` uses this).
++    transient: Option<(MascotState, Option<Instant>)>,
++    last_interaction: Instant,
++    previous_state: Option<MascotState>,
++    /// Last state handed out by `current_state`, used to detect changes and
++    /// populate `previous_state` for the cross-fade.
++    last_resolved: Option<MascotState>,
++    next_fidget_at: Option<Instant>,
++    next_walk_at: Option<Instant>,
++    walk: Option<Walk>,
++    walk_seq: usize,
++    /// Resting x-offset from the composer's right edge (px). 16 matches the
++    /// original hardcoded `right_4()`.
++    position_offset: f32,
++    hop_seq: usize,
++    hop_until: Option<Instant>,
++    _poll_task: Option<Task<()>>,
++    _thread_subscription: Subscription,
++}
++
++impl MascotController {
++    pub fn new(thread: Entity<AcpThread>, cx: &mut Context<Self>) -> Self {
++        let thread_subscription = cx.subscribe(&thread, |this, thread, event, cx| match event {
++            AcpThreadEvent::NewEntry => {
++                let new_entry_is_tool_call = thread
++                    .read(cx)
++                    .entries()
++                    .last()
++                    .is_some_and(|entry| matches!(entry, AgentThreadEntry::ToolCall(_)));
++                if new_entry_is_tool_call {
++                    this.notify_tool_call(cx);
++                }
++            }
++            AcpThreadEvent::ToolAuthorizationRequested(_) => {
++                this.notify_permission_requested(cx)
++            }
++            AcpThreadEvent::ToolAuthorizationReceived(_) => this.notify_permission_resolved(cx),
++            _ => {}
++        });
++        let mut this = Self {
++            thread,
++            typing_until: None,
++            transient: None,
++            last_interaction: executor_now(cx),
++            previous_state: None,
++            last_resolved: None,
++            next_fidget_at: None,
++            next_walk_at: None,
++            walk: None,
++            walk_seq: 0,
++            position_offset: WALK_OFFSET_MIN,
++            hop_seq: 0,
++            hop_until: None,
++            _poll_task: None,
++            _thread_subscription: thread_subscription,
++        };
++        this.schedule_wake(cx);
++        this.arm_schedules(cx);
++        this
++    }
++
++    fn is_generating(&self, cx: &App) -> bool {
++        self.thread.read(cx).status() != ThreadStatus::Idle
++    }
++
++    fn is_asleep(&self, cx: &App) -> bool {
++        executor_now(cx).saturating_duration_since(self.last_interaction) >= SLEEP_AFTER
++            && !self.is_generating(cx)
++    }
++
++    fn animations_full(cx: &App) -> bool {
++        AgentSettings::get_global(cx).animations == AnimationLevel::Full
++    }
++
++    fn schedule_fidget(&mut self, now: Instant, cx: &App) {
++        let (min, max) = if self.is_generating(cx) {
++            (GLANCE_MIN_DELAY, GLANCE_MAX_DELAY)
++        } else {
++            (FIDGET_MIN_DELAY, FIDGET_MAX_DELAY)
++        };
++        let jitter = (max - min).mul_f32(rand::random::<f32>());
++        self.next_fidget_at = Some(now + min + jitter);
++    }
++
++    fn settle_walk(&mut self, now: Instant) {
++        if let Some(walk) = &self.walk
++            && now >= walk.end()
++        {
++            self.position_offset = walk.to;
++            self.walk = None;
++        }
++    }
++
++    /// Stops a walk mid-stride, keeping the cat where it currently stands.
++    fn interrupt_walk(&mut self, now: Instant) {
++        if let Some(walk) = self.walk.take() {
++            self.position_offset = walk.position_at(now);
++        }
++    }
++
++    fn schedule_walk(&mut self, now: Instant) {
++        let jitter = (WALK_MAX_DELAY - WALK_MIN_DELAY).mul_f32(rand::random::<f32>());
++        self.next_walk_at = Some(now + WALK_MIN_DELAY + jitter);
++    }
++
++    fn start_walk(&mut self, now: Instant) {
++        let target = walk_target(rand::random::<f32>());
++        if (target - self.position_offset).abs() < MIN_WALK_DISTANCE {
++            return;
++        }
++        self.walk = Some(Walk {
++            from: self.position_offset,
++            to: target,
++            started_at: now,
++        });
++        self.walk_seq += 1;
++    }
++
++    fn arm_schedules(&mut self, cx: &mut Context<Self>) {
++        if !Self::animations_full(cx) {
++            self.next_fidget_at = None;
++            self.next_walk_at = None;
++            return;
++        }
++        let now = executor_now(cx);
++        if self.next_fidget_at.is_none() {
++            self.schedule_fidget(now, cx);
++        }
++        if self.next_walk_at.is_none() {
++            self.schedule_walk(now);
++        }
++        self.schedule_wake(cx);
++    }
++
++    /// True when the cat is visibly at rest: not generating, not mid-typing
++    /// attention, not asleep.
++    fn is_resting(&self, now: Instant, cx: &App) -> bool {
++        !self.is_generating(cx)
++            && !self.typing_until.is_some_and(|until| now < until)
++            && !self.is_asleep(cx)
++    }
++
++    fn tick(&mut self, cx: &mut Context<Self>) {
++        if !Self::animations_full(cx) {
++            self.next_fidget_at = None;
++            self.next_walk_at = None;
++            return;
++        }
++        let now = executor_now(cx);
++        if self.is_asleep(cx) {
++            // Park both schedulers so a sleeping cat costs zero timer wakeups;
++            // `wake` re-arms them (via `arm_schedules`) on the next interaction.
++            self.settle_walk(now);
++            self.next_fidget_at = None;
++            self.next_walk_at = None;
++            return;
++        }
++        if self.next_fidget_at.is_some_and(|at| now >= at) {
++            self.next_fidget_at = None;
++            if self.is_generating(cx) {
++                // glance up at the streaming text (spec §4.2)
++                let duration = MascotState::Look.clip_duration();
++                self.set_transient(MascotState::Look, Some(now + duration), cx);
++            } else if self.is_resting(now, cx) && self.walk.is_none() {
++                let fidget = pick_fidget(rand::random::<f32>());
++                self.set_transient(fidget, Some(now + fidget.clip_duration()), cx);
++            }
++            self.schedule_fidget(now, cx);
++        }
++        self.settle_walk(now);
++        if self.next_walk_at.is_some_and(|at| now >= at) {
++            self.next_walk_at = None;
++            if self.is_resting(now, cx) && self.transient.is_none() && self.walk.is_none() {
++                self.start_walk(now);
++            }
++            self.schedule_walk(now);
++        }
++    }
++
++    fn set_transient(
++        &mut self,
++        state: MascotState,
++        deadline: Option<Instant>,
++        cx: &mut Context<Self>,
++    ) {
++        let now = executor_now(cx);
++        let current = self
++            .transient
++            .map(|(state, deadline)| (state, deadline.is_some_and(|deadline| now >= deadline)));
++        if should_replace_transient(current, state) {
++            self.transient = Some((state, deadline));
++            self.schedule_wake(cx);
++            cx.notify();
++        }
++    }
++
++    /// Records user activity: resets the sleep timer, releases a held
++    /// `Concerned` pose, and plays `Stretch` when waking from sleep.
++    fn wake(&mut self, cx: &mut Context<Self>) {
++        self.interrupt_walk(executor_now(cx));
++        let was_asleep = self.is_asleep(cx);
++        self.last_interaction = executor_now(cx);
++        if let Some((MascotState::Concerned, None)) = self.transient {
++            self.transient = None;
++        }
++        if was_asleep {
++            let duration = MascotState::Stretch.clip_duration();
++            self.set_transient(MascotState::Stretch, Some(executor_now(cx) + duration), cx);
++        }
++        self.schedule_wake(cx);
++        cx.notify();
++        self.arm_schedules(cx);
++    }
++
++    pub fn notify_typing(&mut self, cx: &mut Context<Self>) {
++        self.typing_until = Some(executor_now(cx) + LISTENING_WINDOW);
++        self.wake(cx);
++    }
++
++    pub fn notify_generation_started(&mut self, cx: &mut Context<Self>) {
++        self.wake(cx);
++    }
++
++    pub fn notify_completed(&mut self, cx: &mut Context<Self>) {
++        let now = executor_now(cx);
++        self.last_interaction = now;
++        let duration = MascotState::Happy.clip_duration();
++        self.set_transient(MascotState::Happy, Some(now + duration), cx);
++        self.hop_seq += 1;
++        self.hop_until = Some(now + HOP_DURATION);
++    }
++
++    pub fn notify_error(&mut self, cx: &mut Context<Self>) {
++        self.last_interaction = executor_now(cx);
++        self.set_transient(MascotState::Concerned, None, cx);
++    }
++
++    /// Brief perk when the agent starts using a tool (spec §4.2). Reuses the
++    /// Listening clip; lowest transient priority so it never masks reactions.
++    pub fn notify_tool_call(&mut self, cx: &mut Context<Self>) {
++        let now = executor_now(cx);
++        self.set_transient(MascotState::Listening, Some(now + PERK_DURATION), cx);
++    }
++
++    /// Held attentive pose while a tool authorization is pending (spec §4.2).
++    pub fn notify_permission_requested(&mut self, cx: &mut Context<Self>) {
++        self.set_transient(MascotState::Concerned, None, cx);
++    }
++
++    pub fn notify_permission_resolved(&mut self, cx: &mut Context<Self>) {
++        if matches!(self.transient, Some((MascotState::Concerned, None))) {
++            self.transient = None;
++            cx.notify();
++        }
++    }
++
++    pub fn pet(&mut self, cx: &mut Context<Self>) {
++        self.interrupt_walk(executor_now(cx));
++        self.last_interaction = executor_now(cx);
++        let duration = MascotState::Petted.clip_duration();
++        self.set_transient(MascotState::Petted, Some(executor_now(cx) + duration), cx);
++        self.schedule_wake(cx);
++    }
++
++    pub fn current_state(&mut self, cx: &App) -> MascotState {
++        let now = executor_now(cx);
++        if let Some((_, Some(deadline))) = self.transient
++            && now >= deadline
++        {
++            self.transient = None;
++        }
++        self.settle_walk(now);
++        let inputs = MascotInputs {
++            generating: self.is_generating(cx),
++            typing: self.typing_until.is_some_and(|until| now < until),
++            transient: self
++                .transient
++                .map(|(state, deadline)| (state, deadline.is_some_and(|deadline| now >= deadline))),
++            asleep: self.is_asleep(cx),
++            walking: self.walk.as_ref().map(|walk| walk.direction()),
++        };
++        let state = resolve(inputs);
++        if self.last_resolved != Some(state) {
++            self.previous_state = self.last_resolved;
++            self.last_resolved = Some(state);
++        }
++        state
++    }
++
++    pub fn take_crossfade_from(&mut self) -> Option<MascotState> {
++        self.previous_state.take()
++    }
++
++    /// Sleeps until the next deadline that can change the resolved state
++    /// (typing window end, transient end, fidget/walk deadlines, or the sleep
++    /// threshold), then notifies and reschedules. Parks (no task) when no
++    /// deadline is pending — once `tick` clears the fidget/walk schedules at
++    /// the sleep threshold, a sleeping cat costs zero timer wakeups.
++    fn schedule_wake(&mut self, cx: &mut Context<Self>) {
++        let now = executor_now(cx);
++        let mut next_deadline: Option<Instant> = None;
++        let mut consider = |deadline: Instant| {
++            if deadline > now && next_deadline.is_none_or(|next| deadline < next) {
++                next_deadline = Some(deadline);
++            }
++        };
++        if let Some(until) = self.typing_until {
++            consider(until);
++        }
++        if let Some((_, Some(deadline))) = self.transient {
++            consider(deadline);
++        }
++        if let Some(at) = self.next_fidget_at {
++            consider(at);
++        }
++        if let Some(at) = self.next_walk_at {
++            consider(at);
++        }
++        if let Some(walk) = &self.walk {
++            consider(walk.end());
++        }
++        consider(self.last_interaction + SLEEP_AFTER);
++        let Some(next) = next_deadline else {
++            self._poll_task = None;
++            return;
++        };
++        let delay = next.saturating_duration_since(now) + Duration::from_millis(50);
++        self._poll_task = Some(cx.spawn(async move |this, cx| {
++            cx.background_executor().timer(delay).await;
++            this.update(cx, |this, cx| {
++                this.tick(cx);
++                cx.notify();
++                this.schedule_wake(cx);
++            })
++            .ok();
++        }));
++    }
++
++    pub fn companion_motion(&mut self, cx: &App) -> CompanionMotion {
++        let now = executor_now(cx);
++        self.settle_walk(now);
++        CompanionMotion {
++            offset: self
++                .walk
++                .as_ref()
++                .map_or(self.position_offset, |walk| walk.position_at(now)),
++            walk: self
++                .walk
++                .as_ref()
++                .map(|walk| (self.walk_seq, walk.from, walk.to, walk.duration())),
++            hop: self
++                .hop_until
++                .is_some_and(|until| now < until)
++                .then_some(self.hop_seq),
++        }
++    }
++}
++
++pub struct CompanionMotion {
++    /// Current x-offset from the composer's right edge, in px.
++    pub offset: f32,
++    /// (walk_seq, from, to, duration) while a walk is in flight.
++    pub walk: Option<(usize, f32, f32, Duration)>,
++    /// hop_seq while a completion hop is fresh.
++    pub hop: Option<usize>,
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use acp_thread::{AgentConnection as _, StubAgentConnection};
++    use gpui::{AppContext as _, TestAppContext};
++    use project::{FakeFs, Project};
++    use settings::SettingsStore;
++    use std::path::Path;
++    use std::rc::Rc;
++    use util::{path, path_list::PathList};
++
++    async fn test_controller(cx: &mut TestAppContext) -> Entity<MascotController> {
++        cx.update(|cx| {
++            let settings_store = SettingsStore::test(cx);
++            cx.set_global(settings_store);
++            AgentSettings::register(cx);
++        });
++        let fs = FakeFs::new(cx.executor());
++        let project = Project::test(fs, [], cx).await;
++        let connection = Rc::new(StubAgentConnection::new());
++        let thread = cx
++            .update(|cx| {
++                connection.new_session(project, PathList::new(&[Path::new(path!("/test"))]), cx)
++            })
++            .await
++            .expect("stub connection always creates a session");
++        cx.new(|cx| MascotController::new(thread, cx))
++    }
++
++    #[gpui::test]
++    async fn fidget_fires_within_its_window_and_rearms(cx: &mut TestAppContext) {
++        let controller = test_controller(cx).await;
++        controller.update(cx, |controller, _cx| {
++            assert!(
++                controller.next_fidget_at.is_some(),
++                "fidget should be armed on creation"
++            );
++        });
++        cx.executor()
++            .advance_clock(FIDGET_MAX_DELAY + Duration::from_millis(100));
++        cx.run_until_parked();
++        controller.update(cx, |controller, _cx| {
++            let (state, _) = controller
++                .transient
++                .expect("a fidget transient should have fired within FIDGET_MAX_DELAY");
++            assert!(
++                matches!(
++                    state,
++                    MascotState::Blink
++                        | MascotState::TailFlick
++                        | MascotState::Look
++                        | MascotState::Groom
++                        | MascotState::Stretch
++                ),
++                "fired transient should be a fidget, got {state:?}"
++            );
++            assert!(
++                controller.next_fidget_at.is_some(),
++                "fidget should be re-armed after firing"
++            );
++        });
++    }
++
++    #[gpui::test]
++    async fn sleeping_parks_all_timers(cx: &mut TestAppContext) {
++        let controller = test_controller(cx).await;
++        // Long enough that the sleep threshold has passed and every previously
++        // armed fidget/walk deadline has fired and been cleared.
++        cx.executor()
++            .advance_clock(SLEEP_AFTER + WALK_MAX_DELAY + FIDGET_MAX_DELAY);
++        cx.run_until_parked();
++        controller.update(cx, |controller, cx| {
++            assert!(controller.is_asleep(cx));
++            assert!(
++                controller.next_fidget_at.is_none(),
++                "asleep cat must not keep a fidget deadline"
++            );
++            assert!(
++                controller.next_walk_at.is_none(),
++                "asleep cat must not keep a walk deadline"
++            );
++            assert!(
++                controller._poll_task.is_none(),
++                "asleep cat must be fully parked with no pending wakeup"
++            );
++        });
++    }
++
++    #[gpui::test]
++    async fn generation_start_interrupts_walk_and_snaps_position(cx: &mut TestAppContext) {
++        let controller = test_controller(cx).await;
++        let (from, to) = (16.0_f32, 100.0_f32);
++        controller.update(cx, |controller, cx| {
++            controller.position_offset = from;
++            controller.walk = Some(Walk {
++                from,
++                to,
++                started_at: executor_now(cx),
++            });
++        });
++        // 84px at 14px/s = 6s; stop partway through the stride.
++        cx.executor().advance_clock(Duration::from_secs(3));
++        cx.run_until_parked();
++        controller.update(cx, |controller, cx| {
++            controller.notify_generation_started(cx);
++            assert!(
++                controller.walk.is_none(),
++                "generation start must interrupt the walk"
++            );
++            assert!(
++                controller.position_offset > from && controller.position_offset < to,
++                "interrupted walk should snap mid-stride, got {}",
++                controller.position_offset
++            );
++        });
++    }
++
++    fn base() -> MascotInputs {
++        MascotInputs {
++            generating: false,
++            typing: false,
++            transient: None,
++            asleep: false,
++            walking: None,
++        }
++    }
++
++    #[test]
++    fn idle_by_default() {
++        assert_eq!(resolve(base()), MascotState::Idle);
++    }
++
++    #[test]
++    fn typing_resolves_listening() {
++        let inputs = MascotInputs { typing: true, ..base() };
++        assert_eq!(resolve(inputs), MascotState::Listening);
++    }
++
++    #[test]
++    fn generating_resolves_thinking() {
++        let inputs = MascotInputs { generating: true, ..base() };
++        assert_eq!(resolve(inputs), MascotState::Thinking);
++    }
++
++    #[test]
++    fn thinking_beats_listening() {
++        let inputs = MascotInputs { generating: true, typing: true, ..base() };
++        assert_eq!(resolve(inputs), MascotState::Thinking);
++    }
++
++    #[test]
++    fn asleep_resolves_sleeping() {
++        let inputs = MascotInputs { asleep: true, ..base() };
++        assert_eq!(resolve(inputs), MascotState::Sleeping);
++    }
++
++    #[test]
++    fn generating_beats_sleeping() {
++        let inputs = MascotInputs { generating: true, asleep: true, ..base() };
++        assert_eq!(resolve(inputs), MascotState::Thinking);
++    }
++
++    #[test]
++    fn listening_beats_sleeping() {
++        let inputs = MascotInputs { typing: true, asleep: true, ..base() };
++        assert_eq!(resolve(inputs), MascotState::Listening);
++    }
++
++    #[test]
++    fn unexpired_transient_beats_everything() {
++        for transient in [
++            MascotState::Petted,
++            MascotState::Concerned,
++            MascotState::Happy,
++            MascotState::Stretch,
++        ] {
++            let inputs = MascotInputs {
++                generating: true,
++                typing: true,
++                asleep: true,
++                transient: Some((transient, false)),
++                ..base()
++            };
++            assert_eq!(resolve(inputs), transient);
++        }
++    }
++
++    #[test]
++    fn expired_transient_falls_through_to_base() {
++        let inputs = MascotInputs {
++            generating: true,
++            transient: Some((MascotState::Happy, true)),
++            ..base()
++        };
++        assert_eq!(resolve(inputs), MascotState::Thinking);
++        let inputs = MascotInputs {
++            transient: Some((MascotState::Petted, true)),
++            ..base()
++        };
++        assert_eq!(resolve(inputs), MascotState::Idle);
++    }
++
++    #[test]
++    fn transient_priority_order_matches_spec() {
++        assert!(transient_priority(MascotState::Petted) > transient_priority(MascotState::Concerned));
++        assert!(transient_priority(MascotState::Concerned) > transient_priority(MascotState::Happy));
++        assert!(transient_priority(MascotState::Happy) > transient_priority(MascotState::Stretch));
++    }
++
++    #[test]
++    fn empty_slot_accepts_any_transient() {
++        assert!(should_replace_transient(None, MascotState::Happy));
++        assert!(should_replace_transient(None, MascotState::Stretch));
++    }
++
++    #[test]
++    fn happy_does_not_replace_held_concerned() {
++        assert!(!should_replace_transient(
++            Some((MascotState::Concerned, false)),
++            MascotState::Happy
++        ));
++    }
++
++    #[test]
++    fn petted_replaces_held_concerned() {
++        assert!(should_replace_transient(
++            Some((MascotState::Concerned, false)),
++            MascotState::Petted
++        ));
++    }
++
++    #[test]
++    fn concerned_replaces_happy() {
++        assert!(should_replace_transient(
++            Some((MascotState::Happy, false)),
++            MascotState::Concerned
++        ));
++    }
++
++    #[test]
++    fn same_state_restarts_its_own_transient() {
++        assert!(should_replace_transient(
++            Some((MascotState::Petted, false)),
++            MascotState::Petted
++        ));
++    }
++
++    #[test]
++    fn expired_transient_is_always_replaced() {
++        assert!(should_replace_transient(
++            Some((MascotState::Petted, true)),
++            MascotState::Stretch
++        ));
++    }
++
++    #[test]
++    fn fidget_weights_partition_the_unit_interval() {
++        assert_eq!(pick_fidget(0.0), MascotState::Blink);
++        assert_eq!(pick_fidget(0.39), MascotState::Blink);
++        assert_eq!(pick_fidget(0.40), MascotState::TailFlick);
++        assert_eq!(pick_fidget(0.64), MascotState::TailFlick);
++        assert_eq!(pick_fidget(0.65), MascotState::Look);
++        assert_eq!(pick_fidget(0.79), MascotState::Look);
++        assert_eq!(pick_fidget(0.80), MascotState::Groom);
++        assert_eq!(pick_fidget(0.89), MascotState::Groom);
++        assert_eq!(pick_fidget(0.90), MascotState::Stretch);
++        assert_eq!(pick_fidget(0.999), MascotState::Stretch);
++    }
++
++    #[test]
++    fn perk_yields_to_event_transients_and_replaces_fidgets() {
++        // perk reuses Listening as a transient — lowest priority
++        assert_eq!(transient_priority(MascotState::Listening), 0);
++        assert!(!should_replace_transient(
++            Some((MascotState::Happy, false)),
++            MascotState::Listening
++        ));
++        assert!(should_replace_transient(
++            Some((MascotState::Blink, false)),
++            MascotState::Listening
++        ));
++        assert_eq!(PERK_DURATION, Duration::from_millis(1500));
++    }
++
++    #[test]
++    fn walking_resolves_direction_below_typing_and_generating() {
++        let inputs = MascotInputs { walking: Some(WalkDirection::Left), ..base() };
++        assert_eq!(resolve(inputs), MascotState::WalkLeft);
++        let inputs = MascotInputs { walking: Some(WalkDirection::Right), ..base() };
++        assert_eq!(resolve(inputs), MascotState::WalkRight);
++        let inputs = MascotInputs {
++            walking: Some(WalkDirection::Left),
++            generating: true,
++            ..base()
++        };
++        assert_eq!(resolve(inputs), MascotState::Thinking);
++        let inputs = MascotInputs {
++            walking: Some(WalkDirection::Left),
++            typing: true,
++            ..base()
++        };
++        assert_eq!(resolve(inputs), MascotState::Listening);
++        let inputs = MascotInputs {
++            walking: Some(WalkDirection::Left),
++            asleep: true,
++            ..base()
++        };
++        assert_eq!(resolve(inputs), MascotState::WalkLeft);
++    }
++
++    #[test]
++    fn walk_position_interpolates_and_clamps() {
++        let walk = Walk {
++            from: 16.,
++            to: 44.,
++            started_at: Instant::now(),
++        };
++        // 28px at 14px/s = 2s
++        assert_eq!(walk.duration(), Duration::from_secs(2));
++        assert_eq!(walk.direction(), WalkDirection::Left);
++        let start = walk.started_at;
++        assert!((walk.position_at(start) - 16.).abs() < 0.01);
++        assert!((walk.position_at(start + Duration::from_secs(1)) - 30.).abs() < 0.01);
++        assert!((walk.position_at(start + Duration::from_secs(10)) - 44.).abs() < 0.01);
++        let back = Walk {
++            from: 44.,
++            to: 16.,
++            started_at: start,
++        };
++        assert_eq!(back.direction(), WalkDirection::Right);
++    }
++
++    #[test]
++    fn walk_targets_stay_in_range() {
++        for roll in [0.0_f32, 0.25, 0.5, 0.75, 0.999] {
++            let target = walk_target(roll);
++            assert!(
++                (WALK_OFFSET_MIN..=WALK_OFFSET_MAX).contains(&target),
++                "target {target} out of range"
++            );
++        }
++    }
++
++    #[test]
++    fn fidgets_are_lowest_priority_transients() {
++        for fidget in [
++            MascotState::Blink,
++            MascotState::TailFlick,
++            MascotState::Look,
++            MascotState::Groom,
++        ] {
++            assert_eq!(transient_priority(fidget), 0);
++            // any event transient replaces a playing fidget
++            assert!(should_replace_transient(
++                Some((fidget, false)),
++                MascotState::Happy
++            ));
++            // a fidget never replaces a playing event transient
++            assert!(!should_replace_transient(
++                Some((MascotState::Happy, false)),
++                fidget
++            ));
++        }
++    }
++}

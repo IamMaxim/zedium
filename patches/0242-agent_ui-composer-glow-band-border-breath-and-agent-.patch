@@ -1,0 +1,486 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Fri, 10 Jul 2026 03:22:21 +0300
+Subject: [PATCH] agent_ui: composer glow band, border breath, and agent panel
+ micro-polish
+
+While generating, a ~20px accent gradient band rises from the composer's
+top edge and breathes on a 4s cycle; completion plays one brighter 800ms
+exhale, and errors tint the band red. The thread list reserves 24px above
+the composer whenever the mascot companion is shown, so the cat and the
+band no longer overlap the last message. The 1px border color animations
+remain as the band's crisp bottom edge.
+---
+ crates/agent_ui/src/conversation_view.rs      |   3 +
+ .../src/conversation_view/thread_view.rs      | 231 ++++++++++++++++--
+ crates/ui/src/components/disclosure.rs        |  58 ++++-
+ 3 files changed, 271 insertions(+), 21 deletions(-)
+
+diff --git a/crates/agent_ui/src/conversation_view.rs b/crates/agent_ui/src/conversation_view.rs
+index a61eb667f5..4623d28306 100644
+--- a/crates/agent_ui/src/conversation_view.rs
++++ b/crates/agent_ui/src/conversation_view.rs
+@@ -1583,6 +1583,9 @@ impl ConversationView {
+                             if active.list_state.is_following_tail() {
+                                 active.list_state.scroll_to_end();
+                             }
++                            if *stop_reason == acp::StopReason::EndTurn {
++                                active.trigger_completion_glow(cx);
++                            }
+                         }
+                         active.sync_generating_indicator(cx);
+                     });
+diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
+index 8b648a86b4..5cbb68e68a 100644
+--- a/crates/agent_ui/src/conversation_view/thread_view.rs
++++ b/crates/agent_ui/src/conversation_view/thread_view.rs
+@@ -631,6 +631,9 @@ pub struct ThreadView {
+     pub multi_root_callout_dismissed: bool,
+     pub generating_indicator_in_list: bool,
+     pub(crate) entries_when_opened: usize,
++    pub(crate) completion_glow_until: Option<Instant>,
++    completion_glow_seq: usize,
++    _completion_glow_task: Option<Task<()>>,
+     pub(crate) mascot: Option<Entity<MascotController>>,
+     pub skill_loading_issues: Vec<SkillLoadingIssue>,
+     /// Issues the user has explicitly dismissed. Each entry is matched against
+@@ -1013,6 +1016,9 @@ impl ThreadView {
+             multi_root_callout_dismissed: false,
+             generating_indicator_in_list: false,
+             entries_when_opened,
++            completion_glow_until: None,
++            completion_glow_seq: 0,
++            _completion_glow_task: None,
+             mascot: None,
+             skill_loading_issues: Vec::new(),
+             dismissed_skill_loading_issues: HashSet::default(),
+@@ -1900,6 +1906,29 @@ impl ThreadView {
+         .detach();
+     }
+ 
++    const COMPLETION_GLOW_DURATION: Duration = Duration::from_millis(800);
++
++    /// One 800ms border "exhale" on the composer after a turn completes
++    /// successfully (spec §3.4). Full animation level only.
++    pub(crate) fn trigger_completion_glow(&mut self, cx: &mut Context<Self>) {
++        if !matches!(Self::animation_level(cx), AnimationLevel::Full) {
++            return;
++        }
++        self.completion_glow_seq += 1;
++        self.completion_glow_until = Some(Instant::now() + Self::COMPLETION_GLOW_DURATION);
++        self._completion_glow_task = Some(cx.spawn(async move |this, cx| {
++            cx.background_executor()
++                .timer(Self::COMPLETION_GLOW_DURATION)
++                .await;
++            this.update(cx, |this, cx| {
++                this.completion_glow_until = None;
++                cx.notify();
++            })
++            .ok();
++        }));
++        cx.notify();
++    }
++
+     pub(crate) fn handle_thread_error(
+         &mut self,
+         error: impl Into<ThreadError>,
+@@ -4221,6 +4250,14 @@ impl ThreadView {
+         let max_content_width = AgentSettings::get_global(cx).max_content_width;
+         let has_messages = self.list_state.item_count() > 0;
+         let fills_container = !has_messages || editor_expanded;
++        let animation_level = Self::animation_level(cx);
++        let is_generating = self.thread.read(cx).status() == ThreadStatus::Generating;
++        let completion_glow_active = self
++            .completion_glow_until
++            .is_some_and(|deadline| Instant::now() < deadline);
++        let base_border = cx.theme().colors().border;
++        let accent = cx.theme().colors().text_accent;
++        let error_color = cx.theme().status().error;
+         let companion = if has_messages {
+             self.ensure_mascot(cx)
+                 .map(|mascot| self.render_mascot_companion(&mascot, cx))
+@@ -4228,7 +4265,63 @@ impl ThreadView {
+             None
+         };
+ 
+-        h_flex()
++        const GLOW_BAND_HEIGHT: f32 = 20.;
++        // Visible counterpart of the border breath: an accent gradient rising
++        // from the composer's top edge over the thread (spec 2026-07-10 §2).
++        let glow_band = |color: Hsla, alpha: f32| {
++            div()
++                .absolute()
++                .top(px(-GLOW_BAND_HEIGHT))
++                .left_0()
++                .right_0()
++                .h(px(GLOW_BAND_HEIGHT))
++                .bg(linear_gradient(
++                    180.,
++                    linear_color_stop(color.opacity(0.), 0.),
++                    linear_color_stop(color.opacity(alpha), 1.),
++                ))
++        };
++        let glow_band = if has_messages && matches!(animation_level, AnimationLevel::Full) {
++            if self.thread_error.is_some() {
++                Some(
++                    glow_band(error_color, 0.35)
++                        .with_animation(
++                            "composer-band-error",
++                            Animation::new(Duration::from_millis(200)),
++                            |this, delta| this.opacity(delta),
++                        )
++                        .into_any_element(),
++                )
++            } else if is_generating {
++                Some(
++                    glow_band(accent, 0.25)
++                        .with_animation(
++                            "composer-band-breath",
++                            Animation::new(Duration::from_secs(4))
++                                .repeat()
++                                .with_easing(pulsating_between(0.5, 1.0)),
++                            |this, delta| this.opacity(delta),
++                        )
++                        .into_any_element(),
++                )
++            } else if completion_glow_active {
++                Some(
++                    glow_band(accent, 0.4)
++                        .with_animation(
++                            ("composer-band-exhale", self.completion_glow_seq),
++                            Animation::new(Duration::from_millis(800)).with_easing(ease_in_out),
++                            |this, delta| this.opacity((delta * std::f32::consts::PI).sin()),
++                        )
++                        .into_any_element(),
++                )
++            } else {
++                None
++            }
++        } else {
++            None
++        };
++
++        let composer = h_flex()
+             .p_2()
+             .bg(editor_bg_color)
+             .justify_center()
+@@ -4242,7 +4335,10 @@ impl ThreadView {
+                     this.flex_1().size_full()
+                 }
+             })
+-            .when(companion.is_some(), |this| this.relative())
++            .when(companion.is_some() || glow_band.is_some(), |this| {
++                this.relative()
++            })
++            .children(glow_band)
+             .children(companion)
+             .child(
+                 v_flex()
+@@ -4325,7 +4421,46 @@ impl ThreadView {
+                             ),
+                     ),
+             )
+-            .into_any()
++            ;
++        if matches!(animation_level, AnimationLevel::Full) && self.thread_error.is_some() {
++            // Error tint: ease the border toward the error tone over 200ms and
++            // hold it (one-shot idles at delta = 1) while the banner is shown.
++            composer
++                .with_animation(
++                    "composer-error-tint",
++                    Animation::new(Duration::from_millis(200)),
++                    move |this, delta| {
++                        this.border_color(base_border.blend(error_color.opacity(0.35 * delta)))
++                    },
++                )
++                .into_any()
++        } else if matches!(animation_level, AnimationLevel::Full) && is_generating {
++            // Ambient breath: accent glow over the base border, alpha 4%..10%,
++            // ~4s cycle (spec §3.4). Loops only while generating.
++            composer
++                .with_animation(
++                    "composer-breath",
++                    Animation::new(Duration::from_secs(4))
++                        .repeat()
++                        .with_easing(pulsating_between(0.04, 0.10)),
++                    move |this, delta| this.border_color(base_border.blend(accent.opacity(delta))),
++                )
++                .into_any()
++        } else if matches!(animation_level, AnimationLevel::Full) && completion_glow_active {
++            // Completion exhale: one 800ms sine-envelope pulse, then rest.
++            composer
++                .with_animation(
++                    ("composer-exhale", self.completion_glow_seq),
++                    Animation::new(Duration::from_millis(800)).with_easing(ease_in_out),
++                    move |this, delta| {
++                        let envelope = (delta * std::f32::consts::PI).sin();
++                        this.border_color(base_border.blend(accent.opacity(0.35 * envelope)))
++                    },
++                )
++                .into_any()
++        } else {
++            composer.into_any()
++        }
+     }
+ 
+     fn render_message_queue_entries(
+@@ -4359,7 +4494,8 @@ impl ThreadView {
+                         let editor_focused = editor.focus_handle(cx).is_focused(_window);
+                         let keybinding_size = rems_from_px(12.);
+ 
+-                        h_flex()
++                        let row = h_flex()
++                            .id(("queue_entry", index))
+                             .group("queue_entry")
+                             .w_full()
+                             .p_1p5()
+@@ -4503,7 +4639,16 @@ impl ThreadView {
+                                                 );
+                                             })),
+                                     )
+-                            })
++                            });
++                        // Index-keyed ids mean a shifted row inherits the prior
++                        // occupant's animation state after a dequeue: usually already
++                        // finished, so the row appears settled without re-entering; rapid
++                        // dequeues can briefly inherit an in-flight timer — accepted.
++                        match Self::animation_level(cx) {
++                            AnimationLevel::Full => row.animate_in_subtle(true).into_any_element(),
++                            AnimationLevel::Reduced => row.fade_in().into_any_element(),
++                            AnimationLevel::Off => row.into_any_element(),
++                        }
+                     }),
+             )
+             .into_any_element()
+@@ -6907,8 +7052,8 @@ impl ThreadView {
+                                     .child("Thinking"),
+                             ),
+                     )
+-                    .child(
+-                        Disclosure::new(("expand", entry_ix), is_open)
++                    .child({
++                        let mut disclosure = Disclosure::new(("expand", entry_ix), is_open)
+                             .opened_icon(IconName::ChevronUp)
+                             .closed_icon(IconName::ChevronDown)
+                             .visible_on_hover(&card_header_id)
+@@ -6916,8 +7061,12 @@ impl ThreadView {
+                                 move |this, _event: &ClickEvent, _window, cx| {
+                                     this.toggle_thinking_block_expansion(key, cx);
+                                 },
+-                            )),
+-                    )
++                            ));
++                        if matches!(Self::animation_level(cx), AnimationLevel::Full) {
++                            disclosure = disclosure.eased_rotation(180.0);
++                        }
++                        disclosure
++                    })
+                     .on_click(cx.listener(move |this, _event: &ClickEvent, _window, cx| {
+                         this.toggle_thinking_block_expansion(key, cx);
+                     })),
+@@ -7815,7 +7964,8 @@ impl ThreadView {
+                 | ToolCallStatus::InProgress
+                 | ToolCallStatus::Completed
+                 | ToolCallStatus::Failed
+-                | ToolCallStatus::Canceled => v_flex()
++                | ToolCallStatus::Canceled => {
++                    let output = v_flex()
+                     .when(should_show_raw_input, |this| {
+                         this.mt_1p5().w_full().child(
+                             v_flex()
+@@ -7885,8 +8035,29 @@ impl ThreadView {
+                                         })),
+                                 ),
+                         )
+-                    })
+-                    .into_any(),
++                    });
++                    // The clamp is released at the end so taller outputs are
++                    // never truncated; replays when an expanded card scrolls back
++                    // into view — accepted.
++                    if matches!(Self::animation_level(cx), AnimationLevel::Full) {
++                        output
++                            .with_animation(
++                                ("tool-output-reveal", entry_ix),
++                                Animation::new(Duration::from_millis(150))
++                                    .with_easing(gpui::ease_out_quint()),
++                                |this, delta| {
++                                    if delta >= 1.0 {
++                                        this
++                                    } else {
++                                        this.max_h(px(600. * delta)).overflow_hidden()
++                                    }
++                                },
++                            )
++                            .into_any()
++                    } else {
++                        output.into_any()
++                    }
++                }
+                 ToolCallStatus::Rejected => Empty.into_any(),
+             }
+             .into()
+@@ -7970,14 +8141,21 @@ impl ThreadView {
+                                                 .pr_0p5()
+                                                 .gap_1()
+                                                 .when(is_collapsible, |this| {
++                                                    let mut disclosure = Disclosure::new(
++                                                        ("expand-output", entry_ix),
++                                                        is_open,
++                                                    )
++                                                    .opened_icon(IconName::ChevronUp)
++                                                    .closed_icon(IconName::ChevronDown)
++                                                    .visible_on_hover(&card_header_id);
++                                                    if matches!(
++                                                        Self::animation_level(cx),
++                                                        AnimationLevel::Full
++                                                    ) {
++                                                        disclosure = disclosure.eased_rotation(180.0);
++                                                    }
+                                                     this.child(
+-                                                        Disclosure::new(
+-                                                            ("expand-output", entry_ix),
+-                                                            is_open,
+-                                                        )
+-                                                        .opened_icon(IconName::ChevronUp)
+-                                                        .closed_icon(IconName::ChevronDown)
+-                                                        .visible_on_hover(&card_header_id)
++                                                        disclosure
+                                                         .on_click(cx.listener({
+                                                             let id = tool_call.id.clone();
+                                                             move |this: &mut Self,
+@@ -11137,15 +11315,28 @@ impl Render for ThreadView {
+         let list_state = self.list_state.clone();
+         let mascot = self.ensure_mascot(cx);
+ 
++        let companion_padding = has_messages && mascot.is_some();
+         let conversation = v_flex()
+             .when(self.resumed_without_history, |this| {
+                 this.child(Self::render_resume_notice(cx))
+             })
+             .map(|this| {
+                 if has_messages {
++                    let mut entries = self.render_entries(cx);
++                    if companion_padding {
++                        // Reserve the companion's breathing room *inside* the
++                        // list's own scroll content, not on the outer container.
++                        // The List consumes its own `style.padding`: autoscroll
++                        // subtracts `padding.bottom` when pinning the tail (see
++                        // ListState::scroll_to_reveal_item), so the last line
++                        // floats above the gap. Padding on the wrapper instead
++                        // lets the list pin flush to the composer, where the
++                        // opaque composer clips the final line.
++                        entries = entries.pb(px(24.));
++                    }
+                     this.flex_1()
+                         .size_full()
+-                        .child(self.render_entries(cx))
++                        .child(entries)
+                         .vertical_scrollbar_for(&list_state, window, cx)
+                         .into_any()
+                 } else if let Some(mascot) = mascot.as_ref() {
+diff --git a/crates/ui/src/components/disclosure.rs b/crates/ui/src/components/disclosure.rs
+index 387041bbd1..e1c54325ce 100644
+--- a/crates/ui/src/components/disclosure.rs
++++ b/crates/ui/src/components/disclosure.rs
+@@ -1,8 +1,14 @@
+ use std::sync::Arc;
++use std::time::Duration;
+ 
+-use gpui::{AnyView, ClickEvent, CursorStyle, SharedString};
++use gpui::{
++    Animation, AnimationExt as _, AnyView, ClickEvent, CursorStyle, SharedString,
++    Transformation, ease_in_out, radians,
++};
+ 
+ use crate::prelude::*;
++use crate::traits::transformable::Transformable;
++use crate::ButtonLike;
+ 
+ #[derive(IntoElement, RegisterComponent)]
+ pub struct Disclosure {
+@@ -14,6 +20,7 @@ pub struct Disclosure {
+     cursor_style: CursorStyle,
+     opened_icon: IconName,
+     closed_icon: IconName,
++    eased_rotation: Option<f32>,
+     visible_on_hover: Option<SharedString>,
+     tooltip: Option<Box<dyn Fn(&mut Window, &mut App) -> AnyView + 'static>>,
+ }
+@@ -29,6 +36,7 @@ impl Disclosure {
+             cursor_style: CursorStyle::PointingHand,
+             opened_icon: IconName::ChevronDown,
+             closed_icon: IconName::ChevronRight,
++            eased_rotation: None,
+             visible_on_hover: None,
+             tooltip: None,
+         }
+@@ -57,6 +65,15 @@ impl Disclosure {
+         self
+     }
+ 
++    /// Render the closed icon rotated by `degrees` when open, easing the
++    /// rotation over 120ms, instead of hard-swapping to the opened icon.
++    /// Pass the angle that turns the closed icon into the opened one
++    /// (e.g. 180.0 for ChevronDown -> ChevronUp).
++    pub fn eased_rotation(mut self, degrees: f32) -> Self {
++        self.eased_rotation = Some(degrees);
++        self
++    }
++
+     pub fn disabled(mut self, disabled: bool) -> Self {
+         self.disabled = disabled;
+         self
+@@ -91,6 +108,44 @@ impl VisibleOnHover for Disclosure {
+ 
+ impl RenderOnce for Disclosure {
+     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
++        if let Some(degrees) = self.eased_rotation {
++            let icon_color = if self.disabled {
++                Color::Disabled
++            } else {
++                Color::Muted
++            };
++            let is_open = self.is_open;
++            let total_rotation = degrees.to_radians();
++            let icon = Icon::new(self.closed_icon)
++                .size(IconSize::Small)
++                .color(icon_color)
++                .with_animation(
++                    (self.id.clone(), if is_open { "open" } else { "closed" }),
++                    Animation::new(Duration::from_millis(120)).with_easing(ease_in_out),
++                    move |icon, delta| {
++                        let angle = if is_open {
++                            total_rotation * delta
++                        } else {
++                            total_rotation * (1.0 - delta)
++                        };
++                        icon.transform(Transformation::rotate(radians(angle)))
++                    },
++                );
++
++            return ButtonLike::new(self.id)
++                .child(icon)
++                .disabled(self.disabled)
++                .toggle_state(self.selected)
++                .when_some(self.visible_on_hover.clone(), |this, group_name| {
++                    this.visible_on_hover(group_name)
++                })
++                .when_some(self.tooltip, |this, tooltip| this.tooltip(tooltip))
++                .when_some(self.on_toggle_expanded, move |this, on_toggle| {
++                    this.on_click(move |event, window, cx| on_toggle(event, window, cx))
++                })
++                .into_any_element();
++        }
++
+         IconButton::new(
+             self.id,
+             match self.is_open {
+@@ -109,6 +164,7 @@ impl RenderOnce for Disclosure {
+         .when_some(self.on_toggle_expanded, move |this, on_toggle| {
+             this.on_click(move |event, window, cx| on_toggle(event, window, cx))
+         })
++        .into_any_element()
+     }
+ }
+ 

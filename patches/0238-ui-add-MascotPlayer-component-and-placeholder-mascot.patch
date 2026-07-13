@@ -1,0 +1,838 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 9 Jul 2026 23:58:12 +0300
+Subject: [PATCH] ui: add MascotPlayer component and placeholder mascot assets
+
+---
+ assets/images/mascot/blink.webp           | Bin 0 -> 534 bytes
+ assets/images/mascot/concerned.webp       | Bin 0 -> 1084 bytes
+ assets/images/mascot/groom.webp           | Bin 0 -> 3550 bytes
+ assets/images/mascot/happy.webp           | Bin 0 -> 2846 bytes
+ assets/images/mascot/idle.webp            | Bin 0 -> 1594 bytes
+ assets/images/mascot/listening.webp       | Bin 0 -> 1328 bytes
+ assets/images/mascot/look.webp            | Bin 0 -> 698 bytes
+ assets/images/mascot/manifest.json        |  72 +++++
+ assets/images/mascot/petted.webp          | Bin 0 -> 3584 bytes
+ assets/images/mascot/sleeping.webp        | Bin 0 -> 1840 bytes
+ assets/images/mascot/static.png           | Bin 0 -> 2232 bytes
+ assets/images/mascot/stretch.webp         | Bin 0 -> 2320 bytes
+ assets/images/mascot/tail_flick.webp      | Bin 0 -> 716 bytes
+ assets/images/mascot/thinking.webp        | Bin 0 -> 990 bytes
+ assets/images/mascot/walk_left.webp       | Bin 0 -> 2042 bytes
+ assets/images/mascot/walk_right.webp      | Bin 0 -> 2078 bytes
+ crates/ui/src/components.rs               |   2 +
+ crates/ui/src/components/mascot_player.rs | 318 ++++++++++++++++++++++
+ 18 files changed, 392 insertions(+)
+ create mode 100644 assets/images/mascot/blink.webp
+ create mode 100644 assets/images/mascot/concerned.webp
+ create mode 100644 assets/images/mascot/groom.webp
+ create mode 100644 assets/images/mascot/happy.webp
+ create mode 100644 assets/images/mascot/idle.webp
+ create mode 100644 assets/images/mascot/listening.webp
+ create mode 100644 assets/images/mascot/look.webp
+ create mode 100644 assets/images/mascot/manifest.json
+ create mode 100644 assets/images/mascot/petted.webp
+ create mode 100644 assets/images/mascot/sleeping.webp
+ create mode 100644 assets/images/mascot/static.png
+ create mode 100644 assets/images/mascot/stretch.webp
+ create mode 100644 assets/images/mascot/tail_flick.webp
+ create mode 100644 assets/images/mascot/thinking.webp
+ create mode 100644 assets/images/mascot/walk_left.webp
+ create mode 100644 assets/images/mascot/walk_right.webp
+ create mode 100644 crates/ui/src/components/mascot_player.rs
+
+diff --git a/assets/images/mascot/blink.webp b/assets/images/mascot/blink.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..8cabdb22d1e743934c06abf7e34bed84c935de66
+GIT binary patch
+literal 534
+zcmWIYbaUflVqge&bqWXzu!!JdU|<je;{S{w<ml(=%Le2@fTN$Un-wDigBAmW0t16K
+zBf}I%h7<+{CZIkaMWDF8He;%Qy2FHA<9UodFK-+V5@z6>y_m~<hw6!Kl4k|fDmJV>
+zThDM~-n%(=4I-YClr{YXA{rG0=0plw2>wZ2d#`rxSC=pGy|=ds#s`$|-pdTK^}rbr
+zV23yWL{3-xu`9Uc>W<(1HEAH=w`}LjoH*IU?8D`u_`%nmKi|tQIa`1HZr=9WZ_9Sy
+zefNBtq(5KT-FKmDoyGsX+gx^QZcKHqZ$;?q3rF|Ot}|Y<3JZAkyLGMJ>oWbNaw)Q@
+z-uJ)W{q$NT`qw&p&0A3gMsHg0PhI=a_W%7uvjyU=u4n2l{r<{-XMN$LuSdI2S1|y?
+z)7Q-h=m`e~hEN8ERSXQG3=AiLd{79Q0BQYI4y*$F23pL<YM<pl1PFU}U6C~U@SaOD
+t<vaHdokjndnies?0jfLZQPpGnktM6=hZ!R_Gl8*!ZsrPR>v=?*2>{~f%5eYy
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/concerned.webp b/assets/images/mascot/concerned.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..1b9be82fad3ceaf9273ea828bcf186222b351d92
+GIT binary patch
+literal 1084
+zcmWIYbaOLdVPFV%bqWXzu!!JdU|<je;{S{w<ml(=%Le2@fTN$Un-e1ggBAmWDFcHx
+zBSRJ=!!HH~CZIkaO`y2Gc4L%)y2FHA<9UodFK-+V5@z6>y_m~<hw6!Kl4k|fDmJV>
+zThDM~-n%(=4I-YClr{YXA{rG0=0wUei2g}jd$0DJ%a{4Rx6LN~XgXPPeBE7Un8o<$
+z1J}>MK}aYT@U`}4i+p#bJwod1g6J<h7j69ce#h;%WxMa@ZNL5ZUeU41-Lc!NL!V!0
+z-T!;e+%om^anZtYS1n66zF&58-zsciU;GS<JuTn=9A8s9MYs04xbwQnIWKqrTbhx5
+z@MNNXk9PFo>VG*8eL2=^g(hr#7x!25yT0F^eHDd~{J?Pab&F$yg(L$b!vO|{T4+eR
+z0>$+i7!8OF$qAx2w`FVpy?6KkFV`}rRc1_=KInJz#9vWd^uO!&wn7WXN#Q$<@CD$g
+z992T#!@oJj=PaK?2|q+?Lt@GA(?7gD+ev;kJUP8GUwdqKz1QFG_di2Y;@h&{UyLvR
+z%-V3h<sZ}M6Rd0EFTcCL&q^;w_!svXW${V-zIU(7y}b=DdR_icu*{bWoXR4Ao^xPe
+zNMK-?!oVQHz)%j%r=a|54;0s*!oVsZt{~u1XydFW;Nc`ySkmYqbhhX5`Fe-1>@K+~
+lOD!!|95~XIlH0@-C-_&sUFBrvZB~XG{wuee+`q@b004VMF2Dc)
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/groom.webp b/assets/images/mascot/groom.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..15707833dd5a51ebede646226a9eee600e99b541
+GIT binary patch
+literal 3550
+zcmWIYbaT7L%fJxs>J$(bU=hK^z`!5`#QzyV$kET!mkr2+07pMxH!DU41}z2#1qKFf
+zMusVj47CglOhA1;ia>FFZN^jqb%zPL#`73^Ufwt!B+S4$doh>!4%HLeB+m+{Rcu&&
+zww~d}ymxc#8bmxNDQo%(L^LW0%!w4V5d4$4_FnDWuP$HWdv9+Oj1MT^y_Xqe>wz;M
+zzz%T$h@7tWV^?s?)g8b2Ytlf#Z`sb5IdQUy*@w$R@q@2Bf4-Mra<=~X-MsC$-<IvZ
+z`|kNPNq@ewyYE8RI*b2%x4G=r+?eWI--^)J7mn_mU1z*z6&CR7ck5cc*Jb)k<x*r*
+zz3+d$`{}hx^sjaHnzy0~jNY`~pSt#;?f?6SW(&k!UC-2A`u&yv&icYfUypX5u3`X&
+zr?1-&U`UxVFoXjA#=wxp0180{Pzc@!h2Vh(DFJZ>0gpl(XFUNAC#k}cMhBs@J&(`V
+zJA7q#pO|YMI9VluNz|j`ymD!-QRTE8rC<6g9x)DOOrWq~VAv26+RNYaSc!*!$@adT
+zdQQd3NI?ftGD^}n1pa;1J*VP1$;Z4768}?x)}zHgI0sb&#li6}uOOfhtmUGyctS3V
+z#QgL6#ZF9zr2emda_bMf!{<5tcU(5<YOi;A+&!^L^wGy=nN>Hhe-H%b8;=Pa4m{xi
+z`>o;a=9a&6iqBoHF5Mk{u`u=btF_a%@xL>9|Ng7`19t!T$Hyd+We{mQYx9!a(X>h5
+sR53Vg8%>*|<>uf>iI}b!O`D@>6Ejr|4w2EcIhr;HM@qzW1#;R10KC*`A^-pY
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/happy.webp b/assets/images/mascot/happy.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..0bc62076a71e2b5d74128b215b25d5ee260da579
+GIT binary patch
+literal 2846
+zcmeH}Yfuwc6vuA>MWwAEP_R5=MS(&wQYt~7p$@T8Ac7#)2dP@6J`fp|5JD0LBQOI6
+zM%$uAp|nnEVH7G(pu`YjsnO|xT18|aL=p==1~!3UkdWQp4UeQYqkQO0zx2#zb8;rT
+zx#ySv|J;qIQK@g+0FV^*(WWh%g0?OK04#wojDR1Jv9y@^@Y7U8#>P;C2>|#2unYiS
+z0{D^uJ_Eo4UKjl?tdo2Rdu_carKtfGgrX-8r1AD(Vfpuq$W1G62$r_ndS=$ww)4P)
+zis5tNr4F=HD`<fY8<%-I=Q=L5U_0}+a+u;RHOnXJuBY}CkbV@(`rs`A_>>7lYdy6B
+z{M_g{K6YWjdSyj~N`{B%%s^EGi^*?zQ(Rl~>Zq*7(Cx=2()P^;+IvP_r3^o;{po&H
+zHE?f!9$c=1skP31qP^bi&E#Z3vumTydu*9Bu0tb}`|-{_ik9oWqEc*D<%!h7%X=~r
+ztWotIpFURGDrrs`s}2<hsZqsmzh(i*bCw_kO(B4TFA=0jw#}8GW4GX-Z_Mg?zvy`h
+zsh0eH#(j3lxHQC0pQIF|wmG$RXEBX`oe>|*dfA9b+oyZd=rumFn_un8i_bGu*hry-
+zyMGTa_*w|Z9phXy+rP0G9)ar8WJ>YTj<tj5W=`@xXKmSi{q0A@pk1m9%Ch3XO4_7l
+zzL36++tse?5v0EIC`rp^O`L5LKV4HV<srK=uWE(dQC)JKlt)VL9sgJnU?8Z1Jxpm3
+z5{xhs?1FU?MM9r5LE0&gPguE>%?qqj0<9{JpiLF%61O|NfYcsmNi)eI+#o;`bbXB`
+z%fE!7-5GkOY4d}l<PLomQ%;*CuqS;6@&{Ds+lZ@~b>tRoXQH_f9iGN9Oh>){Wb2uF
+zZQ0My#3h5Q3jBDnxW2pvk#j=)4Sl=9^{g>0$A<uThQ2Lv?^)sA^N}#-+P5w3)Pe0|
+zt*u+V=aF{55$cUycIW0byd<0q+;@mc^8h5rs8nNit0WvwzYq`Ifp6$T1Nk01q(SH_
+zt@jiiM=GPFynxvl)$|utZqgnX5<7!51qypAziWt_;L%dZsm!XXGiuBvYecd=My~X$
+z+3yUxVQ!c{FQiX*53^x-twq^m)JMN(XmNK1LKaXPj)wV^Xw-%q&d4`1ajuO1>8_1@
+z($l^Iv^KpbP+_AuBnq+o8=UD6t<YJ}ObjkNH;qKi>>buRadEe?5srU*e#WTG&b>>Q
+zY)%U%H4bM25l7Ln^E0l({q;h9y@<F?+prL;xuf0;h{4aZdWRWn6zoNcb)<;C*EoyA
+zRo1R5>Cta?_hZ4E@4clFVc7d6r$g^*(XYPCAF?ng%wdWi1PGl42mH)**TL?fvo_3;
+zUXClA?kh8#=507x3L4^bJTy*)F5E-wHH<HM1a=JD656e$0A%(W=C|?WGR;u6kFP&w
+z1wanHdTl4mL;_}0_hJma7=o6cosGf8*Y$ri-&%pTawjh+HwxR=osOs{M%);`R5)Zp
+z*_etf@LxXSsZI(L9A|W^<?F={)9bp_@^WUWD=l<tZa2X%LH9vrLHC&`s}j~pKL4V!
+zp8R4~S<`U-fBUZq3>)mMAL+5rX8T`LW{AbAneB6b_?2>`Sk<=9s4X)YqY`eMckc3x
+zyC%%IS3{K6_w-FN@qxEEA3U_&SC?XsCLVo!f<v767I}@khelm^$5}fNo&3YNu;P(u
+zxeogpK9`(r(IO6Exz+}6uZG?>r(b7$GR|GUIgU342lp<RFE|-T=?tVeW0#YcXUA!&
+zGu}>lCWGFdQ{)(|UzSE!W%yr97b2u=e9vK$eqeo0Mv9NPDm4r<^o*rC_&DbmtS8Uz
+zDgi`hN;X9%9YSl;AK%QeE)sQkP9`dEpWrMO-A*!IXv{hXUE~F!m$Ya(H6cGC775dk
+Qlcls+Y-gyP_h8uZFYvWhdH?_b
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/idle.webp b/assets/images/mascot/idle.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..9f8f4c2972ecc79867d7021fb019d161b64a1a87
+GIT binary patch
+literal 1594
+zcmWIYbaOLeV_*n(bqWXzu!!JdU|<je;{S{w<ml(=3zUQcM?YUTD@FzeEd~Y!1_o_L
+zhAE5;<%|qWKz%-nKyiI-##8}yhY7jH^B8+x-Z&m4%)mK&F_-xc)f3w!&kCqjY*>A^
+zp5ey4cXR9-L_8-cYx)U9G%5(pi4?RD{FAu$UhUkkE??q%Z*LQf4=CTgml<U3fiob$
+z4s`*Lny&U^S8&VK9l!Z&(m=p(+0K_aak7cohs#6pgReV(zL#Hew*L6tyzRH&mhHa#
+z?)fxHf4;K2??Tr)i~oDKx$M^5nCe{LiqO{=j_#XXXS`+=7VzqK>sr0nW%^6yQe;!T
+z?|;4f>9tDquXXmCx1tJ+-n8DIy7r;%|NDn#3&dSr&(vM|{gwaD`oc$Fk9MD~VgQDx
+zuUixoECd-C8D23k)G|Oq&=DxE&(LT^WC%_Wy}d2Rv{{8sZb5>k$5q1#X}_ks^3R{%
+z@lQMNw%H?=!nl`~h)^44Q7;6}Sw5dreD3GZcbs+hk`EVMnSHGSB2>AFJ^$8@aQ7WH
+zUzTG@Imkl4zW&{t|KIi=G$rQM-#0op`DmQ*FQ#kC;v4Rz-`Q`wGiHa{7uGfIdMbOr
+zn6J;hy$vtw7yp-2?aKvDVIe@jZe?It08VH23=F>*7??qM)EX$RuXTW5KwLq<qcEgd
+zSHPo5D!-!9p=<H1mp}P`gfCc;tE{Qgc4WcMZGXPSZd(1<^@}}&hG&=l-feUJy}@St
+z!Oa$BU;vs8OuY;svrR!}i{dkT*+h{QkFFlCQh7f0g4-8+wgYwXp076Zf=%Usmnx`v
+z;yuVz;`2m<=*?|w(k31`z$~J}y3&fxNaz2i84o`TU93Nvd)sY}!Z~eQNJ-K#69oK$
+zrbB_A?}ysjmZ$S)U$Za<0rl#F%g1766Kh`)jLE9{_iy(<hQ`j{dq(F@CS7ldJ5ZJK
+z_l4c%Z)HVM@l&c8xfiuA@vi?Igsp`7`uNcL((5hrzHYwpR1;E0_yC>dz`zj7z_5ye
+z0T|G*P&NUI>#uTP72r3}Vm4O$EdL=u*t6@3q|t}>T#_l@xp(L+`p?v~i1`gr-7$}<
+Z9@~#BSv^0@7(wL@5oWGnww_0{nE(yH1-bwL
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/listening.webp b/assets/images/mascot/listening.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..7b05bc10afa7090788a7e8eba1d0de3399e0acca
+GIT binary patch
+literal 1328
+zcmWIYbaT^SWnc(*bqWXzu!!JdU|<je;{S{w<ml(=%Le2@fTN$UTLdEmgBAmWC<B8w
+zBf~02hF=T}OhA1;4nT2z?Zzwtb%zPL#`73^Ufwt!B+S4$doh>!4%HLeB+m+{Rcu&&
+zww~d}ymxc#CJ5ZzmhIY|@PM7wn=$k_!x^3bn@(8Xk-k`Ons?i+#_{gkZ+tLo3DX9~
+zKv4Yk5og}J-VJ%*KQYgr2?EuZZC>ZtSsr?H^xOU1Q2d~DZ`p>w<#sZB?S~&0SjfDa
+zXZ(0?^IhK`+ahHDAKbk1yOFwKd$oU2nee^Ur7x21Z>}?5vkD7%^;Fqf>H6DyQ>!MF
+zPMN!JdHLz}liz%?{ktS%`-6KM`v0uU;eG%1zwVya4{?9BHbi_6`m3oQKj+7nM@Lg_
+zfuZf|R=@-cUj|@^GBSK&goJMdP+XsZ(ShjjJ-IDg`!6H2zD5Ms3M)2_$MIs8?cbGu
+ztv{A~yF<TY^U~)egfHP37*&BI1fI_+K4<xS&!1PEarFj=lAYqW90LgeMcJ!AxJrM&
+zDfsW|mpA*(@u$wvtE=n1Y=6J6+Zm%b{q)nKoqPUHDzuAulkBv=_45gP`FSh9mtI?-
+zFCTNb&gTWYLBGv}FDutq=HA|h7sb^)s^{<bWCW!<6?ndeq&rx?<_6_!;?rG2!0l~W
+zskI9ZOlHw$OrFDZ;*~sid8PfL|5<mo_5NtGh^~5vBcM=)51avkr>oU>)EOKyTqwS_
+zFbxFc-W=>Udj|}&EUVw|mto0&$U?h*c|UuzzczAODhTDp8=Y%DDmUeq7@y1jz2~k}
+s&sBZ!^q}gK<{<e44kZdNf#J0hSvQPb_3_AmxjxRl*N-Rh`!g~C0E4}mg8%>k
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/look.webp b/assets/images/mascot/look.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..88c3c751af81ffb6a512e3f77482b791f1834d75
+GIT binary patch
+literal 698
+zcmWIYbaUIp#J~{l>J$(bU=hK^z`!5`#QzyV$kET!mkr2+07pMxH!DU41}z2#1qKFf
+zMusVj4CRarOhA1;N<eXaZN^jqb%zPL#`73^Ufwt!B+S4$doh>!4%HLeB+m+{Rcu&&
+zww~d}ymxc#CWv@WQt>p~?7e`Wr7gj=>44lZ`LO$U*H1mu@o#nEZL>$*ukyB+gRPx0
+z69|3+jfa8*YdPy|H4kOo`OI!-3<BbpZA#4E_iecSVfQNh;MdN--|sJayZ`XR0t*?w
+z_QMa)D>u*8?=8FgE_ki8IorFqYFRzK!)3yDSFK7mzF&BsXEiqSe$^(gKE3O%`%3mm
+z_nR+w?~ksVo3i}<zsZa4HgzZF|5=yA`~L5Lv3pKGLiTg%T(ezm|Mch4&hO&-daoHl
+zA(#U6hXVscC<DVP1_n_EPzW-BLeK{&uD{BGRX|)pz@yN{Sx>;jNvg1<(Lv~J&*Ss;
+z4qw^bCaSc)Jj7flaPXJo`CBTTjWtTY?D@dKl5xAwI>K|(`iqrQ<XUUpKVLTj+m#2D
+z^a7)4zzAbts0H#tc7=iLns$H-uU(!eMH@S>I{$X$yJ%*4|3l}C{kOL8N}Si+#|*ME
+zVsc95$|=s7e`N1e=H%X<e(|rttogRWARi_Hr6IO9px6o&W6*CPXlpG03<v(V6EkMd
+id0*@LrCtoEi(yXg?*DuCzKhw?r*gCIRO#_aCJX?jrw~K{
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/manifest.json b/assets/images/mascot/manifest.json
+new file mode 100644
+index 0000000000..a6238364a8
+--- /dev/null
++++ b/assets/images/mascot/manifest.json
+@@ -0,0 +1,72 @@
++{
++  "idle": {
++    "frames": 10,
++    "fps": 8,
++    "loop": true
++  },
++  "listening": {
++    "frames": 8,
++    "fps": 8,
++    "loop": true
++  },
++  "thinking": {
++    "frames": 10,
++    "fps": 8,
++    "loop": true
++  },
++  "happy": {
++    "frames": 8,
++    "fps": 10,
++    "loop": false
++  },
++  "concerned": {
++    "frames": 6,
++    "fps": 8,
++    "loop": false
++  },
++  "sleeping": {
++    "frames": 8,
++    "fps": 4,
++    "loop": true
++  },
++  "stretch": {
++    "frames": 8,
++    "fps": 10,
++    "loop": false
++  },
++  "petted": {
++    "frames": 10,
++    "fps": 10,
++    "loop": false
++  },
++  "blink": {
++    "frames": 4,
++    "fps": 10,
++    "loop": false
++  },
++  "tail_flick": {
++    "frames": 6,
++    "fps": 10,
++    "loop": false
++  },
++  "look": {
++    "frames": 8,
++    "fps": 8,
++    "loop": false
++  },
++  "groom": {
++    "frames": 10,
++    "fps": 8,
++    "loop": false
++  },
++  "walk_left": {
++    "frames": 6,
++    "fps": 10,
++    "loop": true
++  },
++  "walk_right": {
++    "frames": 6,
++    "fps": 10,
++    "loop": true
++  }
++}
+diff --git a/assets/images/mascot/petted.webp b/assets/images/mascot/petted.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..429604d825f4a6ba82bf7b23fb94c6b18f746b9f
+GIT binary patch
+literal 3584
+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
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/sleeping.webp b/assets/images/mascot/sleeping.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..b75f51507c10082629b598d7bc392252768884cb
+GIT binary patch
+literal 1840
+zcmWIYbaT^SXJ80-bqWXzu!!JdU|<je;{S{w<ml(=%Le2@fTN$Un;atpgBAlr0s}(>
+zPz3|SF9rrCpgtc~ptyd+L3;sp2esVUuVXb+o!lnm&Xztb;8rk!n}x&F>CbbH8UGnf
+z{zqPHbjrECZf%ADj|}@2EtY^%9)V@`ktr|km@oRDb!S`e52nM(my&^Q!T=TJ@ArPc
+zSB*-9_aCoYEz9&^;XU~SHm^KyZp*#>?Nf2$y&Ao<`KfFlE8f(G5(KtaeskXXH8<qP
+zub(#_?=L=Q`FswHkl&ZS&b_kU_{?It|F&PM{(LXH4YUCZdRu%y)XtU}7-qh1ML?&Y
+zVqgemU<d<~z))fag;FF?TtCb~RDj=L-eb#EpXEOUTy~rE*!ds-Pst|%ancv-Su>>#
+zre2U0WLWSG<k2U`5_f!+3oc8miJFqV5F<d~0tbG}Fo13Lf!OTDz~BHzK${ssHk$y&
+z^&J=lkZiuPZQ>M1gDK)azcCoR@A${f(WUl*iJ?K?bJDYl4@+`SG|$~%2R73QsP`(&
+zKzneUgU!?gn|XjAVWz?5ZNBBb_KOu~OMdBl@!!QJ!OFYOHz@A=FHl<Ybz8v<PCcgJ
+z)N=rA5(CI}6M*9S4U7f?@(L;n!JBli333QXsk{);S5VB^eC$6DFyYjATUlhKM2B$+
+zu&K?He==b;Q=-b*Eiz^EUB1NU-Ztw=Ti){*m<F+d=`$hVX8z=#7rGw*Syro`x$RiZ
+z*_Ma%k8l8O9tEQzF#JQ{&x7f$Tdzg!4rg1wUBv8t%<5HW;8sv^_0p0*6DB?Nt@^<a
+z&aVZ)U;&n6zycpwjsX#@9191E>xVTUmt(@7L02@`Pg?AF?5p4VVt>;X-Wgsm`ZyR2
+zl$4YfO+Tqx?Y8CVUbC!RK|CRS;J-Sg6mx*ss{k%^kV+g4pt!yRdWqAXFr~dF?Sl29
+z|H2;|Ug}tyc~;(i%?>JW{DA6#C6_3y@B+FYT;2c+AoS8u$aB)=_H+9ehfia+k-1pU
+d=y;JOj^RaekKwV7Sr?C;xVt{#|KqLP3;<@nhgbjr
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/static.png b/assets/images/mascot/static.png
+new file mode 100644
+index 0000000000000000000000000000000000000000..2ec3277b3aaeeb7077b3cd659e9a5983b6e524e5
+GIT binary patch
+literal 2232
+zcmeAS@N?(olHy`uVBq!ia0y~yU;;9k7&zE~)R&4YzZe)e>OEZ?Ln`LHy<wOo9Vp@u
+z=zl?PQ}2V)6(UQ5pK7&giyz~7d}wNS$hs@6Az8tZ$6MAM&~y7KdAC^1z~<k7p6TVq
+z%s{gS5Nzl<>A21I-u<)Q^`D=<y}O%h_mSDZPVa6?t&RLq&2WH=1L#K~1_l8Y1_lKW
+z1_p--3=9nlj0_Bpz@TViVPIh4Bt=1nlr6*j?-ljt)6c&K+EyJq!~Ci5#Z+JzkY^rV
+z7n$_RJ&>B~f4uSw&jE?sckk6t4c)*<iR<y&Mx6kngB2OZRSfISKm7UC=zeY0juYjl
+z^$Nq^ab7zJOw^=DC|>u{CjxTa_!*RC=f#H?Gqx{pzo^U*euVm70mUvT;3Qst`0{|M
+zK}DLBRF5~1VCm+9NfpDfU;jRTf5R8i9B;qxSNy@I9I9kG6zea)VEnP?^GgeB{fKjA
+z+rRUxoTg1+p;$^*S%K9AP-GuCF8BWZv!&->K7CtT^extmYNZoa8%ZkP2$}#&LkxD`
+z-hTVWbo|S^7l&yO!?Q0kGsH{=MsfV3-M8=7?K)EaaufB7J>SLb4?dq;{`k$F2miO-
+zefu{&l9l>-0#w;7IQxQ;!R_X|Z<8-CKSlkt3M``<HUj;zXPWhmci-;4K6J;v<R-=S
+j9C|vSNd^Dl+5F$kd+$2Gn(Nj38DxW}tDnm{r-UW|nigj=
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/stretch.webp b/assets/images/mascot/stretch.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..fdcc80f14204f1ba001f7bd61ceb45d8ae32f5eb
+GIT binary patch
+literal 2320
+zcmWIYbaUh2WMBw)bqWXzu!!JdU|<je;{S{w<ml(=%Le2@fTN$UTNon)gBAmWC<B87
+zBf~02h7<+{CZIkaJD|9}Lt~bJy2FHA<9UodFK-+V5@z6>y_m~<hw6!Kl4k|fDmJV>
+zThDM~-n%(=6GU%s%Q02%ZDiMo;0h|`Su*oq>czwHI|ToxKi<}>vM<5r?$&v0fo5U@
+z&*v1MvwZ%i;xo&Bx!!`nN4BXJ5Fs0>H=*j^jtcJ6D*gGsJQP3p`uWrS`VV^lZSUl5
+zzx}ps_uahuIOBJVoA;`H<kTx)pTFm9*2ixzvOX_5slG#Q|AdcWN59?PmWvm?KVMV%
+zYu1tUuQ#q;Kc)A6@6~?Ix~s20-Cr!L67D3&`}>p7$=Aa2`_KOKI;kGfRJ8QbQ*r70
+zbq~LPYJGf_8x*>8fZlCjVCZ6CSjE6_fB_!5EkJSoRSX6K@(Kb9A)KKa-U<%O)>ITY
+zD>$q$T5<LGANB?N4G)H9-3~K7$TMw2i)NU+r6!M>&;6?R@7+3H?7y`wSK_SS%wO!D
+zlT<wUfrf#=f>l6}^<6eKYwgyDlTQ|@7>CJz)@;2kxcfkbqHSo~<z>;0f4)8mOSI{~
+zP=4!k^VWO7^x*4e!VF6R*(fPM1}LtdO>_!aAmcen+4Is}TQ;_U2O@Jkj0z6?P|yBw
+z#$5T=`eV7bJM>rBew&9Q0YKb8N)Fc$fM)0O%hiAUKFYD(GhXwCB_xL*-6DVM+iv9;
+zzS#eNgYoC@(7&aB%N>jUe*g0U4&J+$eR!1czPIj`Wbf-O=VxxLs3<)4_}+`<^Dgel
+z`4x0N1%Lj|y<NBeW54G1*y~^27utU^*Zdyvy;^=}Q2p$$|G3sq-d9_wKkw|mN559)
+z*Y4K+^@n}=y;;vb$8W5vcNO;m=N%4Uf_7kFNMK+HVPp_Nl%DT_F{vNI=t^|y3Cuf@
+zg-s5#WSbUTVDV$Ak61qM$J>s7s|#<NJ>s79G3Pt7M?m>}Ra~9So7>-;Y7xabB=ziw
+zUI~^*Cw4D?FZQ-v`~THN|D4>hh4fW-umS5D|6N=3FJ9~G`c7b>3@n)|cdgs;@AsD#
+zU#C6)`ux1a-MxQS``@_t_fPozz+Kfpo$n|73$46+hyffPeLy1?FfdF7mv_J-?*sz_
+zGpIHx1B&afYS0o8R}k<h3~AOC@Mx0CuV{4WT0HCJPyQd_541Ms?v{L{sJ2M`y8n|Y
+zshi*blj9Qn8-9Bm@8X-9!T-TdV*oolH~8evYf-=B)wWj~9lug&yW~UB5jg|933efE
+z?Y`wqKVP2AJyc=uwEvRbzU*hbpb{<$7)y{k4z+}H1d3C&gxkFII}gOASV(9s_wx%&
+z{eFpuW-ql_tsz2tW_)vA{r4Tmbm!~!|3k1v4U$-W?ElyaG5>AtZD8Qf?}?@rg&V%R
+z*?;XhcJ#{gFaP-U&&l2?`+McH!F1pFS2NcjryXqU_vZf$pR&DN^mosvzxUk#&3z;H
+zs_wmV_^bTQ_u>z|UXmZbL;QSNeBs|K+xOiStNpk5LcZ_kpZdQ0_qzbI0XW{L0sRZC
+z<bY^3N<CKx6xUx(R6Tb9T+fw(>p7kGzd!C4RQk1kTduU*=HO-j9799Tf`U{5RNqZX
+y+10nH*YH@;$tM*mo6BT>2Xp1SztMZV_e*T*3x|JIMXwF)`Y*iSa(@5SWy}DOyeuC8
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/tail_flick.webp b/assets/images/mascot/tail_flick.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..202bcd2386c5b7fe90183e64a91258c4bab2219e
+GIT binary patch
+literal 716
+zcmWIYbaOkx#J~{l>J$(bU=hK^z`!5`#QzyV$kET!mkr2+07pMxH!DU41}z2#1qKFf
+zMusVj3@Ho@OhA1;ia>FFZN^jqb%zPL#`73^Ufwt!B+S4$doh>!4%HLeB+m+{Rcu&&
+zww~d}ymxc#8bmxNDQo%(L^LW0%!w4V5d4$4_FnDWuP$HWdv9+Oj1MT^y_Xqe>wz;M
+zzz%T$h@7tWV^?s?)g8b2Ytlf#Z`sb5IdQUy*@w$R@q@2Bf4-Mra<=~X-MsC$-<IvZ
+z`|kNPNq@ewyYE8RI*b2%x4G=r+?eWI--^)J7mn_mU1z*z6&CR7ck5cc*Jb)k<x*r*
+zz3+d$`{}hx^sjaHnzy0~jNY`~pSt#;?f?6SW(&k!UC-2A`u&yv&icYfUypX5u3`X&
+zr>|QG&=Xr37#4uT(Vl_f1Oo#zC<Lv6;`&+#_yxoj1Uw2unso&{nxyh88XdY8&wBZj
+z|3~<O6}ifqDs4v=?A-R}TkNLQe_g-WGiZ2r>F?b(*WVj#wjbPVQ3eK}*}&Lg1et9L
+zGFud%*~=!1tax<wc$LcYsTbV7*s~p|i}!rBnHO&ADzJ;iFijQ1V`{>(Txk*2KpXDk
+enla1w3jXb9Jn??@t<9`(Qz791cPj&BZUq1c6%4ch
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/thinking.webp b/assets/images/mascot/thinking.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..4a2dc074790eee50285c6d1f03f5510ecc769a1b
+GIT binary patch
+literal 990
+zcmWIYbaT7L%)k)t>J$(bU=hK^z`!5`#QzyV$kET!mkr2+07pMxH!DU41}z2#1qKFf
+zMusVj47CglOhA1;N<eXaZN^jqb%zPL#`73^Ufwt!B+S4$doh>!4%HLeB+m+{Rcu&&
+zww~d}ymxc#CWv@WQt>p~?7e`Wr7gj=>44lZ`LO$U*H1mu@o#nEZL>$*ukyB+gRPx0
+z69|3+jfa8*YdPy|H4kOo`OI!-3<BbpZA#4E_iecSVfQNh;MdN--|sJayZ`XR0t*?w
+z_QMa)D>u*8?=8FgE_ki8IorFqYFRzK!)3yDSFK7mzF&BsXEiqSe$^(gKE3O%`%3mm
+z_nR+w?~ksVo3i}<zsZa4HgzZF|5=yA`~L5Lv3pKGLiTg%T(ezm|Mch4&hO&-daoHl
+zAs7Pm$5sZ01>kVBXJGinz`zU&L2ID6zSaSL0dWNZkHU~<T>+0Ksr-sYhpxr5UjF3&
+z5x!tWuCk^|+mQu3xBdARyJ_`b*Dv-A8lGMHd$-N?_Xft5ubUs-Y*7XVpxMCKVFa0N
+z3Nl+1pV`YMimZ5a^>~%a^QjlyzSy%JsEhY}wV4-g>MF2{#bBl~z)cmyV`{>(Txk*2
+zKpXDknla1w3jXb9Jn??@t<9`pQ&WI$a$sNxWnciB4RkKhtzc7qKyF>-zzPWm8)rQM
+z4=1U@l12xivptW`*E@V=cbllv`tlHSoxs6gj^}TwbT-x~{j%o+YGYu?xZP(R;W=sj
+z#mXsit+no-uN#5G9271PA85mT01k6-xM<_|!E6WV&JU9FCd~Z?3U7(f_+6oM#lSxB
+z0GfIL94;bYQ-LuF4s8RVxW32%eg^&m>7AE9+-1xC_n498rkUwX`=^Y00vG=S<x#+f
+OQeGUfhX`k~Vh;d%E@Y4Z
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/walk_left.webp b/assets/images/mascot/walk_left.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..4e205f18097573084ab2c475834cbda2312a24d8
+GIT binary patch
+literal 2042
+zcmWIYbaVT}&cG1v>J$(bU=hK^z`!5`#QzyV$kET!mkr2+07pMxH!DU41}z2#1qKEO
+zMusVj3@Ho@%s_oUN<eXa2gXzZb%zPL#`73^Ufwt!B+S4$doh>!4%HLeB+m+{Rcu&&
+zww~d}ymxc#CWv}YQjYw{(kRNobkJCv$)BY@Vs-idd!a7>Z|=xd?$np?FJGIU4Yqg2
+zOd$9PG#?5MtmUk;wLet%aH`Q6FgTjPKljFN<u~DV;i33}{q_3)2c!Sb<!?Xyu)sow
+zuid`Cr@C;1btnIhJ9qPK(zjOZ*l{anR?UI0Ka?Iv9{sio8>rj=QE=<rBg?CDUT3Gi
+z-kbh6`D*yyYxUyR9%hQ-hwsHJ?VMln-|V;VNp>B_n<01VH-7xdz5lm(-)(MSc>1~p
+zKtd20h}w({4d4)D0EM6hC<L_`6G#fde=Lo{96|?;v%w*_{QbUpZ(Y93@4am{=||JY
+zlH=<xGs8j+nLc3od`|H>OZ$7a2iL1B$M{zKZ=Db10|n>#d|tNu=PQowum7&Y=658q
+zy10M8`7b@)e|$F_*yqpuc=G7IyzilNo%P-KobP=1?xgU;w`K8HJKrDMXTDbQ-nQJ^
+z_)u;A!#`72bH<;#FljaC`uS{?)+eX#yS`r}R=2|F4L3Ji-r?VWaucQt>{}JqDE%$Y
+l_WqN-s~YoPGmoZBaKwzJOh_<{rp(bY6L+mMT4sXFOaR_AqyGQ^
+
+literal 0
+HcmV?d00001
+
+diff --git a/assets/images/mascot/walk_right.webp b/assets/images/mascot/walk_right.webp
+new file mode 100644
+index 0000000000000000000000000000000000000000..64763529ee39df525f2b1174c444b658ee34e760
+GIT binary patch
+literal 2078
+zcmWIYbaNBqU|<M$bqWXzu!!JdU|<je;{S{w<ml(=%Le2@fTN$Un*$>QgDC@p0s{k(
+zHHDEOg@J(?sLw|oD6a3om@1&|Fd^4?9%IkT8^?o$88~Mz<}%-*dSaX8Spl_*4Xe-A
+zGu)W>ZjN0;?Cou<Qx=*zXdKw6RnT*}A@OUxnB>1FZeQYiZ*LQf7f647R}y9~h;CRv
+z69mc`7<SaM0J+JT)AZ92ppSKTmialKf-SdSYu^vW53U~nbl<+>bbb5VvfX#{w%>mH
+zE#p?U*ze71A6eRWpO!Y4(#`AdH52!p_n@Li^|9OcTlK53fvR`PS*OL%=X3mIx-{$l
+z+J6#XnXb>ezq7nUr+?1PrpI@!q8`sW5t_d_-lVc=`hqo`cMb}CUiT_)E(0)Beci%<
+z;pM=<pan#X3=QCLWB`SuEhrqd7!!yL#|ff0w`FVl8hmJC$kJMnC9S~oe^XptP2hJI
+zP(W%-if1U<kj{%7kVxzgpXU^xvwS`$UtY5{Ti`i_0~RSh7kqP1CTHA?gOgSF#l8>6
+zAE2RM|9-k(KSA%m?Y+A&U_0|sG~4grWxMM`<*Q5|&9&OKd%4x2+i(Ac%HCgFn_p@E
+zp+EQbHoVCDzW>f!A6DMlGy6l_f2l{lO4I+(iwWIj_+Gvs<NwJ6dSZKC>Wi&c`?ESv
+ubjPd@evSJb-<NHc1BdQtDut!k(NqdgyQ8TTn)gS`Qml2-XjzI;mI46VWRz3@
+
+literal 0
+HcmV?d00001
+
+diff --git a/crates/ui/src/components.rs b/crates/ui/src/components.rs
+index b1f3e6a633..5636ff9fd3 100644
+--- a/crates/ui/src/components.rs
++++ b/crates/ui/src/components.rs
+@@ -24,6 +24,7 @@ mod keybinding;
+ mod keybinding_hint;
+ mod label;
+ mod list;
++mod mascot_player;
+ mod modal;
+ mod navigable;
+ mod notification;
+@@ -68,6 +69,7 @@ pub use keybinding::*;
+ pub use keybinding_hint::*;
+ pub use label::*;
+ pub use list::*;
++pub use mascot_player::*;
+ pub use modal::*;
+ pub use navigable::*;
+ pub use notification::*;
+diff --git a/crates/ui/src/components/mascot_player.rs b/crates/ui/src/components/mascot_player.rs
+new file mode 100644
+index 0000000000..ae4b08c2e1
+--- /dev/null
++++ b/crates/ui/src/components/mascot_player.rs
+@@ -0,0 +1,318 @@
++use std::sync::Arc;
++use std::time::Duration;
++
++use gpui::{Animation, AnimationExt as _, img};
++
++use crate::prelude::*;
++
++/// The behavioral state of the agent mascot. Each state maps to one animated
++/// WebP clip under `assets/images/mascot/`.
++#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
++pub enum MascotState {
++    Idle,
++    Listening,
++    Thinking,
++    Happy,
++    Concerned,
++    Sleeping,
++    Stretch,
++    Petted,
++    Blink,
++    TailFlick,
++    Look,
++    Groom,
++    WalkLeft,
++    WalkRight,
++}
++
++/// Single static idle pose, used when animations are disabled.
++pub const MASCOT_STATIC_ASSET: &str = "images/mascot/static.png";
++
++const CROSSFADE_DURATION: Duration = Duration::from_millis(120);
++
++impl MascotState {
++    /// Path of this state's animated clip, relative to the embedded assets root.
++    pub fn asset_path(&self) -> &'static str {
++        match self {
++            MascotState::Idle => "images/mascot/idle.webp",
++            MascotState::Listening => "images/mascot/listening.webp",
++            MascotState::Thinking => "images/mascot/thinking.webp",
++            MascotState::Happy => "images/mascot/happy.webp",
++            MascotState::Concerned => "images/mascot/concerned.webp",
++            MascotState::Sleeping => "images/mascot/sleeping.webp",
++            MascotState::Stretch => "images/mascot/stretch.webp",
++            MascotState::Petted => "images/mascot/petted.webp",
++            MascotState::Blink => "images/mascot/blink.webp",
++            MascotState::TailFlick => "images/mascot/tail_flick.webp",
++            MascotState::Look => "images/mascot/look.webp",
++            MascotState::Groom => "images/mascot/groom.webp",
++            MascotState::WalkLeft => "images/mascot/walk_left.webp",
++            MascotState::WalkRight => "images/mascot/walk_right.webp",
++        }
++    }
++
++    /// Total duration of one playback of this state's clip (frames / fps,
++    /// mirroring the timing baked into the clips by tools/mascot_pack).
++    pub fn clip_duration(&self) -> Duration {
++        let (frames, fps) = match self {
++            MascotState::Idle => (10, 8),
++            MascotState::Listening => (8, 8),
++            MascotState::Thinking => (10, 8),
++            MascotState::Happy => (8, 10),
++            MascotState::Concerned => (6, 8),
++            MascotState::Sleeping => (8, 4),
++            MascotState::Stretch => (8, 10),
++            MascotState::Petted => (10, 10),
++            MascotState::Blink => (4, 10),
++            MascotState::TailFlick => (6, 10),
++            MascotState::Look => (8, 8),
++            MascotState::Groom => (10, 8),
++            MascotState::WalkLeft => (6, 10),
++            MascotState::WalkRight => (6, 10),
++        };
++        Duration::from_millis(frames * 1000 / fps)
++    }
++
++    /// One-shot states play once and then return to a base state. The clip
++    /// files themselves loop (gpui's img() has no play-once API); the mascot
++    /// controller swaps the state after `clip_duration()` elapses.
++    pub fn is_one_shot(&self) -> bool {
++        matches!(
++            self,
++            MascotState::Happy
++                | MascotState::Concerned
++                | MascotState::Stretch
++                | MascotState::Petted
++                | MascotState::Blink
++                | MascotState::TailFlick
++                | MascotState::Look
++                | MascotState::Groom
++        )
++    }
++}
++
++/// Renders the mascot's clip for a given state, cross-fading from the previous
++/// state's clip when one is provided.
++#[derive(IntoElement)]
++pub struct MascotPlayer {
++    id: ElementId,
++    state: MascotState,
++    size: Pixels,
++    animated: bool,
++    crossfade_from: Option<MascotState>,
++}
++
++impl MascotPlayer {
++    pub fn new(id: impl Into<ElementId>, state: MascotState) -> Self {
++        Self {
++            id: id.into(),
++            state,
++            size: px(96.),
++            animated: true,
++            crossfade_from: None,
++        }
++    }
++
++    pub fn size(mut self, size: Pixels) -> Self {
++        self.size = size;
++        self
++    }
++
++    /// When false, renders the single static pose instead of animated clips.
++    pub fn animated(mut self, animated: bool) -> Self {
++        self.animated = animated;
++        self
++    }
++
++    /// Cross-fade from the previous state's clip over 120ms. The animation id
++    /// incorporates both states, so a state change restarts the fade.
++    pub fn crossfade_from(mut self, prev: Option<MascotState>) -> Self {
++        self.crossfade_from = prev;
++        self
++    }
++}
++
++impl RenderOnce for MascotPlayer {
++    fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
++        let size = self.size;
++
++        if !self.animated {
++            return div()
++                .id(self.id)
++                .size(size)
++                .child(img(MASCOT_STATIC_ASSET).size(size))
++                .into_any_element();
++        }
++
++        match self.crossfade_from {
++            Some(previous) if previous != self.state => {
++                let fade_out_id = ElementId::NamedChild(
++                    Arc::new(self.id.clone()),
++                    format!("xfade-out-{}-{}", previous as usize, self.state as usize).into(),
++                );
++                let fade_in_id = ElementId::NamedChild(
++                    Arc::new(self.id.clone()),
++                    format!("xfade-in-{}-{}", previous as usize, self.state as usize).into(),
++                );
++                div()
++                    .id(self.id)
++                    .relative()
++                    .size(size)
++                    .child(
++                        div()
++                            .absolute()
++                            .inset_0()
++                            .child(img(previous.asset_path()).size(size))
++                            .with_animation(
++                                fade_out_id,
++                                Animation::new(CROSSFADE_DURATION),
++                                |this, delta| this.opacity(1.0 - delta),
++                            ),
++                    )
++                    .child(
++                        div()
++                            .absolute()
++                            .inset_0()
++                            .child(img(self.state.asset_path()).size(size))
++                            .with_animation(
++                                fade_in_id,
++                                Animation::new(CROSSFADE_DURATION),
++                                |this, delta| this.opacity(delta),
++                            ),
++                    )
++                    .into_any_element()
++            }
++            _ => div()
++                .id(self.id)
++                .size(size)
++                .child(img(self.state.asset_path()).size(size))
++                .into_any_element(),
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn mascot_asset_paths() {
++        assert_eq!(MascotState::Idle.asset_path(), "images/mascot/idle.webp");
++        assert_eq!(
++            MascotState::Listening.asset_path(),
++            "images/mascot/listening.webp"
++        );
++        assert_eq!(
++            MascotState::Thinking.asset_path(),
++            "images/mascot/thinking.webp"
++        );
++        assert_eq!(MascotState::Happy.asset_path(), "images/mascot/happy.webp");
++        assert_eq!(
++            MascotState::Concerned.asset_path(),
++            "images/mascot/concerned.webp"
++        );
++        assert_eq!(
++            MascotState::Sleeping.asset_path(),
++            "images/mascot/sleeping.webp"
++        );
++        assert_eq!(
++            MascotState::Stretch.asset_path(),
++            "images/mascot/stretch.webp"
++        );
++        assert_eq!(
++            MascotState::Petted.asset_path(),
++            "images/mascot/petted.webp"
++        );
++        assert_eq!(MascotState::Blink.asset_path(), "images/mascot/blink.webp");
++        assert_eq!(
++            MascotState::TailFlick.asset_path(),
++            "images/mascot/tail_flick.webp"
++        );
++        assert_eq!(MascotState::Look.asset_path(), "images/mascot/look.webp");
++        assert_eq!(MascotState::Groom.asset_path(), "images/mascot/groom.webp");
++        assert_eq!(
++            MascotState::WalkLeft.asset_path(),
++            "images/mascot/walk_left.webp"
++        );
++        assert_eq!(
++            MascotState::WalkRight.asset_path(),
++            "images/mascot/walk_right.webp"
++        );
++        assert_eq!(MASCOT_STATIC_ASSET, "images/mascot/static.png");
++    }
++
++    #[test]
++    fn mascot_clip_durations() {
++        assert_eq!(
++            MascotState::Idle.clip_duration(),
++            Duration::from_millis(1250)
++        );
++        assert_eq!(
++            MascotState::Listening.clip_duration(),
++            Duration::from_millis(1000)
++        );
++        assert_eq!(
++            MascotState::Thinking.clip_duration(),
++            Duration::from_millis(1250)
++        );
++        assert_eq!(
++            MascotState::Happy.clip_duration(),
++            Duration::from_millis(800)
++        );
++        assert_eq!(
++            MascotState::Concerned.clip_duration(),
++            Duration::from_millis(750)
++        );
++        assert_eq!(
++            MascotState::Sleeping.clip_duration(),
++            Duration::from_millis(2000)
++        );
++        assert_eq!(
++            MascotState::Stretch.clip_duration(),
++            Duration::from_millis(800)
++        );
++        assert_eq!(
++            MascotState::Petted.clip_duration(),
++            Duration::from_millis(1000)
++        );
++        assert_eq!(
++            MascotState::Blink.clip_duration(),
++            Duration::from_millis(400)
++        );
++        assert_eq!(
++            MascotState::TailFlick.clip_duration(),
++            Duration::from_millis(600)
++        );
++        assert_eq!(MascotState::Look.clip_duration(), Duration::from_millis(1000));
++        assert_eq!(
++            MascotState::Groom.clip_duration(),
++            Duration::from_millis(1250)
++        );
++        assert_eq!(
++            MascotState::WalkLeft.clip_duration(),
++            Duration::from_millis(600)
++        );
++        assert_eq!(
++            MascotState::WalkRight.clip_duration(),
++            Duration::from_millis(600)
++        );
++    }
++
++    #[test]
++    fn mascot_one_shot_states() {
++        assert!(!MascotState::Idle.is_one_shot());
++        assert!(!MascotState::Listening.is_one_shot());
++        assert!(!MascotState::Thinking.is_one_shot());
++        assert!(MascotState::Happy.is_one_shot());
++        assert!(MascotState::Concerned.is_one_shot());
++        assert!(!MascotState::Sleeping.is_one_shot());
++        assert!(MascotState::Stretch.is_one_shot());
++        assert!(MascotState::Petted.is_one_shot());
++        assert!(MascotState::Blink.is_one_shot());
++        assert!(MascotState::TailFlick.is_one_shot());
++        assert!(MascotState::Look.is_one_shot());
++        assert!(MascotState::Groom.is_one_shot());
++        assert!(!MascotState::WalkLeft.is_one_shot());
++        assert!(!MascotState::WalkRight.is_one_shot());
++    }
++}
