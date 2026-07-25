@@ -35,20 +35,10 @@ init:
 
 # === Patch lifecycle ===
 
-# Reset zed/ to the baseline tag and apply patches/*.patch as commits on `{{applied_branch}}`.
+# Reset zed/ to the baseline tag and apply patches/**/*.patch as commits on `{{applied_branch}}`.
+# Patches live in cosmetic category subfolders; apply order = global NNNN- basename prefix.
 apply:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    baseline=$(git -C zed describe --tags --abbrev=0)
-    git -C zed checkout -q "$baseline"
-    git -C zed branch -D {{applied_branch}} 2>/dev/null || true
-    git -C zed checkout -q -B {{applied_branch}} "$baseline"
-    if compgen -G "patches/*.patch" >/dev/null; then
-        git -C zed am --keep-cr "$PWD/patches"/*.patch
-        echo "applied $(ls patches/*.patch | wc -l) patch(es) onto $baseline"
-    else
-        echo "no patches to apply (baseline $baseline)"
-    fi
+    @ZEDIUM_APPLIED_BRANCH={{applied_branch}} ./tools/patches-apply.sh
 
 # Re-export zed/'s {{applied_branch}} commits back to patches/.
 export:

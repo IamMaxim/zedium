@@ -1,0 +1,275 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Thu, 18 Jun 2026 01:04:31 +0300
+Subject: [PATCH] feature: configurable status bar density
+
+---
+ assets/settings/default.json                  |  6 ++++
+ crates/diagnostics/src/items.rs               | 26 ++++++++++----
+ crates/go_to_line/src/cursor_position.rs      |  3 +-
+ .../src/active_buffer_language.rs             |  3 +-
+ crates/settings/src/vscode_import.rs          |  3 ++
+ crates/settings_content/src/workspace.rs      |  8 ++++-
+ crates/workspace/src/status_bar.rs            | 34 +++++++++++++++----
+ crates/workspace/src/workspace_settings.rs    |  6 ++++
+ 8 files changed, 73 insertions(+), 16 deletions(-)
+
+diff --git a/assets/settings/default.json b/assets/settings/default.json
+index 2171631fdb..d514018d6f 100644
+--- a/assets/settings/default.json
++++ b/assets/settings/default.json
+@@ -1808,6 +1808,12 @@
+     "line_endings_button": false,
+     // Control when to show the active encoding in the status bar.
+     "active_encoding_button": "non_utf8",
++    // Vertical padding (px) of the status bar; unset = default density.
++    // "padding": 4,
++    // Font size (px) of status bar items; unset = default (12).
++    // "font_size": 12,
++    // Icon size (px) of status bar items; unset = default (14).
++    // "icon_size": 14,
+   },
+   // Settings specific to the terminal
+   "terminal": {
+diff --git a/crates/diagnostics/src/items.rs b/crates/diagnostics/src/items.rs
+index 9f243c7810..75206131eb 100644
+--- a/crates/diagnostics/src/items.rs
++++ b/crates/diagnostics/src/items.rs
+@@ -10,7 +10,10 @@ use project::project_settings::{GoToDiagnosticSeverityFilter, ProjectSettings};
+ use settings::Settings;
+ use ui::{Button, ButtonLike, Color, Icon, IconName, Label, Tooltip, h_flex, prelude::*};
+ use util::ResultExt;
+-use workspace::{HideStatusItem, StatusItemView, ToolbarItemEvent, Workspace, item::ItemHandle};
++use workspace::{
++    HideStatusItem, StatusBarSettings, StatusItemView, ToolbarItemEvent, Workspace,
++    item::ItemHandle,
++};
+ 
+ use crate::{Deploy, IncludeWarnings, ProjectDiagnosticsEditor};
+ 
+@@ -33,10 +36,19 @@ impl Render for DiagnosticIndicator {
+             return indicator.hidden();
+         }
+ 
++        let status_bar_settings = StatusBarSettings::get_global(cx);
++        let label_size = LabelSize::Small;
++        let ui_font_size = f32::from(theme::theme_settings(cx).ui_font_size(cx));
++        let rem_size = status_bar_settings.font_size.unwrap_or(ui_font_size);
++        let icon_size = status_bar_settings
++            .icon_size
++            .map(|s| ui::bar_icon_size(s, rem_size))
++            .unwrap_or(IconSize::Small);
++
+         let diagnostic_indicator = match (self.summary.error_count, self.summary.warning_count) {
+             (0, 0) => h_flex().child(
+                 Icon::new(IconName::Check)
+-                    .size(IconSize::Small)
++                    .size(icon_size)
+                     .color(Color::Default),
+             ),
+             (error_count, warning_count) => h_flex()
+@@ -44,18 +56,18 @@ impl Render for DiagnosticIndicator {
+                 .when(error_count > 0, |this| {
+                     this.child(
+                         Icon::new(IconName::XCircle)
+-                            .size(IconSize::Small)
++                            .size(icon_size)
+                             .color(Color::Error),
+                     )
+-                    .child(Label::new(error_count.to_string()).size(LabelSize::Small))
++                    .child(Label::new(error_count.to_string()).size(label_size))
+                 })
+                 .when(warning_count > 0, |this| {
+                     this.child(
+                         Icon::new(IconName::Warning)
+-                            .size(IconSize::Small)
++                            .size(icon_size)
+                             .color(Color::Warning),
+                     )
+-                    .child(Label::new(warning_count.to_string()).size(LabelSize::Small))
++                    .child(Label::new(warning_count.to_string()).size(label_size))
+                 }),
+         };
+ 
+@@ -72,7 +84,7 @@ impl Render for DiagnosticIndicator {
+             };
+             Some(
+                 Button::new("diagnostic_message", SharedString::new(message))
+-                    .label_size(LabelSize::Small)
++                    .label_size(label_size)
+                     .truncate(true)
+                     .tooltip(move |_window, cx| {
+                         Tooltip::for_action(
+diff --git a/crates/go_to_line/src/cursor_position.rs b/crates/go_to_line/src/cursor_position.rs
+index f1f3a61c97..1586eb3ab8 100644
+--- a/crates/go_to_line/src/cursor_position.rs
++++ b/crates/go_to_line/src/cursor_position.rs
+@@ -209,7 +209,8 @@ impl CursorPosition {
+ 
+ impl Render for CursorPosition {
+     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+-        if !StatusBarSettings::get_global(cx).cursor_position_button {
++        let settings = StatusBarSettings::get_global(cx);
++        if !settings.cursor_position_button {
+             return div().hidden();
+         }
+ 
+diff --git a/crates/language_selector/src/active_buffer_language.rs b/crates/language_selector/src/active_buffer_language.rs
+index e9e6dc82ff..90aabd9d66 100644
+--- a/crates/language_selector/src/active_buffer_language.rs
++++ b/crates/language_selector/src/active_buffer_language.rs
+@@ -41,7 +41,8 @@ impl ActiveBufferLanguage {
+ 
+ impl Render for ActiveBufferLanguage {
+     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+-        if !StatusBarSettings::get_global(cx).active_language_button {
++        let settings = StatusBarSettings::get_global(cx);
++        if !settings.active_language_button {
+             return div().hidden();
+         }
+ 
+diff --git a/crates/settings/src/vscode_import.rs b/crates/settings/src/vscode_import.rs
+index 3870c10240..a14cdc1cc7 100644
+--- a/crates/settings/src/vscode_import.rs
++++ b/crates/settings/src/vscode_import.rs
+@@ -790,6 +790,9 @@ impl VsCodeSettings {
+             cursor_position_button: None,
+             line_endings_button: None,
+             active_encoding_button: None,
++            padding: None,
++            font_size: None,
++            icon_size: None,
+         })
+     }
+ 
+diff --git a/crates/settings_content/src/workspace.rs b/crates/settings_content/src/workspace.rs
+index d0f84d3cbc..baf7c20ab6 100644
+--- a/crates/settings_content/src/workspace.rs
++++ b/crates/settings_content/src/workspace.rs
+@@ -493,7 +493,7 @@ pub struct TabBarSettingsContent {
+ }
+ 
+ #[with_fallible_options]
+-#[derive(Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, PartialEq, Eq)]
++#[derive(Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, PartialEq)]
+ pub struct StatusBarSettingsContent {
+     /// Whether to show the status bar.
+     ///
+@@ -520,6 +520,12 @@ pub struct StatusBarSettingsContent {
+     ///
+     /// Default: non_utf8
+     pub active_encoding_button: Option<EncodingDisplayOptions>,
++    /// Vertical padding (px) of the status bar. Unset = default density.
++    pub padding: Option<f32>,
++    /// Font size (px) of status bar items. Unset = default (12).
++    pub font_size: Option<f32>,
++    /// Icon size (px) of status bar items. Unset = default (14).
++    pub icon_size: Option<f32>,
+ }
+ 
+ #[derive(
+diff --git a/crates/workspace/src/status_bar.rs b/crates/workspace/src/status_bar.rs
+index ae34936047..d40972496d 100644
+--- a/crates/workspace/src/status_bar.rs
++++ b/crates/workspace/src/status_bar.rs
+@@ -1,12 +1,12 @@
+ use crate::{
+     ItemHandle, MultiWorkspace, Pane, SidebarSide, ToggleWorkspaceSidebar,
+-    sidebar_side_context_menu,
++    sidebar_side_context_menu, workspace_settings::StatusBarSettings,
+ };
+ use gpui::{
+     Anchor, AnyView, App, Context, Decorations, Entity, IntoElement, ParentElement, Render,
+     SharedString, Styled, Subscription, WeakEntity, Window,
+ };
+-use settings::{SettingsContent, update_settings_file};
++use settings::{Settings, SettingsContent, update_settings_file};
+ use std::{any::TypeId, sync::Arc};
+ use theme::CLIENT_SIDE_DECORATION_ROUNDING;
+ use ui::{ContextMenu, Divider, IconPosition, Indicator, Tooltip, prelude::*, right_click_menu};
+@@ -108,12 +108,19 @@ pub struct StatusBar {
+ impl Render for StatusBar {
+     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+         let sidebar = SidebarStatus::query(&self.multi_workspace, cx);
++        let settings = StatusBarSettings::get_global(cx);
++        let padding = settings.padding;
++        let font_size = settings.font_size;
+ 
+-        h_flex()
++        let bar = h_flex()
+             .w_full()
+             .justify_between()
+             .gap(DynamicSpacing::Base08.rems(cx))
+-            .p(DynamicSpacing::Base04.rems(cx))
++            .px(DynamicSpacing::Base04.rems(cx))
++            .map(|el| match padding {
++                Some(padding) => el.py(px(ui::clamp_bar_padding(padding))),
++                None => el.py(DynamicSpacing::Base04.rems(cx)),
++            })
+             .bg(cx.theme().colors().status_bar_background)
+             .map(|el| match window.window_decorations() {
+                 Decorations::Server => el,
+@@ -145,7 +152,15 @@ impl Render for StatusBar {
+                     .border_color(cx.theme().colors().status_bar_background),
+             })
+             .child(self.render_left_tools(&sidebar, cx))
+-            .child(self.render_right_tools(&sidebar, cx))
++            .child(self.render_right_tools(&sidebar, cx));
++
++        match font_size {
++            Some(font_size) => ui::utils::WithRemSize::new(px(font_size))
++                .w_full()
++                .child(bar)
++                .into_any_element(),
++            None => bar.into_any_element(),
++        }
+     }
+ }
+ 
+@@ -200,6 +215,13 @@ impl StatusBar {
+         let on_right = sidebar.side == SidebarSide::Right;
+         let has_notifications = sidebar.has_notifications;
+         let indicator_border = cx.theme().colors().status_bar_background;
++        let settings = StatusBarSettings::get_global(cx);
++        let ui_font_size = f32::from(theme::theme_settings(cx).ui_font_size(cx));
++        let rem_size = settings.font_size.unwrap_or(ui_font_size);
++        let icon_size = settings
++            .icon_size
++            .map(|s| ui::bar_icon_size(s, rem_size))
++            .unwrap_or(IconSize::Small);
+ 
+         let toggle = sidebar_side_context_menu("sidebar-status-toggle-menu", cx)
+             .anchor(if on_right {
+@@ -221,7 +243,7 @@ impl StatusBar {
+                         IconName::ThreadsSidebarLeftClosed
+                     },
+                 )
+-                .icon_size(IconSize::Small)
++                .icon_size(icon_size)
+                 .when(has_notifications, |this| {
+                     this.indicator(Indicator::dot().color(Color::Accent))
+                         .indicator_border_color(Some(indicator_border))
+diff --git a/crates/workspace/src/workspace_settings.rs b/crates/workspace/src/workspace_settings.rs
+index 27fe93f928..caaf5fef83 100644
+--- a/crates/workspace/src/workspace_settings.rs
++++ b/crates/workspace/src/workspace_settings.rs
+@@ -165,6 +165,9 @@ pub struct StatusBarSettings {
+     pub cursor_position_button: bool,
+     pub line_endings_button: bool,
+     pub active_encoding_button: EncodingDisplayOptions,
++    pub padding: Option<f32>,
++    pub font_size: Option<f32>,
++    pub icon_size: Option<f32>,
+ }
+ 
+ impl Settings for StatusBarSettings {
+@@ -177,6 +180,9 @@ impl Settings for StatusBarSettings {
+             cursor_position_button: status_bar.cursor_position_button.unwrap(),
+             line_endings_button: status_bar.line_endings_button.unwrap(),
+             active_encoding_button: status_bar.active_encoding_button.unwrap(),
++            padding: status_bar.padding,
++            font_size: status_bar.font_size,
++            icon_size: status_bar.icon_size,
+         }
+     }
+ }

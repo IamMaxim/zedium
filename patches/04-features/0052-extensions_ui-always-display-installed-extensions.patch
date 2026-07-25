@@ -1,0 +1,225 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 14 Jun 2026 14:08:33 +0300
+Subject: [PATCH] extensions_ui: always display installed extensions
+
+---
+ Cargo.lock                                    |  1 +
+ crates/extension_host/Cargo.toml              |  1 +
+ crates/extension_host/src/extension_host.rs   | 36 +++++++++-
+ .../src/extension_store_test.rs               | 71 +++++++++++++++++++
+ crates/extensions_ui/src/extensions_ui.rs     | 26 ++++++-
+ 5 files changed, 133 insertions(+), 2 deletions(-)
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 87698f6e48..a5e264113a 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -6356,6 +6356,7 @@ dependencies = [
+  "async-compression",
+  "async-tar",
+  "async-trait",
++ "chrono",
+  "client",
+  "cloud_api_types",
+  "collections",
+diff --git a/crates/extension_host/Cargo.toml b/crates/extension_host/Cargo.toml
+index 022dd8c782..59d0a0f317 100644
+--- a/crates/extension_host/Cargo.toml
++++ b/crates/extension_host/Cargo.toml
+@@ -20,6 +20,7 @@ anyhow.workspace = true
+ async-compression.workspace = true
+ async-tar.workspace = true
+ async-trait.workspace = true
++chrono.workspace = true
+ client.workspace = true
+ cloud_api_types.workspace = true
+ collections.workspace = true
+diff --git a/crates/extension_host/src/extension_host.rs b/crates/extension_host/src/extension_host.rs
+index fb9cf0edef..9e2338592e 100644
+--- a/crates/extension_host/src/extension_host.rs
++++ b/crates/extension_host/src/extension_host.rs
+@@ -9,8 +9,11 @@ mod extension_store_test;
+ use anyhow::{Context as _, Result, anyhow, bail};
+ use async_compression::futures::bufread::GzipDecoder;
+ use async_tar::Archive;
++use chrono::{DateTime, Utc};
+ use client::{Client, proto};
+-use cloud_api_types::{ExtensionMetadata, ExtensionProvides, GetExtensionsResponse};
++use cloud_api_types::{
++    ExtensionApiManifest, ExtensionMetadata, ExtensionProvides, GetExtensionsResponse,
++};
+ use collections::{BTreeMap, BTreeSet, FxHashSet, HashMap, HashSet, btree_map};
+ pub use extension::ExtensionManifest;
+ use extension::extension_builder::{CompileExtensionOptions, ExtensionBuilder};
+@@ -496,6 +499,37 @@ impl ExtensionStore {
+         &self.extension_index.extensions
+     }
+ 
++    /// Builds registry-shaped metadata for every installed non-dev extension, so the
++    /// extensions view can display installed extensions even when they are absent from
++    /// the local registry catalog (or no registry is configured). `published_at` and
++    /// `download_count` are synthesized placeholders — installed extensions carry no
++    /// registry timestamp.
++    pub fn installed_extensions_metadata(&self) -> Vec<ExtensionMetadata> {
++        self.extension_index
++            .extensions
++            .iter()
++            .filter(|(_, entry)| !entry.dev)
++            .map(|(id, entry)| {
++                let manifest = &entry.manifest;
++                ExtensionMetadata {
++                    id: id.clone(),
++                    manifest: ExtensionApiManifest {
++                        name: manifest.name.clone(),
++                        version: manifest.version.clone(),
++                        description: manifest.description.clone(),
++                        authors: manifest.authors.clone(),
++                        repository: manifest.repository.clone().unwrap_or_default(),
++                        schema_version: Some(manifest.schema_version.0),
++                        wasm_api_version: None,
++                        provides: manifest.provides(),
++                    },
++                    published_at: DateTime::<Utc>::default(),
++                    download_count: 0,
++                }
++            })
++            .collect()
++    }
++
+     pub fn dev_extensions(&self) -> impl Iterator<Item = &Arc<ExtensionManifest>> {
+         self.extension_index
+             .extensions
+diff --git a/crates/extension_host/src/extension_store_test.rs b/crates/extension_host/src/extension_store_test.rs
+index ce1b111c7e..5e5629c1fe 100644
+--- a/crates/extension_host/src/extension_store_test.rs
++++ b/crates/extension_host/src/extension_store_test.rs
+@@ -1612,6 +1612,77 @@ async fn test_install_extension_from_local_registry(cx: &mut TestAppContext) {
+     );
+ }
+ 
++#[gpui::test]
++async fn test_installed_extensions_metadata(cx: &mut TestAppContext) {
++    init_test(cx);
++    cx.executor().allow_parking();
++
++    let extension_id = "airgap-theme";
++    let fixture_tree = TempTree::new(json!({
++        "extension.toml": format!(
++            "id = \"{extension_id}\"\nname = \"Airgap Theme\"\nversion = \"1.0.0\"\nschema_version = 1\nthemes = [\"themes/airgap.json\"]\n"
++        ),
++        "themes": {
++            "airgap.json": r#"{"name":"Airgap","author":"Someone","themes":[{"name":"Airgap Dark","appearance":"dark","style":{}}]}"#,
++        },
++    }));
++    let fixture_dir = fixture_tree.path().canonicalize().unwrap();
++
++    let fs = Arc::new(RealFs::new(None, cx.executor()));
++    let extensions_tree = TempTree::new(json!({
++        "installed": {}, "work": {}, "staging": {},
++    }));
++    let extensions_dir = extensions_tree.path().canonicalize().unwrap();
++
++    let proxy = Arc::new(ExtensionHostProxy::new());
++    let theme_registry = Arc::new(ThemeRegistry::new(Box::new(())));
++    theme_extension::init(proxy.clone(), theme_registry.clone(), cx.executor());
++    let node_runtime = NodeRuntime::unavailable();
++    let http_client = FakeHttpClient::with_404_response();
++
++    let extension_store = cx.new(|cx| {
++        ExtensionStore::new(
++            extensions_dir.clone(),
++            None,
++            proxy,
++            fs.clone(),
++            http_client.clone(),
++            http_client.clone(),
++            node_runtime,
++            cx,
++        )
++    });
++
++    let mut events = cx.events(&extension_store);
++    let executor = cx.executor();
++    let _task = cx.executor().spawn(async move {
++        while let Some(event) = events.next().await {
++            if let Event::StartedReloading = event {
++                executor.advance_clock(RELOAD_DEBOUNCE_DURATION);
++            }
++        }
++    });
++
++    extension_store
++        .update(cx, |store, cx| {
++            store.install_prebuilt_extension(fixture_dir.clone(), cx)
++        })
++        .await
++        .unwrap();
++    cx.executor().run_until_parked();
++
++    extension_store.read_with(cx, |store, _| {
++        let metadata = store.installed_extensions_metadata();
++        assert_eq!(metadata.len(), 1, "installed extension should be reported");
++        assert_eq!(metadata[0].id.as_ref(), extension_id);
++        assert_eq!(metadata[0].manifest.name, "Airgap Theme");
++        assert!(
++            metadata[0].manifest.provides.contains(&ExtensionProvides::Themes),
++            "synthesized metadata should carry the manifest's provides"
++        );
++    });
++}
++
+ fn init_test(cx: &mut TestAppContext) {
+     cx.update(|cx| {
+         let store = SettingsStore::test(cx);
+diff --git a/crates/extensions_ui/src/extensions_ui.rs b/crates/extensions_ui/src/extensions_ui.rs
+index e707806954..4d291d92ec 100644
+--- a/crates/extensions_ui/src/extensions_ui.rs
++++ b/crates/extensions_ui/src/extensions_ui.rs
+@@ -8,7 +8,7 @@ use std::{any::TypeId, ops::Range, sync::Arc};
+ 
+ use anyhow::Context as _;
+ use cloud_api_types::{ExtensionMetadata, ExtensionProvides};
+-use collections::{BTreeMap, BTreeSet};
++use collections::{BTreeMap, BTreeSet, HashSet};
+ use command_palette_hooks::CommandPaletteFilter;
+ use editor::{Editor, EditorElement, EditorStyle};
+ use extension_host::{ExtensionManifest, ExtensionOperation, ExtensionStore};
+@@ -717,6 +717,7 @@ impl ExtensionsPage {
+             };
+ 
+         cx.spawn(async move |this, cx| {
++            let search_filter = search.as_ref().map(|search| search.to_lowercase());
+             let dev_extensions = if let Some(search) = search {
+                 let match_candidates = dev_extensions
+                     .iter()
+@@ -753,6 +754,29 @@ impl ExtensionsPage {
+                     Ok(extensions) => {
+                         this.fetch_failed = false;
+                         this.remote_extension_entries = extensions;
++
++                        // Always surface installed extensions, even when they are absent
++                        // from the registry catalog (or no registry is configured).
++                        let present = this
++                            .remote_extension_entries
++                            .iter()
++                            .map(|extension| extension.id.clone())
++                            .collect::<HashSet<_>>();
++                        let mut installed_only = ExtensionStore::global(cx)
++                            .read(cx)
++                            .installed_extensions_metadata()
++                            .into_iter()
++                            .filter(|extension| !present.contains(&extension.id))
++                            .filter(|extension| match &search_filter {
++                                Some(filter) => {
++                                    extension.id.to_lowercase().contains(filter)
++                                        || extension.manifest.name.to_lowercase().contains(filter)
++                                }
++                                None => true,
++                            })
++                            .collect::<Vec<_>>();
++                        this.remote_extension_entries.append(&mut installed_only);
++
+                         this.filter_extension_entries(cx);
+                         if let Some(callback) = on_complete {
+                             callback(this, cx);

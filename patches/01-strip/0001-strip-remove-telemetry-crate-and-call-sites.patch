@@ -1,0 +1,2882 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Thu, 28 May 2026 19:49:46 +0300
+Subject: [PATCH] strip: remove telemetry crate and call sites
+
+Removes the telemetry crate, all telemetry::event!(...) invocations
+(188 across 32 crates), use telemetry::* imports, and the
+'telemetry.workspace = true' Cargo deps. telemetry_events crate is
+kept; its remaining consumers (client/collab/zed_llm_client/edit_prediction)
+are stripped in subsequent patches.
+
+Build-fixup details:
+  - client/src/telemetry.rs:248 ::telemetry::init(tx) -> drop(tx).
+    The local mpsc channel had its sender registered with the now-deleted
+    telemetry crate's global; dropping it instead lets the consumer loop
+    terminate immediately.
+  - client/src/client.rs: re-add 'use crate::telemetry::Telemetry;'. The
+    upstream 'use telemetry::Telemetry;' line was a same-name path collision
+    that actually resolved to the local module, not the extern crate.
+  - agent_ui/src/conversation_view.rs:1788,1832: '=> ,' empty match arms
+    fixed to '=> {},' (strip script left these as residue).
+  - zed/src/reliability.rs:320: orphan '::' fragment removed (strip script
+    left this as residue from '::telemetry::event!').
+
+Warnings remain (unused variables in let-bindings whose only consumer was
+the stripped event! call). They are cosmetic and will largely disappear
+when client, crashes, and the agent code paths are stripped in later patches.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Cargo.toml                                    |  2 -
+ crates/acp_thread/Cargo.toml                  |  1 -
+ crates/acp_thread/src/acp_thread.rs           |  7 --
+ crates/action_log/Cargo.toml                  |  1 -
+ crates/action_log/src/action_log.rs           | 16 ----
+ crates/agent/Cargo.toml                       |  1 -
+ crates/agent/src/agent.rs                     | 14 ----
+ crates/agent/src/thread.rs                    | 47 +----------
+ .../disable_cursor_blinking/before.rs         | 16 ----
+ crates/agent/src/tools/spawn_agent_tool.rs    |  5 --
+ crates/agent_ui/Cargo.toml                    |  1 -
+ .../manage_profiles_modal.rs                  | 22 -----
+ crates/agent_ui/src/agent_panel.rs            | 12 +--
+ crates/agent_ui/src/buffer_codegen.rs         | 19 -----
+ crates/agent_ui/src/conversation_view.rs      | 40 +--------
+ .../src/conversation_view/thread_view.rs      | 48 +----------
+ crates/agent_ui/src/inline_assistant.rs       | 18 ----
+ crates/agent_ui/src/inline_prompt_editor.rs   | 31 -------
+ crates/agent_ui/src/profile_selector.rs       | 10 ---
+ crates/agent_ui/src/terminal_codegen.rs       | 12 ---
+ .../agent_ui/src/terminal_inline_assistant.rs |  9 --
+ crates/agent_ui/src/threads_archive_view.rs   |  5 --
+ crates/agent_ui/src/ui/end_trial_upsell.rs    |  2 -
+ crates/ai_onboarding/Cargo.toml               |  1 -
+ crates/ai_onboarding/src/ai_onboarding.rs     | 10 ---
+ crates/auto_update_ui/Cargo.toml              |  1 -
+ crates/auto_update_ui/src/auto_update_ui.rs   |  3 -
+ crates/call/Cargo.toml                        |  1 -
+ crates/call/src/call_impl/mod.rs              |  6 --
+ crates/client/Cargo.toml                      |  1 -
+ crates/client/src/client.rs                   |  2 +-
+ crates/client/src/telemetry.rs                | 25 +-----
+ crates/collab_ui/Cargo.toml                   |  1 -
+ crates/collab_ui/src/channel_view.rs          |  8 --
+ crates/command_palette/Cargo.toml             |  1 -
+ crates/command_palette/src/command_palette.rs |  5 --
+ crates/dap/Cargo.toml                         |  1 -
+ crates/dap/src/dap.rs                         |  8 --
+ crates/edit_prediction/Cargo.toml             |  1 -
+ .../edit_prediction/src/onboarding_modal.rs   |  2 -
+ crates/edit_prediction_ui/Cargo.toml          |  1 -
+ .../src/edit_prediction_button.rs             | 82 -------------------
+ .../src/rate_prediction_modal.rs              |  1 -
+ crates/editor/Cargo.toml                      |  1 -
+ crates/editor/src/edit_prediction.rs          |  7 --
+ crates/editor/src/editor.rs                   | 19 -----
+ crates/extension_host/Cargo.toml              |  1 -
+ crates/extension_host/src/extension_host.rs   |  1 -
+ crates/extensions_ui/Cargo.toml               |  1 -
+ crates/extensions_ui/src/extensions_ui.rs     | 57 ++++++++++---
+ crates/fs/Cargo.toml                          |  1 -
+ crates/fs/src/fs_watcher.rs                   |  1 -
+ crates/git_ui/Cargo.toml                      |  1 -
+ crates/git_ui/src/commit_modal.rs             |  4 -
+ crates/git_ui/src/git_panel.rs                | 11 ---
+ crates/git_ui/src/project_diff.rs             |  9 --
+ crates/input_latency_ui/Cargo.toml            |  1 -
+ .../input_latency_ui/src/input_latency_ui.rs  | 13 ---
+ crates/keymap_editor/Cargo.toml               |  1 -
+ crates/keymap_editor/src/keymap_editor.rs     | 28 -------
+ crates/language_tools/Cargo.toml              |  1 -
+ crates/language_tools/src/lsp_button.rs       |  6 --
+ crates/onboarding/Cargo.toml                  |  1 -
+ crates/onboarding/src/base_keymap_picker.rs   |  5 --
+ crates/onboarding/src/basics_page.rs          | 31 -------
+ crates/onboarding/src/onboarding.rs           |  7 --
+ crates/project_panel/Cargo.toml               |  1 -
+ crates/project_panel/src/project_panel.rs     | 12 ---
+ crates/recent_projects/Cargo.toml             |  1 -
+ crates/recent_projects/src/remote_servers.rs  |  3 -
+ crates/repl/Cargo.toml                        |  1 -
+ crates/repl/src/session.rs                    | 18 ----
+ crates/settings_ui/Cargo.toml                 |  1 -
+ crates/settings_ui/src/settings_ui.rs         | 11 ---
+ crates/sidebar/Cargo.toml                     |  1 -
+ crates/sidebar/src/sidebar.rs                 |  1 -
+ crates/telemetry/Cargo.toml                   | 18 ----
+ crates/telemetry/LICENSE-GPL                  |  1 -
+ crates/telemetry/src/telemetry.rs             | 66 ---------------
+ crates/theme_selector/Cargo.toml              |  1 -
+ .../theme_selector/src/icon_theme_selector.rs |  5 --
+ crates/theme_selector/src/theme_selector.rs   |  1 -
+ crates/title_bar/Cargo.toml                   |  1 -
+ crates/title_bar/src/collab.rs                | 15 ----
+ crates/title_bar/src/onboarding_banner.rs     |  2 -
+ crates/workspace/Cargo.toml                   |  1 -
+ crates/workspace/src/multi_workspace.rs       |  7 --
+ crates/workspace/src/pane.rs                  |  2 -
+ crates/workspace/src/security_modal.rs        |  2 -
+ crates/workspace/src/workspace.rs             | 10 ---
+ crates/zed/Cargo.toml                         |  1 -
+ crates/zed/src/main.rs                        | 14 ----
+ crates/zed/src/reliability.rs                 | 17 ----
+ crates/zed/src/zed.rs                         |  2 -
+ .../zed/src/zed/edit_prediction_registry.rs   |  5 --
+ 95 files changed, 60 insertions(+), 869 deletions(-)
+ delete mode 100644 crates/telemetry/Cargo.toml
+ delete mode 120000 crates/telemetry/LICENSE-GPL
+ delete mode 100644 crates/telemetry/src/telemetry.rs
+
+diff --git a/Cargo.toml b/Cargo.toml
+index 7a7003ec5e..3de61a53c3 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -199,7 +199,6 @@ members = [
+     "crates/tab_switcher",
+     "crates/task",
+     "crates/tasks_ui",
+-    "crates/telemetry",
+     "crates/telemetry_events",
+     "crates/terminal",
+     "crates/terminal_view",
+@@ -459,7 +458,6 @@ syntax_theme = { path = "crates/syntax_theme" }
+ tab_switcher = { path = "crates/tab_switcher" }
+ task = { path = "crates/task" }
+ tasks_ui = { path = "crates/tasks_ui" }
+-telemetry = { path = "crates/telemetry" }
+ telemetry_events = { path = "crates/telemetry_events" }
+ terminal = { path = "crates/terminal" }
+ terminal_view = { path = "crates/terminal_view" }
+diff --git a/crates/acp_thread/Cargo.toml b/crates/acp_thread/Cargo.toml
+index 3c4f592a55..51503a514b 100644
+--- a/crates/acp_thread/Cargo.toml
++++ b/crates/acp_thread/Cargo.toml
+@@ -45,7 +45,6 @@ serde.workspace = true
+ serde_json.workspace = true
+ settings.workspace = true
+ task.workspace = true
+-telemetry.workspace = true
+ terminal.workspace = true
+ text.workspace = true
+ ui.workspace = true
+diff --git a/crates/acp_thread/src/acp_thread.rs b/crates/acp_thread/src/acp_thread.rs
+index 9ec28e47d7..7dc3d3aed6 100644
+--- a/crates/acp_thread/src/acp_thread.rs
++++ b/crates/acp_thread/src/acp_thread.rs
+@@ -3209,13 +3209,6 @@ impl AcpThread {
+             } else {
+                 "failed"
+             };
+-            telemetry::event!(
+-                "Agent Tool Call Completed",
+-                agent_telemetry_id,
+-                session,
+-                parent_session_id,
+-                status
+-            );
+         }
+ 
+         if let Some(ix) = self.index_for_tool_call(&id) {
+diff --git a/crates/action_log/Cargo.toml b/crates/action_log/Cargo.toml
+index c8d3b6a36d..581f47b4f3 100644
+--- a/crates/action_log/Cargo.toml
++++ b/crates/action_log/Cargo.toml
+@@ -25,7 +25,6 @@ futures.workspace = true
+ gpui.workspace = true
+ language.workspace = true
+ project.workspace = true
+-telemetry.workspace = true
+ text.workspace = true
+ util.workspace = true
+ watch.workspace = true
+diff --git a/crates/action_log/src/action_log.rs b/crates/action_log/src/action_log.rs
+index f8b15f621e..8c87c84bf3 100644
+--- a/crates/action_log/src/action_log.rs
++++ b/crates/action_log/src/action_log.rs
+@@ -1115,25 +1115,9 @@ impl ActionLogMetrics {
+ }
+ 
+ fn telemetry_report_accepted_edits(telemetry: &ActionLogTelemetry, metrics: ActionLogMetrics) {
+-    telemetry::event!(
+-        "Agent Edits Accepted",
+-        agent = telemetry.agent_telemetry_id,
+-        session = telemetry.session_id,
+-        language = metrics.language,
+-        lines_added = metrics.lines_added,
+-        lines_removed = metrics.lines_removed
+-    );
+ }
+ 
+ fn telemetry_report_rejected_edits(telemetry: &ActionLogTelemetry, metrics: ActionLogMetrics) {
+-    telemetry::event!(
+-        "Agent Edits Rejected",
+-        agent = telemetry.agent_telemetry_id,
+-        session = telemetry.session_id,
+-        language = metrics.language,
+-        lines_added = metrics.lines_added,
+-        lines_removed = metrics.lines_removed
+-    );
+ }
+ 
+ fn apply_non_conflicting_edits(
+diff --git a/crates/agent/Cargo.toml b/crates/agent/Cargo.toml
+index 30eb959298..bd5df01281 100644
+--- a/crates/agent/Cargo.toml
++++ b/crates/agent/Cargo.toml
+@@ -66,7 +66,6 @@ sqlez.workspace = true
+ streaming_diff.workspace = true
+ strsim.workspace = true
+ task.workspace = true
+-telemetry.workspace = true
+ tempfile.workspace = true
+ text.workspace = true
+ thiserror.workspace = true
+diff --git a/crates/agent/src/agent.rs b/crates/agent/src/agent.rs
+index 381af5e2fa..d2351391e1 100644
+--- a/crates/agent/src/agent.rs
++++ b/crates/agent/src/agent.rs
+@@ -3068,13 +3068,6 @@ impl NativeThreadEnvironment {
+ 
+         let depth = current_depth + 1;
+ 
+-        telemetry::event!(
+-            "Subagent Started",
+-            session = parent_thread_entity.read(cx).id().to_string(),
+-            subagent_session = session_id.to_string(),
+-            depth,
+-            is_resumed = false,
+-        );
+ 
+         self.prompt_subagent(session_id, subagent_thread, acp_thread)
+     }
+@@ -3095,13 +3088,6 @@ impl NativeThreadEnvironment {
+         let depth = subagent_thread.read(cx).depth();
+ 
+         if let Some(parent_thread_entity) = self.thread.upgrade() {
+-            telemetry::event!(
+-                "Subagent Started",
+-                session = parent_thread_entity.read(cx).id().to_string(),
+-                subagent_session = session_id.to_string(),
+-                depth,
+-                is_resumed = true,
+-            );
+         }
+ 
+         self.prompt_subagent(session_id, subagent_thread, acp_thread)
+diff --git a/crates/agent/src/thread.rs b/crates/agent/src/thread.rs
+index 48b86de73b..d764b820ee 100644
+--- a/crates/agent/src/thread.rs
++++ b/crates/agent/src/thread.rs
+@@ -2779,17 +2779,6 @@ impl Thread {
+                 anyhow::Ok((model, request))
+             })??;
+ 
+-            telemetry::event!(
+-                "Agent Thread Completion",
+-                thread_id = this.read_with(cx, |this, _| this.id.to_string())?,
+-                parent_thread_id = this.read_with(cx, |this, _| this
+-                    .parent_thread_id()
+-                    .map(|id| id.to_string()))?,
+-                prompt_id = this.read_with(cx, |this, _| this.prompt_id.to_string())?,
+-                model = model.telemetry_id(),
+-                model_provider = model.provider_id().to_string(),
+-                attempt
+-            );
+ 
+             log::debug!("Calling model.stream_completion, attempt {}", attempt);
+ 
+@@ -3334,21 +3323,8 @@ impl Thread {
+                 ));
+             }
+             UsageUpdate(usage) => {
+-                telemetry::event!(
+-                    "Agent Thread Completion Usage Updated",
+-                    thread_id = self.id.to_string(),
+-                    parent_thread_id = self.parent_thread_id().map(|id| id.to_string()),
+-                    prompt_id = self.prompt_id.to_string(),
+-                    model = self.model().map(|m| m.telemetry_id()),
+-                    model_provider = self.model().map(|m| m.provider_id().to_string()),
+-                    input_tokens = usage.input_tokens,
+-                    output_tokens = usage.output_tokens,
+-                    cache_creation_input_tokens = usage.cache_creation_input_tokens,
+-                    cache_read_input_tokens = usage.cache_read_input_tokens,
+-                );
+                 // A successful compaction defers its telemetry until the first
+-                // completion that follows it, so `tokens_after` reflects the
+-                // real post-compaction context size.
++                // completion that follows it, so the post-compaction size is known.
+                 if let Some(telemetry) = self.pending_compaction_telemetry.take() {
+                     telemetry.emit("succeeded", None, Some(total_input_tokens(usage)));
+                 }
+@@ -4483,6 +4459,7 @@ fn auto_compact_threshold_token_count(
+ 
+ /// Snapshot of the data needed to report an `"Agent Compaction Completed"`
+ /// telemetry event, captured when a compaction starts.
++#[allow(dead_code)]
+ struct CompactionTelemetry {
+     /// `"auto"` for threshold-triggered compaction, `"manual"` for `/compact`.
+     trigger: &'static str,
+@@ -4505,25 +4482,7 @@ struct CompactionTelemetry {
+ 
+ impl CompactionTelemetry {
+     fn emit(self, status: &'static str, error: Option<String>, tokens_after: Option<u64>) {
+-        telemetry::event!(
+-            "Agent Compaction Completed",
+-            trigger = self.trigger,
+-            status = status,
+-            error = error,
+-            thread_id = self.thread_id,
+-            parent_thread_id = self.parent_thread_id,
+-            prompt_id = self.prompt_id,
+-            model = self.model,
+-            model_provider = self.model_provider,
+-            thinking_effort = self.thinking_effort,
+-            max_tokens = self.max_tokens,
+-            tokens_before = self.tokens_before,
+-            tokens_after = tokens_after,
+-            auto_compact_enabled = self.auto_compact_enabled,
+-            auto_compact_threshold = self.auto_compact_threshold,
+-            auto_compact_threshold_tokens = self.auto_compact_threshold_tokens,
+-            retries = self.retries,
+-        );
++        let _ = (status, error, tokens_after);
+     }
+ }
+ 
+diff --git a/crates/agent/src/tools/evals/fixtures/disable_cursor_blinking/before.rs b/crates/agent/src/tools/evals/fixtures/disable_cursor_blinking/before.rs
+index bdf160d8ff..afa0578e58 100644
+--- a/crates/agent/src/tools/evals/fixtures/disable_cursor_blinking/before.rs
++++ b/crates/agent/src/tools/evals/fixtures/disable_cursor_blinking/before.rs
+@@ -6357,13 +6357,6 @@ impl Editor {
+             true => "Edit Prediction Accepted",
+             false => "Edit Prediction Discarded",
+         };
+-        telemetry::event!(
+-            event_type,
+-            provider = provider.name(),
+-            prediction_id = id,
+-            suggestion_accepted = accepted,
+-            file_extension = extension,
+-        );
+     }
+ 
+     pub fn has_active_inline_completion(&self) -> bool {
+@@ -18293,15 +18286,6 @@ impl Editor {
+             .show_edit_predictions;
+ 
+         let project = project.read(cx);
+-        telemetry::event!(
+-            event_type,
+-            file_extension,
+-            vim_mode,
+-            copilot_enabled,
+-            copilot_enabled_for_language,
+-            edit_predictions_provider,
+-            is_via_ssh = project.is_via_ssh(),
+-        );
+     }
+ 
+     /// Copy the highlighted chunks to the clipboard as JSON. The format is an array of lines,
+diff --git a/crates/agent/src/tools/spawn_agent_tool.rs b/crates/agent/src/tools/spawn_agent_tool.rs
+index 9fa26bf29a..e835362120 100644
+--- a/crates/agent/src/tools/spawn_agent_tool.rs
++++ b/crates/agent/src/tools/spawn_agent_tool.rs
+@@ -177,11 +177,6 @@ impl AgentTool for SpawnAgentTool {
+             } else {
+                 "error"
+             };
+-            telemetry::event!(
+-                "Subagent Completed",
+-                subagent_session = session_info.session_id.to_string(),
+-                status,
+-            );
+ 
+             session_info.message_end_index =
+                 cx.update(|cx| Some(subagent.num_entries(cx).saturating_sub(1)));
+diff --git a/crates/agent_ui/Cargo.toml b/crates/agent_ui/Cargo.toml
+index 822b91c3cd..3573789214 100644
+--- a/crates/agent_ui/Cargo.toml
++++ b/crates/agent_ui/Cargo.toml
+@@ -99,7 +99,6 @@ serde_json_lenient.workspace = true
+ settings.workspace = true
+ streaming_diff.workspace = true
+ task.workspace = true
+-telemetry.workspace = true
+ terminal.workspace = true
+ terminal_view.workspace = true
+ text.workspace = true
+diff --git a/crates/agent_ui/src/agent_configuration/manage_profiles_modal.rs b/crates/agent_ui/src/agent_configuration/manage_profiles_modal.rs
+index c01939a31a..adf9133f65 100644
+--- a/crates/agent_ui/src/agent_configuration/manage_profiles_modal.rs
++++ b/crates/agent_ui/src/agent_configuration/manage_profiles_modal.rs
+@@ -218,11 +218,6 @@ impl ManageProfilesModal {
+         window: &mut Window,
+         cx: &mut Context<Self>,
+     ) {
+-        telemetry::event!(
+-            "Agent Profile Default Model Configured",
+-            profile_id = profile_id.as_str(),
+-            is_builtin = builtin_profiles::is_builtin(&profile_id)
+-        );
+         let fs = self.fs.clone();
+         let profile_id_for_closure = profile_id.clone();
+ 
+@@ -319,11 +314,6 @@ impl ManageProfilesModal {
+         window: &mut Window,
+         cx: &mut Context<Self>,
+     ) {
+-        telemetry::event!(
+-            "Agent Profile MCPs Configured",
+-            profile_id = profile_id.as_str(),
+-            is_builtin = builtin_profiles::is_builtin(&profile_id)
+-        );
+         let settings = AgentSettings::get_global(cx);
+         let Some(profile) = settings.profiles.get(&profile_id).cloned() else {
+             return;
+@@ -360,11 +350,6 @@ impl ManageProfilesModal {
+         window: &mut Window,
+         cx: &mut Context<Self>,
+     ) {
+-        telemetry::event!(
+-            "Agent Profile Tools Configured",
+-            profile_id = profile_id.as_str(),
+-            is_builtin = builtin_profiles::is_builtin(&profile_id)
+-        );
+         let settings = AgentSettings::get_global(cx);
+         let Some(profile) = settings.profiles.get(&profile_id).cloned() else {
+             return;
+@@ -420,12 +405,6 @@ impl ManageProfilesModal {
+ 
+                 let profile_id =
+                     AgentProfile::create(name, base_profile_id.clone(), self.fs.clone(), cx);
+-                telemetry::event!(
+-                    "Agent Profile Created",
+-                    profile_id = profile_id.as_str(),
+-                    is_fork = base_profile_id.is_some(),
+-                    base_profile_id = base_profile_id.as_ref().map(|id| id.as_str())
+-                );
+                 self.view_profile(profile_id, window, cx);
+             }
+             Mode::ViewProfile(_) => {}
+@@ -446,7 +425,6 @@ impl ManageProfilesModal {
+             return;
+         }
+ 
+-        telemetry::event!("Agent Profile Deleted", profile_id = profile_id.as_str());
+ 
+         let fs = self.fs.clone();
+ 
+diff --git a/crates/agent_ui/src/agent_panel.rs b/crates/agent_ui/src/agent_panel.rs
+index 8edf4f2947..0fcbcf1911 100644
+--- a/crates/agent_ui/src/agent_panel.rs
++++ b/crates/agent_ui/src/agent_panel.rs
+@@ -2334,14 +2334,7 @@ impl AgentPanel {
+         source: AgentThreadSource,
+         cx: &App,
+     ) {
+-        telemetry::event!(
+-            "Agent Thread Started",
+-            agent = TERMINAL_AGENT_TELEMETRY_ID,
+-            terminal_id = terminal_id.to_key_string(),
+-            source = source.as_str(),
+-            side = crate::agent_sidebar_side(cx),
+-            thread_location = "current_worktree",
+-        );
++        let _ = (terminal_id, source, cx);
+     }
+ 
+     fn refresh_terminal_metadata(&mut self, terminal_id: TerminalId, cx: &mut Context<Self>) {
+@@ -4971,7 +4964,6 @@ impl Panel for AgentPanel {
+             DockPosition::Left => "left",
+             DockPosition::Right | DockPosition::Bottom => "right",
+         };
+-        telemetry::event!("Agent Panel Side Changed", side = side);
+         settings::update_settings_file(self.fs.clone(), cx, move |settings, _| {
+             settings
+                 .agent
+@@ -5749,11 +5741,9 @@ impl AgentPanel {
+             KeyBinding::for_action_in(&workspace::Open::default(), &focus_handle, cx),
+         )
+         .on_open_project(|_, window, cx| {
+-            telemetry::event!("Agent Panel Add Project Clicked");
+             window.dispatch_action(workspace::Open::default().boxed_clone(), cx);
+         })
+         .on_clone_repo(|_, window, cx| {
+-            telemetry::event!("Agent Panel Clone Repo Clicked");
+             window.dispatch_action(git::Clone.boxed_clone(), cx);
+         })
+     }
+diff --git a/crates/agent_ui/src/buffer_codegen.rs b/crates/agent_ui/src/buffer_codegen.rs
+index 1fee158f4a..975bb57776 100644
+--- a/crates/agent_ui/src/buffer_codegen.rs
++++ b/crates/agent_ui/src/buffer_codegen.rs
+@@ -824,18 +824,6 @@ impl CodegenAlternative {
+                         let result = diff.await;
+ 
+                         let error_message = result.as_ref().err().map(|error| error.to_string());
+-                        telemetry::event!(
+-                            "Assistant Responded",
+-                            kind = "inline",
+-                            phase = "response",
+-                            session_id = session_id.to_string(),
+-                            model = model_telemetry_id,
+-                            model_provider = model_provider_id,
+-                            language_name = language_name.as_ref().map(|n| n.to_string()),
+-                            message_id = message_id.as_deref(),
+-                            response_latency = response_latency,
+-                            error_message = error_message.as_deref(),
+-                        );
+ 
+                         anthropic_reporter.report(AnthropicEventData {
+                             completion_type: AnthropicCompletionType::Editor,
+@@ -917,13 +905,6 @@ impl CodegenAlternative {
+                     this.completion = Some(completion.lock().clone());
+                     if let Some(usage) = token_usage {
+                         let usage = usage.lock();
+-                        telemetry::event!(
+-                            "Inline Assistant Completion",
+-                            model = model_telemetry_id,
+-                            model_provider = model_provider_id,
+-                            input_tokens = usage.input_tokens,
+-                            output_tokens = usage.output_tokens,
+-                        )
+                     }
+ 
+                     cx.emit(CodegenEvent::Finished);
+diff --git a/crates/agent_ui/src/conversation_view.rs b/crates/agent_ui/src/conversation_view.rs
+index 65632e9406..166cfdbe3f 100644
+--- a/crates/agent_ui/src/conversation_view.rs
++++ b/crates/agent_ui/src/conversation_view.rs
+@@ -479,12 +479,6 @@ impl Conversation {
+         let agent_telemetry_id = thread.read(cx).connection().telemetry_id();
+         let session_id = thread.read(cx).session_id().clone();
+ 
+-        telemetry::event!(
+-            "Agent Tool Call Authorized",
+-            agent = agent_telemetry_id,
+-            session = session_id,
+-            option = outcome.option_kind
+-        );
+ 
+         thread.update(cx, |thread, cx| {
+             thread.authorize_tool_call(tool_call_id, outcome, cx);
+@@ -1106,14 +1100,6 @@ impl ConversationView {
+             })
+             .log_err();
+ 
+-            telemetry::event!(
+-                "Agent Thread Started",
+-                agent = connection.telemetry_id(),
+-                source = source.as_str(),
+-                side = side,
+-                thread_location = thread_location
+-            );
+-
+             let mut resumed_without_history = false;
+             let result = if let Some(session_id) = resume_session_id.clone() {
+                 cx.update(|_, cx| {
+@@ -1951,15 +1937,8 @@ impl ConversationView {
+                     .await;
+ 
+                     match &result {
+-                        Ok(_) => telemetry::event!(
+-                            "Authenticate Agent Succeeded",
+-                            agent = agent_telemetry_id
+-                        ),
++                        Ok(_) => {},
+                         Err(_) => {
+-                            telemetry::event!(
+-                                "Authenticate Agent Failed",
+-                                agent = agent_telemetry_id,
+-                            )
+                         }
+                     }
+ 
+@@ -2004,12 +1983,8 @@ impl ConversationView {
+                 let result = authenticate.await;
+ 
+                 match &result {
+-                    Ok(_) => telemetry::event!(
+-                        "Authenticate Agent Succeeded",
+-                        agent = agent_telemetry_id
+-                    ),
++                    Ok(_) => {},
+                     Err(_) => {
+-                        telemetry::event!("Authenticate Agent Failed", agent = agent_telemetry_id,)
+                     }
+                 }
+ 
+@@ -2282,11 +2257,6 @@ impl ConversationView {
+                             })
+                             .on_click({
+                                 cx.listener(move |this, _, window, cx| {
+-                                    telemetry::event!(
+-                                        "Authenticate Agent Started",
+-                                        agent = agent_telemetry_id,
+-                                        method = method_id
+-                                    );
+ 
+                                     this.authenticate(
+                                         acp::AuthMethodId::new(method_id.clone()),
+@@ -2661,12 +2631,6 @@ impl ConversationView {
+ 
+         let agent_name = self.agent.agent_id();
+ 
+-        telemetry::event!(
+-            "Agent Panel Error Shown",
+-            agent = agent_name,
+-            kind = error_kind,
+-            message = error.to_string(),
+-        );
+     }
+ 
+     fn render_load_error(
+diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
+index 90ea600ff5..c5867addde 100644
+--- a/crates/agent_ui/src/conversation_view/thread_view.rs
++++ b/crates/agent_ui/src/conversation_view/thread_view.rs
+@@ -1443,12 +1443,6 @@ impl ThreadView {
+ 
+         self.last_token_limit_telemetry = Some(ratio);
+ 
+-        telemetry::event!(
+-            "Agent Token Limit Warning",
+-            agent = agent_telemetry_id,
+-            session_id = session_id,
+-            kind = kind,
+-        );
+     }
+ 
+     // sending
+@@ -1726,15 +1720,6 @@ impl ThreadView {
+                 });
+                 drop(guard);
+ 
+-                telemetry::event!(
+-                    "Agent Message Sent",
+-                    agent = agent_telemetry_id,
+-                    session = session_id,
+-                    parent_session_id = parent_session_id.as_ref().map(|id| id.to_string()),
+-                    model = model_id,
+-                    mode = mode_id,
+-                    side = side
+-                );
+ 
+                 if is_native_command {
+                     thread.send_command(contents, cx)
+@@ -1757,17 +1742,6 @@ impl ThreadView {
+             } else {
+                 "failure"
+             };
+-            telemetry::event!(
+-                "Agent Turn Completed",
+-                agent = agent_telemetry_id,
+-                session = session_id,
+-                parent_session_id = parent_session_id.as_ref().map(|id| id.to_string()),
+-                model = model_id,
+-                mode = mode_id,
+-                status,
+-                turn_time_ms,
+-                side = side
+-            );
+             res.map(|_| ())
+         });
+ 
+@@ -1943,15 +1917,6 @@ impl ThreadView {
+             .parent_session_id()
+             .map(|id| id.to_string());
+ 
+-        telemetry::event!(
+-            "Agent Panel Error Shown",
+-            agent = agent_telemetry_id,
+-            session_id = session_id,
+-            parent_session_id = parent_session_id,
+-            kind = error_kind,
+-            acp_error_code = acp_error_code,
+-            message = message,
+-        );
+     }
+ 
+     pub fn cancel_generation(&mut self, cx: &mut Context<Self>) {
+@@ -2958,7 +2923,6 @@ impl ThreadView {
+                 .ok();
+         }
+ 
+-        telemetry::event!("Follow Agent Selected", following = !following);
+     }
+ 
+     fn callout_border_position(&self) -> CalloutBorderPosition {
+@@ -10314,13 +10278,11 @@ impl ThreadView {
+                                     .on_click(cx.listener({
+                                         let tool_call_id = tool_call.id.clone();
+                                         move |this, _, window, cx| {
+-                                            let expanded =
+-                                                this.entry_view_state.update(cx, |state, _cx| {
+-                                                    state.toggle_tool_call_expansion(&tool_call_id);
+-                                                    state.is_tool_call_expanded(&tool_call_id)
+-                                                });
++                                            this.entry_view_state.update(cx, |state, _cx| {
++                                                state.toggle_tool_call_expansion(&tool_call_id);
++                                                state.is_tool_call_expanded(&tool_call_id)
++                                            });
+                                             this.refresh_thread_search(window, cx);
+-                                            telemetry::event!("Subagent Toggled", expanded);
+                                             cx.notify();
+                                         }
+                                     }))
+@@ -10339,7 +10301,6 @@ impl ThreadView {
+                                     |this, thread| {
+                                         this.on_click(cx.listener(
+                                             move |_this, _event, _window, cx| {
+-                                                telemetry::event!("Subagent Stopped");
+                                                 thread.update(cx, |thread, cx| {
+                                                     thread.cancel(cx).detach();
+                                                 });
+@@ -10377,7 +10338,6 @@ impl ThreadView {
+                     )
+                     .tooltip(Tooltip::text("Make Subagent Full Screen"))
+                     .on_click(cx.listener(move |this, _event, window, cx| {
+-                        telemetry::event!("Subagent Maximized");
+                         this.server_view
+                             .update(cx, |this, cx| {
+                                 this.navigate_to_thread(nav_session_id.clone(), window, cx);
+diff --git a/crates/agent_ui/src/inline_assistant.rs b/crates/agent_ui/src/inline_assistant.rs
+index bec734527b..01a7f4b0f5 100644
+--- a/crates/agent_ui/src/inline_assistant.rs
++++ b/crates/agent_ui/src/inline_assistant.rs
+@@ -403,14 +403,6 @@ impl InlineAssistant {
+             codegen_ranges.push(anchor_range);
+ 
+             if let Some(model) = LanguageModelRegistry::read_global(cx).inline_assistant_model() {
+-                telemetry::event!(
+-                    "Assistant Invoked",
+-                    kind = "inline",
+-                    phase = "invoked",
+-                    model = model.model.telemetry_id(),
+-                    model_provider = model.provider.id().to_string(),
+-                    language_name = buffer.language().map(|language| language.name().to_proto())
+-                );
+ 
+                 report_anthropic_event(
+                     &model.model,
+@@ -1007,16 +999,6 @@ impl InlineAssistant {
+                     )
+                 };
+ 
+-                telemetry::event!(
+-                    event_type,
+-                    phase,
+-                    session_id = session_id.to_string(),
+-                    kind = "inline",
+-                    model = model_telemetry_id,
+-                    model_provider = model_provider_id,
+-                    language_name = language_name,
+-                    message_id = message_id.as_deref(),
+-                );
+ 
+                 report_anthropic_event(
+                     &model.model,
+diff --git a/crates/agent_ui/src/inline_prompt_editor.rs b/crates/agent_ui/src/inline_prompt_editor.rs
+index b5fca12fc5..cfee7135e6 100644
+--- a/crates/agent_ui/src/inline_prompt_editor.rs
++++ b/crates/agent_ui/src/inline_prompt_editor.rs
+@@ -582,15 +582,6 @@ impl<T: 'static> PromptEditor<T> {
+             PromptEditorMode::Terminal { .. } => ("inline_terminal", None),
+         };
+ 
+-        telemetry::event!(
+-            "Assistant Started",
+-            session_id = self.session_state.session_id.to_string(),
+-            kind = kind,
+-            phase = "started",
+-            model = model_telemetry_id,
+-            model_provider = model_provider_id,
+-            language_name = language_name,
+-        );
+     }
+ 
+     fn thumbs_up(&mut self, _: &ThumbsUpResult, _window: &mut Window, cx: &mut Context<Self>) {
+@@ -637,17 +628,6 @@ impl<T: 'static> PromptEditor<T> {
+                     PromptEditorMode::Terminal { .. } => "inline_terminal",
+                 };
+ 
+-                telemetry::event!(
+-                    "Inline Assistant Rated",
+-                    rating = "positive",
+-                    session_id = self.session_state.session_id.to_string(),
+-                    kind = kind,
+-                    model = model_id,
+-                    prompt = prompt,
+-                    completion = completion_text,
+-                    selected_text = selected_text,
+-                    use_streaming_tools
+-                );
+ 
+                 self.session_state.completion = CompletionState::Rated;
+ 
+@@ -700,17 +680,6 @@ impl<T: 'static> PromptEditor<T> {
+                     PromptEditorMode::Terminal { .. } => "inline_terminal",
+                 };
+ 
+-                telemetry::event!(
+-                    "Inline Assistant Rated",
+-                    rating = "negative",
+-                    session_id = self.session_state.session_id.to_string(),
+-                    kind = kind,
+-                    model = model_telemetry_id,
+-                    prompt = prompt,
+-                    completion = completion_text,
+-                    selected_text = selected_text,
+-                    use_streaming_tools
+-                );
+ 
+                 self.session_state.completion = CompletionState::Rated;
+ 
+diff --git a/crates/agent_ui/src/profile_selector.rs b/crates/agent_ui/src/profile_selector.rs
+index 3007b5fa3e..91367df3c4 100644
+--- a/crates/agent_ui/src/profile_selector.rs
++++ b/crates/agent_ui/src/profile_selector.rs
+@@ -112,11 +112,6 @@ impl ProfileSelector {
+ 
+         if let Some((next_profile_id, _)) = profiles.get_index(next_index) {
+             self.provider.set_profile(next_profile_id.clone(), cx);
+-            telemetry::event!(
+-                "Agent Profile Switched",
+-                profile_id = next_profile_id.as_str(),
+-                source = "cycle"
+-            );
+             cx.notify();
+         }
+     }
+@@ -590,11 +585,6 @@ impl PickerDelegate for ProfilePickerDelegate {
+ 
+                     provider.set_profile(profile_id.clone(), cx);
+ 
+-                    telemetry::event!(
+-                        "Agent Profile Switched",
+-                        profile_id = profile_id.as_str(),
+-                        source = "picker"
+-                    );
+                 }
+ 
+                 cx.emit(DismissEvent);
+diff --git a/crates/agent_ui/src/terminal_codegen.rs b/crates/agent_ui/src/terminal_codegen.rs
+index 19adf2d880..9645ad9c88 100644
+--- a/crates/agent_ui/src/terminal_codegen.rs
++++ b/crates/agent_ui/src/terminal_codegen.rs
+@@ -84,18 +84,6 @@ impl TerminalCodegen {
+ 
+                         let error_message = result.as_ref().err().map(|error| error.to_string());
+ 
+-                        telemetry::event!(
+-                            "Assistant Responded",
+-                            session_id = session_id.to_string(),
+-                            kind = "inline_terminal",
+-                            phase = "response",
+-                            model = model_telemetry_id,
+-                            model_provider = model_provider_id,
+-                            language_name = Option::<&str>::None,
+-                            message_id = message_id,
+-                            response_latency = response_latency,
+-                            error_message = error_message,
+-                        );
+ 
+                         anthropic_reporter.report(AnthropicEventData {
+                             completion_type: AnthropicCompletionType::Terminal,
+diff --git a/crates/agent_ui/src/terminal_inline_assistant.rs b/crates/agent_ui/src/terminal_inline_assistant.rs
+index f84d291027..1d4fc3aeaf 100644
+--- a/crates/agent_ui/src/terminal_inline_assistant.rs
++++ b/crates/agent_ui/src/terminal_inline_assistant.rs
+@@ -322,15 +322,6 @@ impl TerminalInlineAssistant {
+                 };
+ 
+                 // Fire Zed telemetry
+-                telemetry::event!(
+-                    event_type,
+-                    kind = "inline_terminal",
+-                    phase = phase,
+-                    model = model_telemetry_id,
+-                    model_provider = model_provider_id,
+-                    message_id = message_id,
+-                    session_id = session_id,
+-                );
+ 
+                 report_anthropic_event(
+                     &model,
+diff --git a/crates/agent_ui/src/threads_archive_view.rs b/crates/agent_ui/src/threads_archive_view.rs
+index 51d2644ac7..931ded76db 100644
+--- a/crates/agent_ui/src/threads_archive_view.rs
++++ b/crates/agent_ui/src/threads_archive_view.rs
+@@ -771,11 +771,6 @@ impl ThreadsArchiveView {
+                     .on_click({
+                         let thread = thread.clone();
+                         cx.listener(move |this, _, window, cx| {
+-                            telemetry::event!(
+-                                "Archived Thread Opened",
+-                                agent = thread.agent_id.as_ref(),
+-                                side = crate::agent_sidebar_side(cx)
+-                            );
+                             this.unarchive_thread(thread.clone(), window, cx);
+                         })
+                     })
+diff --git a/crates/agent_ui/src/ui/end_trial_upsell.rs b/crates/agent_ui/src/ui/end_trial_upsell.rs
+index ffca837b8f..e294071123 100644
+--- a/crates/agent_ui/src/ui/end_trial_upsell.rs
++++ b/crates/agent_ui/src/ui/end_trial_upsell.rs
+@@ -37,7 +37,6 @@ impl RenderOnce for EndTrialUpsell {
+                     .full_width()
+                     .style(ButtonStyle::Tinted(ui::TintColor::Accent))
+                     .on_click(move |_, _window, cx| {
+-                        telemetry::event!("Upgrade To Pro Clicked", state = "end-of-trial");
+                         cx.open_url(&zed_urls::upgrade_to_zed_pro_url(cx))
+                     }),
+             );
+@@ -81,7 +80,6 @@ impl RenderOnce for EndTrialUpsell {
+                         .on_click({
+                             let callback = self.dismiss_upsell.clone();
+                             move |_, window, cx| {
+-                                telemetry::event!("Banner Dismissed", source = "AI Onboarding");
+                                 callback(window, cx)
+                             }
+                         }),
+diff --git a/crates/ai_onboarding/Cargo.toml b/crates/ai_onboarding/Cargo.toml
+index a83188ca45..14c3562fbd 100644
+--- a/crates/ai_onboarding/Cargo.toml
++++ b/crates/ai_onboarding/Cargo.toml
+@@ -22,6 +22,5 @@ gpui.workspace = true
+ language_model.workspace = true
+ serde.workspace = true
+ smallvec.workspace = true
+-telemetry.workspace = true
+ ui.workspace = true
+ zed_actions.workspace = true
+diff --git a/crates/ai_onboarding/src/ai_onboarding.rs b/crates/ai_onboarding/src/ai_onboarding.rs
+index 0d31c11b26..aa1f36f92b 100644
+--- a/crates/ai_onboarding/src/ai_onboarding.rs
++++ b/crates/ai_onboarding/src/ai_onboarding.rs
+@@ -146,7 +146,6 @@ impl ZedAiOnboarding {
+                         .icon_size(IconSize::Small)
+                         .tooltip(Tooltip::text("Dismiss"))
+                         .on_click(move |_, window, cx| {
+-                            telemetry::event!("Banner Dismissed", source = "AI Onboarding",);
+                             callback(window, cx)
+                         }),
+                 )
+@@ -176,7 +175,6 @@ impl ZedAiOnboarding {
+                     .on_click({
+                         let callback = self.sign_in.clone();
+                         move |_, window, cx| {
+-                            telemetry::event!("Start Trial Clicked", state = "pre-sign-in");
+                             callback(window, cx)
+                         }
+                     }),
+@@ -214,10 +212,6 @@ impl ZedAiOnboarding {
+                                 .full_width()
+                                 .style(ButtonStyle::Tinted(ui::TintColor::Accent))
+                                 .on_click(move |_, _window, cx| {
+-                                    telemetry::event!(
+-                                        "Upgrade To Pro Clicked",
+-                                        state = "young-account"
+-                                    );
+                                     cx.open_url(&zed_urls::upgrade_to_zed_pro_url(cx))
+                                 }),
+                         ),
+@@ -276,10 +270,6 @@ impl ZedAiOnboarding {
+                                 .full_width()
+                                 .style(ButtonStyle::Tinted(ui::TintColor::Accent))
+                                 .on_click(move |_, _window, cx| {
+-                                    telemetry::event!(
+-                                        "Start Trial Clicked",
+-                                        state = "post-sign-in"
+-                                    );
+                                     cx.open_url(&zed_urls::start_trial_url(cx))
+                                 }),
+                         ),
+diff --git a/crates/auto_update_ui/Cargo.toml b/crates/auto_update_ui/Cargo.toml
+index 7dbec922fc..f94e4320ce 100644
+--- a/crates/auto_update_ui/Cargo.toml
++++ b/crates/auto_update_ui/Cargo.toml
+@@ -27,7 +27,6 @@ semver.workspace = true
+ serde.workspace = true
+ serde_json.workspace = true
+ smol.workspace = true
+-telemetry.workspace = true
+ ui.workspace = true
+ util.workspace = true
+ workspace.workspace = true
+diff --git a/crates/auto_update_ui/src/auto_update_ui.rs b/crates/auto_update_ui/src/auto_update_ui.rs
+index b6f4faec93..1560a59ebb 100644
+--- a/crates/auto_update_ui/src/auto_update_ui.rs
++++ b/crates/auto_update_ui/src/auto_update_ui.rs
+@@ -299,7 +299,6 @@ impl Render for AnnouncementToastNotification {
+                 let url = self.content.primary_action_url.clone();
+                 let callback = self.content.primary_action_callback.clone();
+                 move |this, _, window, cx| {
+-                    telemetry::event!("Skills Announcement Main Click");
+                     if let Some(callback) = &callback {
+                         callback(window, cx);
+                     }
+@@ -312,14 +311,12 @@ impl Render for AnnouncementToastNotification {
+             .secondary_on_click(cx.listener({
+                 let url = self.content.secondary_action_url.clone();
+                 move |_, _, _window, cx| {
+-                    telemetry::event!("Skills Announcement Secondary Click");
+                     if let Some(url) = &url {
+                         cx.open_url(url);
+                     }
+                 }
+             }))
+             .dismiss_on_click(cx.listener(|this, _, _window, cx| {
+-                telemetry::event!("Skills Announcement Dismiss");
+                 this.dismiss(cx);
+             }))
+     }
+diff --git a/crates/call/Cargo.toml b/crates/call/Cargo.toml
+index eb9e3c8d86..a2c0dc61be 100644
+--- a/crates/call/Cargo.toml
++++ b/crates/call/Cargo.toml
+@@ -40,7 +40,6 @@ postage.workspace = true
+ project.workspace = true
+ serde.workspace = true
+ settings.workspace = true
+-telemetry.workspace = true
+ util.workspace = true
+ workspace.workspace = true
+ 
+diff --git a/crates/call/src/call_impl/mod.rs b/crates/call/src/call_impl/mod.rs
+index 6b87c4d855..a7cd32118b 100644
+--- a/crates/call/src/call_impl/mod.rs
++++ b/crates/call/src/call_impl/mod.rs
+@@ -620,7 +620,6 @@ impl ActiveCall {
+             .borrow_mut()
+             .take()
+             .context("no incoming call")?;
+-        telemetry::event!("Incoming Call Declined", room_id = call.room_id);
+         self.client.send(proto::DeclineCall {
+             room_id: call.room_id,
+         })?;
+@@ -766,11 +765,6 @@ impl ActiveCall {
+     pub fn report_call_event(&self, operation: &'static str, cx: &mut App) {
+         if let Some(room) = self.room() {
+             let room = room.read(cx);
+-            telemetry::event!(
+-                operation,
+-                room_id = room.id(),
+-                channel_id = room.channel_id()
+-            )
+         }
+     }
+ }
+diff --git a/crates/client/Cargo.toml b/crates/client/Cargo.toml
+index 91c35a15bb..d6a54db350 100644
+--- a/crates/client/Cargo.toml
++++ b/crates/client/Cargo.toml
+@@ -50,7 +50,6 @@ serde_urlencoded.workspace = true
+ settings.workspace = true
+ sha2.workspace = true
+ smol.workspace = true
+-telemetry.workspace = true
+ telemetry_events.workspace = true
+ text.workspace = true
+ thiserror.workspace = true
+diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
+index 2c8dfa8ba4..cb9f5c96c6 100644
+--- a/crates/client/src/client.rs
++++ b/crates/client/src/client.rs
+@@ -49,7 +49,7 @@ use std::{
+     time::{Duration, Instant},
+ };
+ use std::{cmp, pin::Pin};
+-use telemetry::Telemetry;
++use crate::telemetry::Telemetry;
+ use thiserror::Error;
+ use tokio::net::TcpStream;
+ use url::Url;
+diff --git a/crates/client/src/telemetry.rs b/crates/client/src/telemetry.rs
+index 0f7ee3174c..8e97b8655d 100644
+--- a/crates/client/src/telemetry.rs
++++ b/crates/client/src/telemetry.rs
+@@ -234,7 +234,10 @@ impl Telemetry {
+         });
+ 
+         let (tx, mut rx) = mpsc::unbounded();
+-        ::telemetry::init(tx);
++        // Upstream initialized the `telemetry` crate's global sender here.
++        // With that crate removed, nothing ever feeds `tx`. Drop it so the
++        // receiver loop terminates immediately rather than waiting forever.
++        drop(tx);
+ 
+         cx.background_spawn({
+             let this = Arc::downgrade(&this);
+@@ -269,7 +272,6 @@ impl Telemetry {
+     // TestAppContext ends up calling this function on shutdown and it panics when trying to find the TelemetrySettings
+     #[cfg(not(any(test, feature = "test-support")))]
+     fn shutdown_telemetry(self: &Arc<Self>) -> impl Future<Output = ()> + use<> {
+-        telemetry::event!("App Closed");
+         // TODO: close final edit period and make sure it's sent
+         Task::ready(())
+     }
+@@ -394,18 +396,6 @@ impl Telemetry {
+             AssistantPhase::Rejected => "Assistant Response Rejected",
+         };
+ 
+-        telemetry::event!(
+-            event_type,
+-            conversation_id = event.conversation_id,
+-            kind = event.kind,
+-            phase = event.phase,
+-            message_id = event.message_id,
+-            model = event.model,
+-            model_provider = event.model_provider,
+-            response_latency = event.response_latency,
+-            error_message = event.error_message,
+-            language_name = event.language_name,
+-        );
+     }
+ 
+     pub fn log_edit_event(self: &Arc<Self>, environment: &'static str, is_via_ssh: bool) {
+@@ -431,12 +421,6 @@ impl Telemetry {
+                     .min(Duration::from_secs(60 * 60 * 24))
+                     .as_millis() as i64;
+ 
+-                telemetry::event!(
+-                    "Editor Edited",
+-                    duration = duration,
+-                    environment = environment,
+-                    is_via_ssh = is_via_ssh
+-                );
+             }
+         }
+     }
+@@ -452,7 +436,6 @@ impl Telemetry {
+         };
+ 
+         for project_type in project_types {
+-            telemetry::event!("Project Opened", project_type = project_type);
+         }
+     }
+ 
+diff --git a/crates/collab_ui/Cargo.toml b/crates/collab_ui/Cargo.toml
+index 920f620e0e..fc9cd509a5 100644
+--- a/crates/collab_ui/Cargo.toml
++++ b/crates/collab_ui/Cargo.toml
+@@ -50,7 +50,6 @@ serde.workspace = true
+ serde_json.workspace = true
+ settings.workspace = true
+ smallvec.workspace = true
+-telemetry.workspace = true
+ theme.workspace = true
+ theme_settings.workspace = true
+ time.workspace = true
+diff --git a/crates/collab_ui/src/channel_view.rs b/crates/collab_ui/src/channel_view.rs
+index bcc91ac093..46ad202f73 100644
+--- a/crates/collab_ui/src/channel_view.rs
++++ b/crates/collab_ui/src/channel_view.rs
+@@ -73,14 +73,6 @@ impl ChannelView {
+         window.spawn(cx, async move |cx| {
+             let channel_view = channel_view.await?;
+             pane.update_in(cx, |pane, window, cx| {
+-                telemetry::event!(
+-                    "Channel Notes Opened",
+-                    channel_id,
+-                    room_id = ActiveCall::global(cx)
+-                        .read(cx)
+-                        .room()
+-                        .map(|r| r.read(cx).id())
+-                );
+                 pane.add_item(Box::new(channel_view.clone()), true, true, None, window, cx);
+             })?;
+             anyhow::Ok(channel_view)
+diff --git a/crates/command_palette/Cargo.toml b/crates/command_palette/Cargo.toml
+index 1b2af52662..b2834b44e2 100644
+--- a/crates/command_palette/Cargo.toml
++++ b/crates/command_palette/Cargo.toml
+@@ -33,7 +33,6 @@ theme.workspace = true
+ time.workspace = true
+ ui.workspace = true
+ util.workspace = true
+-telemetry.workspace = true
+ workspace.workspace = true
+ zed_actions.workspace = true
+ 
+diff --git a/crates/command_palette/src/command_palette.rs b/crates/command_palette/src/command_palette.rs
+index e1eddf01c2..6cc2319923 100644
+--- a/crates/command_palette/src/command_palette.rs
++++ b/crates/command_palette/src/command_palette.rs
+@@ -592,11 +592,6 @@ impl PickerDelegate for CommandPaletteDelegate {
+ 
+         let action_ix = self.matches[self.selected_ix].candidate_id;
+         let command = self.commands.swap_remove(action_ix);
+-        telemetry::event!(
+-            "Action Invoked",
+-            source = "command palette",
+-            action = command.name
+-        );
+         self.matches.clear();
+         self.commands.clear();
+         let command_name = command.name.clone();
+diff --git a/crates/dap/Cargo.toml b/crates/dap/Cargo.toml
+index a1b107eb42..24a09eae5b 100644
+--- a/crates/dap/Cargo.toml
++++ b/crates/dap/Cargo.toml
+@@ -47,7 +47,6 @@ settings.workspace = true
+ smallvec.workspace = true
+ smol.workspace = true
+ task.workspace = true
+-telemetry.workspace = true
+ util.workspace = true
+ 
+ [target.'cfg(not(windows))'.dependencies]
+diff --git a/crates/dap/src/dap.rs b/crates/dap/src/dap.rs
+index 72446d86f0..019d2a0a4e 100644
+--- a/crates/dap/src/dap.rs
++++ b/crates/dap/src/dap.rs
+@@ -63,14 +63,6 @@ pub fn send_telemetry(scenario: &DebugScenario, location: TelemetrySpawnLocation
+             .map(serde_json::to_value)
+             .and_then(Result::ok);
+ 
+-        telemetry::event!(
+-            "Debugger Session Started",
+-            spawn_location = location,
+-            with_build_task = with_build_task,
+-            kind = kind,
+-            adapter = adapter_name,
+-            dock_position = dock,
+-        );
+     })
+     .detach();
+ }
+diff --git a/crates/edit_prediction/Cargo.toml b/crates/edit_prediction/Cargo.toml
+index 49b4da1c1e..0e77f3812c 100644
+--- a/crates/edit_prediction/Cargo.toml
++++ b/crates/edit_prediction/Cargo.toml
+@@ -57,7 +57,6 @@ serde.workspace = true
+ serde_json.workspace = true
+ settings.workspace = true
+ strum.workspace = true
+-telemetry.workspace = true
+ telemetry_events.workspace = true
+ text.workspace = true
+ thiserror.workspace = true
+diff --git a/crates/edit_prediction/src/onboarding_modal.rs b/crates/edit_prediction/src/onboarding_modal.rs
+index 0147fb75bd..d877344a4a 100644
+--- a/crates/edit_prediction/src/onboarding_modal.rs
++++ b/crates/edit_prediction/src/onboarding_modal.rs
+@@ -17,10 +17,8 @@ use workspace::{ModalView, Workspace};
+ #[macro_export]
+ macro_rules! onboarding_event {
+     ($name:expr) => {
+-        telemetry::event!($name, source = "Edit Prediction Onboarding");
+     };
+     ($name:expr, $($key:ident $(= $value:expr)?),+ $(,)?) => {
+-        telemetry::event!($name, source = "Edit Prediction Onboarding", $($key $(= $value)?),+);
+     };
+ }
+ 
+diff --git a/crates/edit_prediction_ui/Cargo.toml b/crates/edit_prediction_ui/Cargo.toml
+index 29c53bbaf8..5242da140d 100644
+--- a/crates/edit_prediction_ui/Cargo.toml
++++ b/crates/edit_prediction_ui/Cargo.toml
+@@ -40,7 +40,6 @@ paths.workspace = true
+ project.workspace = true
+ regex.workspace = true
+ settings.workspace = true
+-telemetry.workspace = true
+ text.workspace = true
+ theme_settings.workspace = true
+ ui.workspace = true
+diff --git a/crates/edit_prediction_ui/src/edit_prediction_button.rs b/crates/edit_prediction_ui/src/edit_prediction_button.rs
+index 46a2dc6c74..c17924cd65 100644
+--- a/crates/edit_prediction_ui/src/edit_prediction_button.rs
++++ b/crates/edit_prediction_ui/src/edit_prediction_button.rs
+@@ -381,10 +381,6 @@ impl Render for EditPredictionButton {
+                                 Tooltip::with_meta("Edit Predictions", None, tooltip_meta, cx)
+                             })
+                             .on_click(cx.listener(move |_, _, window, cx| {
+-                                telemetry::event!(
+-                                    "Pending ToS Clicked",
+-                                    source = "Edit Prediction Status Button"
+-                                );
+                                 window.dispatch_action(
+                                     zed_actions::OpenZedPredictOnboarding.boxed_clone(),
+                                     cx,
+@@ -623,10 +619,6 @@ impl EditPredictionButton {
+                 .icon_position(IconPosition::Start)
+                 .icon_color(Color::Muted)
+                 .handler(move |window, cx| {
+-                    telemetry::event!(
+-                        "Edit Prediction Menu Action",
+-                        action = "configure_providers",
+-                    );
+                     window.dispatch_action(
+                         OpenSettingsAt {
+                             path: "edit_predictions.providers".to_string(),
+@@ -649,11 +641,6 @@ impl EditPredictionButton {
+         ContextMenu::build(window, cx, |menu, _, cx| {
+             let menu = menu
+                 .entry("Sign In to Copilot", None, move |window, cx| {
+-                    telemetry::event!(
+-                        "Edit Prediction Menu Action",
+-                        action = "sign_in",
+-                        provider = "copilot",
+-                    );
+                     if let Some(copilot) = EditPredictionStore::try_global(cx).and_then(|store| {
+                         store.update(cx, |this, cx| {
+                             this.start_copilot_for_project(&project.upgrade()?, cx)
+@@ -665,11 +652,6 @@ impl EditPredictionButton {
+                 .entry("Disable Copilot", None, {
+                     let fs = fs.clone();
+                     move |_window, cx| {
+-                        telemetry::event!(
+-                            "Edit Prediction Menu Action",
+-                            action = "disable_provider",
+-                            provider = "copilot",
+-                        );
+                         hide_copilot(fs.clone(), cx)
+                     }
+                 });
+@@ -738,12 +720,6 @@ impl EditPredictionButton {
+                 IconPosition::Start,
+                 None,
+                 move |_, cx| {
+-                    telemetry::event!(
+-                        "Edit Prediction Setting Changed",
+-                        setting = "language",
+-                        language = language_name.to_string(),
+-                        enabled = !language_enabled,
+-                    );
+                     toggle_show_edit_predictions_for_language(language.clone(), fs.clone(), cx)
+                 },
+             );
+@@ -777,11 +753,6 @@ impl EditPredictionButton {
+                         .handler({
+                             let fs = fs.clone();
+                             move |_, cx| {
+-                                telemetry::event!(
+-                                    "Edit Prediction Setting Changed",
+-                                    setting = "mode",
+-                                    value = "eager",
+-                                );
+                                 toggle_edit_prediction_mode(fs.clone(), EditPredictionsMode::Eager, cx)
+                             }
+                         }),
+@@ -795,11 +766,6 @@ impl EditPredictionButton {
+                         .handler({
+                             let fs = fs.clone();
+                             move |_, cx| {
+-                                telemetry::event!(
+-                                    "Edit Prediction Setting Changed",
+-                                    setting = "mode",
+-                                    value = "subtle",
+-                                );
+                                 toggle_edit_prediction_mode(fs.clone(), EditPredictionsMode::Subtle, cx)
+                             }
+                         }),
+@@ -882,15 +848,7 @@ impl EditPredictionButton {
+                                 provider.toggle_data_collection(cx);
+ 
+                                 if !enabled {
+-                                    telemetry::event!(
+-                                        "Data Collection Enabled",
+-                                        source = "Edit Prediction Status Menu"
+-                                    );
+                                 } else {
+-                                    telemetry::event!(
+-                                        "Data Collection Disabled",
+-                                        source = "Edit Prediction Status Menu"
+-                                    );
+                                 }
+                             })
+                     );
+@@ -917,10 +875,6 @@ impl EditPredictionButton {
+                         Open your settings to add sensitive paths for which Zed will never predict edits."}).into_any_element()
+                 })
+                 .handler(move |window, cx| {
+-                    telemetry::event!(
+-                        "Edit Prediction Menu Action",
+-                        action = "configure_excluded_files",
+-                    );
+                     if let Some(workspace) = Workspace::for_window(window, cx) {
+                         let workspace = workspace.downgrade();
+                         window
+@@ -938,10 +892,6 @@ impl EditPredictionButton {
+                 .icon(IconName::FileGeneric)
+                 .icon_color(Color::Muted)
+                 .handler(move |_, cx| {
+-                    telemetry::event!(
+-                        "Edit Prediction Menu Action",
+-                        action = "view_docs",
+-                    );
+                     cx.open_url(PRIVACY_DOCS);
+                 })
+         );
+@@ -972,10 +922,6 @@ impl EditPredictionButton {
+                     {
+                         let editor_focus_handle = editor_focus_handle.clone();
+                         move |window, cx| {
+-                            telemetry::event!(
+-                                "Edit Prediction Menu Action",
+-                                action = "predict_at_cursor",
+-                            );
+                             editor_focus_handle.dispatch_action(&ShowEditPrediction, window, cx);
+                         }
+                     },
+@@ -1100,11 +1046,6 @@ impl EditPredictionButton {
+                     })
+                     .separator()
+                     .entry("Sign In & Start Using", None, |window, cx| {
+-                        telemetry::event!(
+-                            "Edit Prediction Menu Action",
+-                            action = "sign_in",
+-                            provider = "zed",
+-                        );
+                         let client = Client::global(cx);
+                         window
+                             .spawn(cx, async move |cx| {
+@@ -1122,11 +1063,6 @@ impl EditPredictionButton {
+                         }
+                         .boxed_clone(),
+                         |_window, _cx| {
+-                            telemetry::event!(
+-                                "Edit Prediction Menu Action",
+-                                action = "view_docs",
+-                                source = "upsell",
+-                            );
+                         },
+                     )
+                     .separator();
+@@ -1189,11 +1125,6 @@ impl EditPredictionButton {
+                         )
+                         .when(usage.over_limit(), |menu| -> ContextMenu {
+                             menu.entry("Subscribe to increase your limit", None, |_window, cx| {
+-                                telemetry::event!(
+-                                    "Edit Prediction Menu Action",
+-                                    action = "upsell_clicked",
+-                                    reason = "usage_limit",
+-                                );
+                                 cx.open_url(&zed_urls::account_url(cx))
+                             })
+                         })
+@@ -1210,11 +1141,6 @@ impl EditPredictionButton {
+                             |_window, cx| cx.open_url(&zed_urls::account_url(cx)),
+                         )
+                         .entry("Upgrade to Zed Pro or contact us.", None, |_window, cx| {
+-                            telemetry::event!(
+-                                "Edit Prediction Menu Action",
+-                                action = "upsell_clicked",
+-                                reason = "account_age",
+-                            );
+                             cx.open_url(&zed_urls::account_url(cx))
+                         })
+                         .separator();
+@@ -1621,14 +1547,6 @@ fn emit_edit_prediction_menu_opened(
+         .upgrade()
+         .map(|p| p.read(cx).is_via_remote_server())
+         .unwrap_or(false);
+-    telemetry::event!(
+-        "Toolbar Menu Opened",
+-        name = "Edit Predictions",
+-        provider,
+-        file_extension,
+-        edit_predictions_enabled_for_language,
+-        is_via_ssh,
+-    );
+ }
+ 
+ fn copilot_settings_url(enterprise_uri: Option<&str>) -> Arc<str> {
+diff --git a/crates/edit_prediction_ui/src/rate_prediction_modal.rs b/crates/edit_prediction_ui/src/rate_prediction_modal.rs
+index e9d3686085..7458d6aa54 100644
+--- a/crates/edit_prediction_ui/src/rate_prediction_modal.rs
++++ b/crates/edit_prediction_ui/src/rate_prediction_modal.rs
+@@ -101,7 +101,6 @@ impl RatePredictionsModal {
+                 RatePredictionsModal::new(ep_store, language_registry, window, cx)
+             });
+ 
+-            telemetry::event!("Rate Prediction Modal Open", source = "Edit Prediction");
+         }
+     }
+ 
+diff --git a/crates/editor/Cargo.toml b/crates/editor/Cargo.toml
+index b6df4a370f..dd816d4514 100644
+--- a/crates/editor/Cargo.toml
++++ b/crates/editor/Cargo.toml
+@@ -80,7 +80,6 @@ smallvec.workspace = true
+ snippet.workspace = true
+ sum_tree.workspace = true
+ task.workspace = true
+-telemetry.workspace = true
+ text.workspace = true
+ time.workspace = true
+ theme.workspace = true
+diff --git a/crates/editor/src/edit_prediction.rs b/crates/editor/src/edit_prediction.rs
+index 5d110eb3ce..bbfd1eef61 100644
+--- a/crates/editor/src/edit_prediction.rs
++++ b/crates/editor/src/edit_prediction.rs
+@@ -1642,13 +1642,6 @@ impl Editor {
+             true => "Edit Prediction Accepted",
+             false => "Edit Prediction Discarded",
+         };
+-        telemetry::event!(
+-            event_type,
+-            provider = provider.name(),
+-            prediction_id = id,
+-            suggestion_accepted = accepted,
+-            file_extension = extension,
+-        );
+     }
+ 
+     fn open_editor_at_anchor(
+diff --git a/crates/editor/src/editor.rs b/crates/editor/src/editor.rs
+index 87589880b5..9156673f1c 100644
+--- a/crates/editor/src/editor.rs
++++ b/crates/editor/src/editor.rs
+@@ -10231,26 +10231,7 @@ impl Editor {
+         let event_type = reported_event.event_type();
+ 
+         if let ReportEditorEvent::Saved { auto_saved } = reported_event {
+-            telemetry::event!(
+-                event_type,
+-                type = if auto_saved {"autosave"} else {"manual"},
+-                file_extension,
+-                vim_mode,
+-                copilot_enabled,
+-                copilot_enabled_for_language,
+-                edit_predictions_provider,
+-                is_via_ssh = project.is_via_remote_server(),
+-            );
+         } else {
+-            telemetry::event!(
+-                event_type,
+-                file_extension,
+-                vim_mode,
+-                copilot_enabled,
+-                copilot_enabled_for_language,
+-                edit_predictions_provider,
+-                is_via_ssh = project.is_via_remote_server(),
+-            );
+         };
+     }
+ 
+diff --git a/crates/extension_host/Cargo.toml b/crates/extension_host/Cargo.toml
+index 8dd949844f..022dd8c782 100644
+--- a/crates/extension_host/Cargo.toml
++++ b/crates/extension_host/Cargo.toml
+@@ -45,7 +45,6 @@ serde_json.workspace = true
+ serde_json_lenient.workspace = true
+ settings.workspace = true
+ task.workspace = true
+-telemetry.workspace = true
+ tempfile.workspace = true
+ toml.workspace = true
+ tracing.workspace = true
+diff --git a/crates/extension_host/src/extension_host.rs b/crates/extension_host/src/extension_host.rs
+index 676577cbd0..9c288666af 100644
+--- a/crates/extension_host/src/extension_host.rs
++++ b/crates/extension_host/src/extension_host.rs
+@@ -1261,7 +1261,6 @@ impl ExtensionStore {
+             })
+             .collect::<Vec<_>>();
+ 
+-        telemetry::event!("Extensions Loaded", id_and_versions = extension_ids);
+ 
+         let themes_to_remove = old_index
+             .themes
+diff --git a/crates/extensions_ui/Cargo.toml b/crates/extensions_ui/Cargo.toml
+index fbe4b1434f..994f09942e 100644
+--- a/crates/extensions_ui/Cargo.toml
++++ b/crates/extensions_ui/Cargo.toml
+@@ -35,7 +35,6 @@ serde.workspace = true
+ settings.workspace = true
+ smallvec.workspace = true
+ strum.workspace = true
+-telemetry.workspace = true
+ theme_settings.workspace = true
+ ui.workspace = true
+ util.workspace = true
+diff --git a/crates/extensions_ui/src/extensions_ui.rs b/crates/extensions_ui/src/extensions_ui.rs
+index 079512e901..2df492dd2e 100644
+--- a/crates/extensions_ui/src/extensions_ui.rs
++++ b/crates/extensions_ui/src/extensions_ui.rs
+@@ -1160,7 +1160,6 @@ impl ExtensionsPage {
+                 .on_click({
+                     let extension_id = extension.id.clone();
+                     move |_, _, cx| {
+-                        telemetry::event!("Extension Installed");
+                         ExtensionStore::global(cx).update(cx, |store, cx| {
+                             store.install_latest_extension(extension_id.clone(), cx)
+                         });
+@@ -1215,7 +1214,6 @@ impl ExtensionsPage {
+                 .on_click({
+                     let extension_id = extension.id.clone();
+                     move |_, _, cx| {
+-                        telemetry::event!("Extension Uninstalled", extension_id);
+                         ExtensionStore::global(cx).update(cx, |store, cx| {
+                             store
+                                 .uninstall_extension(extension_id.clone(), cx)
+@@ -1272,7 +1270,6 @@ impl ExtensionsPage {
+                                 let extension_id = extension.id.clone();
+                                 let version = extension.manifest.version.clone();
+                                 move |_, _, cx| {
+-                                    telemetry::event!("Extension Installed", extension_id, version);
+                                     ExtensionStore::global(cx).update(cx, |store, cx| {
+                                         store
+                                             .upgrade_extension(
+@@ -1552,6 +1549,51 @@ impl ExtensionsPage {
+                 self.upsells.remove(feature);
+             }
+         }
++
++        self.show_acp_registry_upsell = acp_registry_upsell_keywords()
++            .iter()
++            .any(|keyword| search_terms.iter().any(|term| keyword.contains(term)));
++    }
++
++    fn render_acp_registry_upsell(&self, cx: &mut Context<Self>) -> impl IntoElement {
++        let registry_url = zed_urls::acp_registry_blog(cx);
++
++        let view_registry = Button::new("view_registry", "View Registry")
++            .style(ButtonStyle::Tinted(ui::TintColor::Warning))
++            .on_click({
++                let registry_url = registry_url.clone();
++                move |_, window, cx| {
++                    window.dispatch_action(Box::new(zed_actions::AcpRegistry), cx)
++                }
++            });
++        let open_registry_button = Button::new("open_registry", "Learn More")
++            .end_icon(
++                Icon::new(IconName::ArrowUpRight)
++                    .size(IconSize::Small)
++                    .color(Color::Muted),
++            )
++            .on_click({
++                move |_event, _window, cx| {
++                    cx.open_url(&registry_url)
++                }
++            });
++
++        div().pt_4().px_4().child(
++            Banner::new()
++                .severity(Severity::Warning)
++                .child(
++                    Label::new(
++                        "Agent Server extensions will be deprecated in favor of the ACP registry.",
++                    )
++                    .mt_0p5(),
++                )
++                .action_slot(
++                    h_flex()
++                        .gap_1()
++                        .child(open_registry_button)
++                        .child(view_registry),
++                ),
++        )
+     }
+ 
+     fn render_feature_upsell_banner(
+@@ -1565,11 +1607,6 @@ impl ExtensionsPage {
+             .end_icon(Icon::new(IconName::ArrowUpRight).size(IconSize::Small))
+             .on_click({
+                 move |_event, _window, cx| {
+-                    telemetry::event!(
+-                        "Documentation Viewed",
+-                        source = "Feature Upsell",
+-                        url = docs_url,
+-                    );
+                     cx.open_url(&docs_url)
+                 }
+             });
+@@ -1604,10 +1641,6 @@ impl ExtensionsPage {
+                                                 )
+                                                 .on_click(cx.listener(
+                                                     move |this, selection, _, cx| {
+-                                                        telemetry::event!(
+-                                                            "Vim Mode Toggled",
+-                                                            source = "Feature Upsell"
+-                                                        );
+                                                         this.update_settings(
+                                                             selection,
+                                                             cx,
+diff --git a/crates/fs/Cargo.toml b/crates/fs/Cargo.toml
+index 871ac71802..a30eb6d4f1 100644
+--- a/crates/fs/Cargo.toml
++++ b/crates/fs/Cargo.toml
+@@ -37,7 +37,6 @@ thiserror.workspace = true
+ serde.workspace = true
+ serde_json.workspace = true
+ smol.workspace = true
+-telemetry.workspace = true
+ tempfile.workspace = true
+ text.workspace = true
+ time.workspace = true
+diff --git a/crates/fs/src/fs_watcher.rs b/crates/fs/src/fs_watcher.rs
+index 016d4ca20f..833cb028e4 100644
+--- a/crates/fs/src/fs_watcher.rs
++++ b/crates/fs/src/fs_watcher.rs
+@@ -213,7 +213,6 @@ fn register_existing_path(
+             poll_interval().as_millis(),
+             path.display()
+         );
+-        telemetry::event!("fs_watcher_poll", path = path.display().to_string());
+         WatcherMode::Poll
+     } else {
+         WatcherMode::Native
+diff --git a/crates/git_ui/Cargo.toml b/crates/git_ui/Cargo.toml
+index f46146ef8c..5f019064f3 100644
+--- a/crates/git_ui/Cargo.toml
++++ b/crates/git_ui/Cargo.toml
+@@ -62,7 +62,6 @@ smallvec.workspace = true
+ strum.workspace = true
+ sysinfo.workspace = true
+ task.workspace = true
+-telemetry.workspace = true
+ terminal.workspace = true
+ theme.workspace = true
+ theme_settings.workspace = true
+diff --git a/crates/git_ui/src/commit_modal.rs b/crates/git_ui/src/commit_modal.rs
+index 06c554e7b6..075fa4a58d 100644
+--- a/crates/git_ui/src/commit_modal.rs
++++ b/crates/git_ui/src/commit_modal.rs
+@@ -441,7 +441,6 @@ impl CommitModal {
+                             .disabled(!can_commit)
+                             .child(Label::new(commit_label).size(LabelSize::Small).mr_0p5())
+                             .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+-                                telemetry::event!("Git Committed", source = "Git Modal");
+                                 this.git_panel.update(cx, |git_panel, cx| {
+                                     git_panel.commit_changes(
+                                         CommitOptions {
+@@ -500,9 +499,7 @@ impl CommitModal {
+         });
+         if did_execute {
+             if is_amend {
+-                telemetry::event!("Git Amended", source = "Git Modal");
+             } else {
+-                telemetry::event!("Git Committed", source = "Git Modal");
+             }
+             cx.emit(DismissEvent);
+         }
+@@ -512,7 +509,6 @@ impl CommitModal {
+         if self.git_panel.update(cx, |git_panel, cx| {
+             git_panel.amend(&self.commit_editor.focus_handle(cx), window, cx)
+         }) {
+-            telemetry::event!("Git Amended", source = "Git Modal");
+             cx.emit(DismissEvent);
+         }
+     }
+diff --git a/crates/git_ui/src/git_panel.rs b/crates/git_ui/src/git_panel.rs
+index 6c0375fcbf..9e8aa02bcc 100644
+--- a/crates/git_ui/src/git_panel.rs
++++ b/crates/git_ui/src/git_panel.rs
+@@ -2504,9 +2504,7 @@ impl GitPanel {
+         let is_amend = self.amend_pending;
+         if self.commit(&self.commit_editor.focus_handle(cx), window, cx) {
+             if is_amend {
+-                telemetry::event!("Git Amended", source = "Git Panel");
+             } else {
+-                telemetry::event!("Git Committed", source = "Git Panel");
+             }
+         }
+     }
+@@ -2540,7 +2538,6 @@ impl GitPanel {
+ 
+     fn on_amend(&mut self, _: &Amend, window: &mut Window, cx: &mut Context<Self>) {
+         if self.amend(&self.commit_editor.focus_handle(cx), window, cx) {
+-            telemetry::event!("Git Amended", source = "Git Panel");
+         }
+     }
+ 
+@@ -2750,7 +2747,6 @@ impl GitPanel {
+         let Some(repo) = self.active_repository.clone() else {
+             return;
+         };
+-        telemetry::event!("Git Uncommitted");
+ 
+         let confirmation = self.check_for_pushed_commits(window, cx);
+         let prior_head = self.load_commit_details("HEAD".to_string(), cx);
+@@ -3073,7 +3069,6 @@ impl GitPanel {
+             return;
+         };
+ 
+-        telemetry::event!("Git Commit Message Generated");
+ 
+         let diff = repo.update(cx, |repo, cx| {
+             if self.has_staged_changes() {
+@@ -3287,7 +3282,6 @@ impl GitPanel {
+             return;
+         }
+ 
+-        telemetry::event!("Git Fetched");
+         let askpass = self.askpass_delegate("git fetch", window, cx);
+         let this = cx.weak_entity();
+ 
+@@ -3440,7 +3434,6 @@ impl GitPanel {
+             return;
+         }
+ 
+-        telemetry::event!("Git Pulled");
+         let remote = self.get_remote(false, false, window, cx);
+         cx.spawn_in(window, async move |this, cx| {
+             let _clear_pending_remote_operation = cx.on_drop(&this, |this, cx| {
+@@ -3510,7 +3503,6 @@ impl GitPanel {
+             return;
+         }
+ 
+-        telemetry::event!("Git Pushed");
+ 
+         let options = if force_push {
+             Some(PushOptions::Force)
+@@ -5454,7 +5446,6 @@ impl GitPanel {
+                     .on_click({
+                         let git_panel = cx.weak_entity();
+                         move |_, window, cx| {
+-                            telemetry::event!("Git Committed", source = "Git Panel");
+                             git_panel
+                                 .update(cx, |git_panel, cx| {
+                                     git_panel.commit_changes(
+@@ -6290,11 +6281,9 @@ impl GitPanel {
+                 KeyBinding::for_action_in(&workspace::Open::default(), &focus_handle, cx),
+             )
+             .on_open_project(|_, window, cx| {
+-                telemetry::event!("Git Panel Add Project Clicked");
+                 window.dispatch_action(workspace::Open::default().boxed_clone(), cx);
+             })
+             .on_clone_repo(|_, window, cx| {
+-                telemetry::event!("Git Panel Clone Repo Clicked");
+                 window.dispatch_action(git::Clone.boxed_clone(), cx);
+             })
+             .into_any_element()
+diff --git a/crates/git_ui/src/project_diff.rs b/crates/git_ui/src/project_diff.rs
+index 445eaf1e70..9e09b75cab 100644
+--- a/crates/git_ui/src/project_diff.rs
++++ b/crates/git_ui/src/project_diff.rs
+@@ -104,14 +104,6 @@ impl ProjectDiff {
+         window: &mut Window,
+         cx: &mut Context<Workspace>,
+     ) {
+-        telemetry::event!(
+-            "Git Diff Opened",
+-            source = if entry.is_some() {
+-                "Git Panel"
+-            } else {
+-                "Action"
+-            }
+-        );
+         let intended_repo = workspace.project().read(cx).active_repository(cx);
+ 
+         let existing = workspace.items_of_type::<Self>(cx).next();
+@@ -161,7 +153,6 @@ impl ProjectDiff {
+         window: &mut Window,
+         cx: &mut Context<Workspace>,
+     ) {
+-        telemetry::event!("Git Diff Opened", source = "Agent Panel");
+         let existing = workspace.items_of_type::<Self>(cx).next();
+         let project_diff = if let Some(existing) = existing {
+             workspace.activate_item(&existing, true, true, window, cx);
+diff --git a/crates/input_latency_ui/Cargo.toml b/crates/input_latency_ui/Cargo.toml
+index 3d5387636e..047ea3b03f 100644
+--- a/crates/input_latency_ui/Cargo.toml
++++ b/crates/input_latency_ui/Cargo.toml
+@@ -16,4 +16,3 @@ chrono.workspace = true
+ collections.workspace = true
+ gpui = { workspace = true, features = ["input-latency-histogram"] }
+ hdrhistogram.workspace = true
+-telemetry.workspace = true
+diff --git a/crates/input_latency_ui/src/input_latency_ui.rs b/crates/input_latency_ui/src/input_latency_ui.rs
+index cdeb7fe9e6..731655c2f7 100644
+--- a/crates/input_latency_ui/src/input_latency_ui.rs
++++ b/crates/input_latency_ui/src/input_latency_ui.rs
+@@ -115,19 +115,6 @@ pub fn report_input_latency_telemetry(window: &Window, cx: &mut App) {
+     let frames_with_3_events = count_frames_in_range(&delta_coalesce, 3, 4);
+     // frames with 4+ events are implicitly total_frames - (1 + 2 + 3)
+ 
+-    telemetry::event!(
+-        "Latency Report",
+-        frames_sub4 = frames_sub4,
+-        frames_4to8 = frames_4to8,
+-        frames_8to16 = frames_8to16,
+-        frames_16to33 = frames_16to33,
+-        frames_33to100 = frames_33to100,
+-        total_frames = total_frames,
+-        frames_with_1_event = frames_with_1_event,
+-        frames_with_2_events = frames_with_2_events,
+-        frames_with_3_events = frames_with_3_events,
+-        report_window_seconds = report_window_seconds,
+-    );
+ }
+ 
+ fn count_frames_in_range(histogram: &Histogram<u64>, low_ns: u64, high_ns: u64) -> u64 {
+diff --git a/crates/keymap_editor/Cargo.toml b/crates/keymap_editor/Cargo.toml
+index 63bfba05d4..dcbb3cc988 100644
+--- a/crates/keymap_editor/Cargo.toml
++++ b/crates/keymap_editor/Cargo.toml
+@@ -33,7 +33,6 @@ search.workspace = true
+ serde_json.workspace = true
+ serde.workspace = true
+ settings.workspace = true
+-telemetry.workspace = true
+ tempfile.workspace = true
+ theme.workspace = true
+ theme_settings.workspace = true
+diff --git a/crates/keymap_editor/src/keymap_editor.rs b/crates/keymap_editor/src/keymap_editor.rs
+index db40513599..f1eef09459 100644
+--- a/crates/keymap_editor/src/keymap_editor.rs
++++ b/crates/keymap_editor/src/keymap_editor.rs
+@@ -685,12 +685,6 @@ impl KeymapEditor {
+                     .collect::<Vec<String>>()
+                     .join(" ");
+ 
+-                telemetry::event!(
+-                    "Keystroke Search Completed",
+-                    action_query = action_query,
+-                    keystroke_query = keystroke_query,
+-                    keystroke_exact_match = exact_match
+-                )
+             }
+         }));
+         cx.spawn(async move |this, cx| {
+@@ -1331,14 +1325,6 @@ impl KeymapEditor {
+         let action = keybind.action().name;
+         let source = keybind.keybind_source().map(|source| source.name());
+ 
+-        telemetry::event!(
+-            "Edit Keybinding Modal Opened",
+-            keystroke = keystroke,
+-            action = action,
+-            source = source,
+-            context = context,
+-            arguments = arguments,
+-        );
+ 
+         let temp_dir = self.action_args_temp_dir.as_ref().map(|dir| dir.path());
+ 
+@@ -1464,7 +1450,6 @@ impl KeymapEditor {
+             return;
+         };
+ 
+-        telemetry::event!("Keybinding Context Copied", context = context);
+         cx.write_to_clipboard(gpui::ClipboardItem::new_string(context));
+     }
+ 
+@@ -1481,7 +1466,6 @@ impl KeymapEditor {
+             return;
+         };
+ 
+-        telemetry::event!("Keybinding Action Copied", action = action);
+         cx.write_to_clipboard(gpui::ClipboardItem::new_string(action));
+     }
+ 
+@@ -3676,12 +3660,6 @@ async fn save_keybinding_update(
+     .await
+     .context("Failed to write keymap file")?;
+ 
+-    telemetry::event!(
+-        "Keybinding Updated",
+-        new_keybinding = new_keybinding,
+-        removed_keybinding = removed_keybinding,
+-        source = source
+-    );
+     Ok(())
+ }
+ 
+@@ -3729,12 +3707,6 @@ async fn remove_keybinding(
+     .await
+     .context("Failed to write keymap file")?;
+ 
+-    telemetry::event!(
+-        "Keybinding Removed",
+-        new_keybinding = new_keybinding,
+-        removed_keybinding = removed_keybinding,
+-        source = source
+-    );
+     Ok(())
+ }
+ 
+diff --git a/crates/language_tools/Cargo.toml b/crates/language_tools/Cargo.toml
+index 26e230c1d9..0f87b7ced1 100644
+--- a/crates/language_tools/Cargo.toml
++++ b/crates/language_tools/Cargo.toml
+@@ -29,7 +29,6 @@ project.workspace = true
+ proto.workspace = true
+ serde_json.workspace = true
+ settings.workspace = true
+-telemetry.workspace = true
+ theme.workspace = true
+ tree-sitter.workspace = true
+ sysinfo.workspace = true
+diff --git a/crates/language_tools/src/lsp_button.rs b/crates/language_tools/src/lsp_button.rs
+index 625e48b087..de59d2eb00 100644
+--- a/crates/language_tools/src/lsp_button.rs
++++ b/crates/language_tools/src/lsp_button.rs
+@@ -1396,12 +1396,6 @@ impl Render for LspButton {
+                 .on_open(Rc::new(move |_window, cx| {
+                     let copilot_enabled = all_language_settings(None, cx).edit_predictions.provider
+                         == EditPredictionProvider::Copilot;
+-                    telemetry::event!(
+-                        "Toolbar Menu Opened",
+-                        name = "Language Servers",
+-                        copilot_enabled,
+-                        is_via_ssh,
+-                    );
+                 }))
+                 .menu(move |_, cx| {
+                     lsp_button
+diff --git a/crates/onboarding/Cargo.toml b/crates/onboarding/Cargo.toml
+index 0092b440a2..adb7a3fdc9 100644
+--- a/crates/onboarding/Cargo.toml
++++ b/crates/onboarding/Cargo.toml
+@@ -32,7 +32,6 @@ project.workspace = true
+ schemars.workspace = true
+ serde.workspace = true
+ settings.workspace = true
+-telemetry.workspace = true
+ theme.workspace = true
+ theme_settings.workspace = true
+ ui.workspace = true
+diff --git a/crates/onboarding/src/base_keymap_picker.rs b/crates/onboarding/src/base_keymap_picker.rs
+index 351c87a96b..a8365517a3 100644
+--- a/crates/onboarding/src/base_keymap_picker.rs
++++ b/crates/onboarding/src/base_keymap_picker.rs
+@@ -184,11 +184,6 @@ impl PickerDelegate for BaseKeymapSelectorDelegate {
+         if let Some(selection) = self.matches.get(self.selected_index) {
+             let base_keymap = BaseKeymap::from_names(&selection.string);
+ 
+-            telemetry::event!(
+-                "Settings Changed",
+-                setting = "keymap",
+-                value = base_keymap.to_string()
+-            );
+ 
+             update_settings_file(self.fs.clone(), cx, move |setting, _| {
+                 setting.base_keymap = Some(base_keymap.into())
+diff --git a/crates/onboarding/src/basics_page.rs b/crates/onboarding/src/basics_page.rs
+index 40fe15c089..f3482ac29d 100644
+--- a/crates/onboarding/src/basics_page.rs
++++ b/crates/onboarding/src/basics_page.rs
+@@ -76,11 +76,6 @@ fn render_theme_section(tab_index: &mut isize, cx: &mut App) -> impl IntoElement
+                             move |_, _, cx| {
+                                 write_mode_change(mode, cx);
+ 
+-                                telemetry::event!(
+-                                    "Welcome Theme mode Changed",
+-                                    from = theme_mode,
+-                                    to = mode
+-                                );
+                             },
+                         )
+                     }),
+@@ -167,11 +162,6 @@ fn render_theme_section(tab_index: &mut isize, cx: &mut App) -> impl IntoElement
+ 
+                             move |_, _, cx| {
+                                 write_theme_change(theme_name.clone(), theme_mode, cx);
+-                                telemetry::event!(
+-                                    "Welcome Theme Changed",
+-                                    from = current_theme_name,
+-                                    to = theme_name
+-                                );
+                             }
+                         })
+                         .map(|this| {
+@@ -273,10 +263,6 @@ fn render_telemetry_section(tab_index: &mut isize, cx: &App) -> impl IntoElement
+ 
+                         // This telemetry event shouldn't fire when it's off. If it does we'll be alerted
+                         // and can fix it in a timely manner to respect a user's choice.
+-                        telemetry::event!(
+-                            "Welcome Page Telemetry Metrics Toggled",
+-                            options = if enabled { "on" } else { "off" }
+-                        );
+                     }
+                 },
+             )
+@@ -315,10 +301,6 @@ fn render_telemetry_section(tab_index: &mut isize, cx: &App) -> impl IntoElement
+ 
+                         // This telemetry event shouldn't fire when it's off. If it does we'll be alerted
+                         // and can fix it in a timely manner to respect a user's choice.
+-                        telemetry::event!(
+-                            "Welcome Page Telemetry Diagnostics Toggled",
+-                            options = if enabled { "on" } else { "off" }
+-                        );
+                     }
+                 },
+             )
+@@ -382,7 +364,6 @@ fn render_base_keymap_section(tab_index: &mut isize, cx: &mut App) -> impl IntoE
+             setting.base_keymap = Some(keymap_base.into());
+         });
+ 
+-        telemetry::event!("Welcome Keymap Changed", keymap = keymap_base);
+     }
+ }
+ 
+@@ -411,10 +392,6 @@ fn render_vim_mode_switch(tab_index: &mut isize, cx: &mut App) -> impl IntoEleme
+                     setting.vim_mode = Some(vim_mode);
+                 });
+ 
+-                telemetry::event!(
+-                    "Welcome Vim Mode Toggled",
+-                    options = if vim_mode { "on" } else { "off" },
+-                );
+             }
+         },
+     )
+@@ -452,10 +429,6 @@ fn render_worktree_auto_trust_switch(tab_index: &mut isize, cx: &mut App) -> imp
+                     setting.session.get_or_insert_default().trust_all_worktrees = Some(trust);
+                 });
+ 
+-                telemetry::event!(
+-                    "Welcome Page Worktree Auto Trust Toggled",
+-                    options = if trust { "on" } else { "off" }
+-                );
+             }
+         },
+     )
+@@ -486,7 +459,6 @@ fn render_setting_import_button(
+                 .color(Color::Success)
+         })
+         .on_click(move |_, window, cx| {
+-            telemetry::event!("Welcome Import Settings", import_source = label,);
+             window.dispatch_action(action.boxed_clone(), cx);
+         })
+ }
+@@ -566,7 +538,6 @@ fn render_registry_agent_button(
+         .state(state_element)
+         .disabled(installed)
+         .on_click(move |_, window, cx| {
+-            telemetry::event!("Welcome Agent Install Clicked", agent = agent_id.as_str());
+             update_settings_file(fs.clone(), cx, {
+                 let agent_id = agent_id.clone();
+                 move |settings, _| {
+@@ -648,12 +619,10 @@ fn render_zed_agent_button(user_store: &Entity<UserStore>, cx: &mut App) -> impl
+         .map(|this| {
+             if is_signed_in && is_free {
+                 this.on_click(move |_, _window, cx| {
+-                    telemetry::event!("Start Trial Clicked", state = "post-sign-in");
+                     cx.open_url(&zed_urls::start_trial_url(cx))
+                 })
+             } else {
+                 this.on_click(move |_, _, cx| {
+-                    telemetry::event!("Welcome Zed Agent Sign In Clicked");
+                     let client = Client::global(cx);
+                     cx.spawn(async move |cx| client.sign_in_with_optional_connect(true, cx).await)
+                         .detach_and_log_err(cx);
+diff --git a/crates/onboarding/src/onboarding.rs b/crates/onboarding/src/onboarding.rs
+index 7ff5184f1b..66297aaf30 100644
+--- a/crates/onboarding/src/onboarding.rs
++++ b/crates/onboarding/src/onboarding.rs
+@@ -181,7 +181,6 @@ pub fn init(cx: &mut App) {
+ }
+ 
+ pub fn show_onboarding_view(app_state: Arc<AppState>, cx: &mut App) -> Task<anyhow::Result<()>> {
+-    telemetry::event!("Onboarding Page Opened");
+     open_new(
+         Default::default(),
+         app_state,
+@@ -247,11 +246,6 @@ impl Onboarding {
+             .filter(|id| installed_agents.contains_key(**id))
+             .copied()
+             .collect::<Vec<_>>();
+-        telemetry::event!(
+-            "Welcome Agent Setup Viewed",
+-            zed_agent = zed_agent_state,
+-            agents_installed = agents_installed,
+-        );
+ 
+         cx.new(|cx| {
+             cx.spawn(async move |this, cx| {
+@@ -274,7 +268,6 @@ impl Onboarding {
+     }
+ 
+     fn on_finish(_: &Finish, _: &mut Window, cx: &mut App) {
+-        telemetry::event!("Finish Setup");
+         go_to_welcome_page(cx);
+     }
+ 
+diff --git a/crates/project_panel/Cargo.toml b/crates/project_panel/Cargo.toml
+index 89e97ee9c7..44087cf6ef 100644
+--- a/crates/project_panel/Cargo.toml
++++ b/crates/project_panel/Cargo.toml
+@@ -47,7 +47,6 @@ workspace.workspace = true
+ language.workspace = true
+ markdown_preview.workspace = true
+ zed_actions.workspace = true
+-telemetry.workspace = true
+ notifications.workspace = true
+ feature_flags.workspace = true
+ fs.workspace = true
+diff --git a/crates/project_panel/src/project_panel.rs b/crates/project_panel/src/project_panel.rs
+index 8b23423a97..f230ad5c3c 100644
+--- a/crates/project_panel/src/project_panel.rs
++++ b/crates/project_panel/src/project_panel.rs
+@@ -4502,16 +4502,6 @@ impl ProjectPanel {
+                 }
+                 let elapsed = now.elapsed();
+                 if this.last_reported_update.elapsed() > Duration::from_secs(3600) {
+-                    telemetry::event!(
+-                        "Project Panel Updated",
+-                        elapsed_ms = elapsed.as_millis() as u64,
+-                        worktree_entries = this
+-                            .state
+-                            .visible_entries
+-                            .iter()
+-                            .map(|worktree| worktree.entries.len())
+-                            .sum::<usize>(),
+-                    )
+                 }
+                 if this.update_visible_entries_task.focus_filename_editor {
+                     this.update_visible_entries_task.focus_filename_editor = false;
+@@ -7432,7 +7422,6 @@ impl Render for ProjectPanel {
+                         KeyBinding::for_action_in(&workspace::Open::default(), &focus_handle, cx),
+                     )
+                     .on_open_project(move |_, window, cx| {
+-                        telemetry::event!("Project Panel Add Project Clicked");
+                         workspace
+                             .update(cx, |_, cx| {
+                                 window
+@@ -7441,7 +7430,6 @@ impl Render for ProjectPanel {
+                             .log_err();
+                     })
+                     .on_clone_repo(move |_, window, cx| {
+-                        telemetry::event!("Project Panel Clone Repo Clicked");
+                         workspace_clone
+                             .update(cx, |_, cx| {
+                                 window.dispatch_action(git::Clone.boxed_clone(), cx);
+diff --git a/crates/recent_projects/Cargo.toml b/crates/recent_projects/Cargo.toml
+index 013e00e964..8d9c35b139 100644
+--- a/crates/recent_projects/Cargo.toml
++++ b/crates/recent_projects/Cargo.toml
+@@ -45,7 +45,6 @@ serde.workspace = true
+ serde_json.workspace = true
+ settings.workspace = true
+ task.workspace = true
+-telemetry.workspace = true
+ ui.workspace = true
+ ui_input.workspace = true
+ util.workspace = true
+diff --git a/crates/recent_projects/src/remote_servers.rs b/crates/recent_projects/src/remote_servers.rs
+index f61585c047..d55a5e9941 100644
+--- a/crates/recent_projects/src/remote_servers.rs
++++ b/crates/recent_projects/src/remote_servers.rs
+@@ -492,7 +492,6 @@ impl ProjectPicker {
+                             .log_err()?;
+                         cx.open_window(options, |window, cx| {
+                             let workspace = cx.new(|cx| {
+-                                telemetry::event!("SSH Project Created");
+                                 Workspace::new(None, project.clone(), app_state.clone(), window, cx)
+                             });
+                             cx.new(|cx| MultiWorkspace::new(workspace, window, cx))
+@@ -1621,7 +1620,6 @@ impl RemoteServerProjects {
+                 Some(Some(client)) => this
+                     .update_in(cx, |this, window, cx| {
+                         info!("ssh server created");
+-                        telemetry::event!("SSH Server Created");
+                         this.retained_connections.push(client);
+                         this.add_ssh_server(connection_options, cx);
+                         this.mode = Mode::default_mode(&this.ssh_config_servers, cx);
+@@ -1694,7 +1692,6 @@ impl RemoteServerProjects {
+         let creating = cx.spawn_in(window, async move |this, cx| {
+             match connection.await {
+                 Some(Some(client)) => this.update_in(cx, |this, window, cx| {
+-                    telemetry::event!("WSL Distro Added");
+                     this.retained_connections.push(client);
+                     let Some(fs) = this
+                         .workspace
+diff --git a/crates/repl/Cargo.toml b/crates/repl/Cargo.toml
+index 1c7d52da4d..4eebf03d20 100644
+--- a/crates/repl/Cargo.toml
++++ b/crates/repl/Cargo.toml
+@@ -48,7 +48,6 @@ serde_json.workspace = true
+ settings.workspace = true
+ shlex.workspace = true
+ smol.workspace = true
+-telemetry.workspace = true
+ terminal.workspace = true
+ terminal_view.workspace = true
+ theme.workspace = true
+diff --git a/crates/repl/src/session.rs b/crates/repl/src/session.rs
+index 9b7bd75950..1544796705 100644
+--- a/crates/repl/src/session.rs
++++ b/crates/repl/src/session.rs
+@@ -297,12 +297,6 @@ impl Session {
+                 .unwrap_or_else(temp_dir)
+         };
+ 
+-        telemetry::event!(
+-            "Kernel Status Changed",
+-            kernel_language,
+-            kernel_status = KernelStatus::Starting.to_string(),
+-            repl_session_id = cx.entity_id().to_string(),
+-        );
+ 
+         let session_view = cx.entity();
+ 
+@@ -826,12 +820,6 @@ impl Session {
+         let kernel_status = KernelStatus::from(&kernel).to_string();
+         let kernel_language = self.kernel_specification.language();
+ 
+-        telemetry::event!(
+-            "Kernel Status Changed",
+-            kernel_language,
+-            kernel_status,
+-            repl_session_id = cx.entity_id().to_string(),
+-        );
+ 
+         self.kernel = kernel;
+     }
+@@ -986,12 +974,6 @@ impl KernelSession for Session {
+             JupyterMessageContent::Status(status) => {
+                 self.kernel.set_execution_state(&status.execution_state);
+ 
+-                telemetry::event!(
+-                    "Kernel Status Changed",
+-                    kernel_language = self.kernel_specification.language(),
+-                    kernel_status = KernelStatus::from(&self.kernel).to_string(),
+-                    repl_session_id = cx.entity_id().to_string(),
+-                );
+ 
+                 cx.notify();
+             }
+diff --git a/crates/settings_ui/Cargo.toml b/crates/settings_ui/Cargo.toml
+index b3a145c659..79f41fc84f 100644
+--- a/crates/settings_ui/Cargo.toml
++++ b/crates/settings_ui/Cargo.toml
+@@ -62,7 +62,6 @@ serde_yaml_ng.workspace = true
+ settings.workspace = true
+ shell_command_parser.workspace = true
+ strum.workspace = true
+-telemetry.workspace = true
+ theme.workspace = true
+ theme_settings.workspace = true
+ ui.workspace = true
+diff --git a/crates/settings_ui/src/settings_ui.rs b/crates/settings_ui/src/settings_ui.rs
+index 35f816d649..0befd738d1 100644
+--- a/crates/settings_ui/src/settings_ui.rs
++++ b/crates/settings_ui/src/settings_ui.rs
+@@ -1845,7 +1845,6 @@ impl SettingsWindow {
+                 })
+                 .ok();
+ 
+-                telemetry::event!("Settings Closed")
+             }
+         })
+         .detach();
+@@ -2336,7 +2335,6 @@ impl SettingsWindow {
+             .ok();
+ 
+             cx.background_executor().timer(Duration::from_secs(1)).await;
+-            telemetry::event!("Settings Searched", query = query)
+         }));
+     }
+ 
+@@ -2698,7 +2696,6 @@ impl SettingsWindow {
+         self.current_file = self.files[ix].0.clone();
+ 
+         if let SettingsUiFile::Project((_, _)) = &self.current_file {
+-            telemetry::event!("Setting Project Clicked");
+         }
+ 
+         self.build_ui(window, cx);
+@@ -3197,11 +3194,6 @@ impl SettingsWindow {
+                                                     return;
+                                                 }
+ 
+-                                                telemetry::event!(
+-                                                    "Settings Navigation Clicked",
+-                                                    category = category,
+-                                                    subcategory = subcategory
+-                                                );
+ 
+                                                 this.open_and_scroll_to_navbar_entry(
+                                                     entry_index,
+@@ -3806,7 +3798,6 @@ impl SettingsWindow {
+                 cx: &mut Context<SettingsWindow>,
+             ) -> impl IntoElement {
+                 if shown_errors.insert(error.clone()) {
+-                    telemetry::event!("Settings Error Shown", label = label, error = &error);
+                 }
+                 Banner::new()
+                     .severity(Severity::Warning)
+@@ -4628,7 +4619,6 @@ fn update_settings_file(
+     cx: &mut App,
+     update: impl 'static + Send + FnOnce(&mut SettingsContent, &App),
+ ) -> Result<()> {
+-    telemetry::event!("Settings Change", setting = file_name, type = file.setting_type());
+ 
+     match file {
+         SettingsUiFile::Project((worktree_id, rel_path)) => {
+@@ -4920,7 +4910,6 @@ fn render_toggle_button<B: Into<bool> + From<bool> + Copy>(
+         .disabled(disabled)
+         .on_click({
+             move |state, window, cx| {
+-                telemetry::event!("Settings Change", setting = field.json_path, type = file.setting_type());
+ 
+                 let state = *state == ui::ToggleState::Selected;
+                 update_settings_file(file.clone(), field.json_path, window, cx, move |settings, app| {
+diff --git a/crates/sidebar/Cargo.toml b/crates/sidebar/Cargo.toml
+index ef3f255ee7..3ccc436c9b 100644
+--- a/crates/sidebar/Cargo.toml
++++ b/crates/sidebar/Cargo.toml
+@@ -43,7 +43,6 @@ remote_connection.workspace = true
+ serde.workspace = true
+ serde_json.workspace = true
+ settings.workspace = true
+-telemetry.workspace = true
+ theme.workspace = true
+ theme_settings.workspace = true
+ ui.workspace = true
+diff --git a/crates/sidebar/src/sidebar.rs b/crates/sidebar/src/sidebar.rs
+index deb983a3f2..0b5391af9f 100644
+--- a/crates/sidebar/src/sidebar.rs
++++ b/crates/sidebar/src/sidebar.rs
+@@ -7460,7 +7460,6 @@ impl Sidebar {
+                 SidebarSide::Left => "left",
+                 SidebarSide::Right => "right",
+             };
+-            telemetry::event!("Sidebar Add Project Clicked", side = side);
+             window.dispatch_action(
+                 Open {
+                     create_new_window: Some(false),
+diff --git a/crates/telemetry/Cargo.toml b/crates/telemetry/Cargo.toml
+deleted file mode 100644
+index ed166ea4c7..0000000000
+--- a/crates/telemetry/Cargo.toml
++++ /dev/null
+@@ -1,18 +0,0 @@
+-[package]
+-name = "telemetry"
+-version = "0.1.0"
+-edition.workspace = true
+-publish.workspace = true
+-license = "GPL-3.0-or-later"
+-
+-[lints]
+-workspace = true
+-
+-[lib]
+-path = "src/telemetry.rs"
+-
+-[dependencies]
+-serde.workspace = true
+-serde_json.workspace = true
+-telemetry_events.workspace = true
+-futures.workspace = true
+diff --git a/crates/telemetry/LICENSE-GPL b/crates/telemetry/LICENSE-GPL
+deleted file mode 120000
+index 89e542f750..0000000000
+--- a/crates/telemetry/LICENSE-GPL
++++ /dev/null
+@@ -1 +0,0 @@
+-../../LICENSE-GPL
+\ No newline at end of file
+diff --git a/crates/telemetry/src/telemetry.rs b/crates/telemetry/src/telemetry.rs
+deleted file mode 100644
+index e6c8516967..0000000000
+--- a/crates/telemetry/src/telemetry.rs
++++ /dev/null
+@@ -1,66 +0,0 @@
+-//! See [Telemetry in Zed](https://zed.dev/docs/telemetry) for additional information.
+-use futures::channel::mpsc;
+-pub use serde_json;
+-use std::sync::OnceLock;
+-pub use telemetry_events::FlexibleEvent as Event;
+-
+-/// Macro to create telemetry events and send them to the telemetry queue.
+-///
+-/// By convention, the name should be "Noun Verbed", e.g. "Keymap Changed"
+-/// or "Project Diagnostics Opened".
+-///
+-/// The properties can be any value that implements serde::Serialize.
+-///
+-/// ```
+-/// # let url = "https://example.com";
+-/// telemetry::event!("Keymap Changed", version = "1.0.0");
+-/// telemetry::event!("Documentation Viewed", url, source = "Extension Upsell");
+-/// ```
+-///
+-/// If you want to debug logging in development, export `RUST_LOG=telemetry=trace`
+-#[macro_export]
+-macro_rules! event {
+-    ($name:expr) => {{
+-        let event = $crate::Event {
+-            event_type: $name.to_string(),
+-            event_properties: std::collections::HashMap::new(),
+-        };
+-        $crate::send_event(event);
+-    }};
+-    ($name:expr, $($key:ident $(= $value:expr)?),+ $(,)?) => {{
+-        let event = $crate::Event {
+-            event_type: $name.to_string(),
+-            event_properties: std::collections::HashMap::from([
+-                $(
+-                    (stringify!($key).to_string(),
+-                        $crate::serde_json::value::to_value(&$crate::serialize_property!($key $(= $value)?))
+-                            .unwrap_or_else(|_| $crate::serde_json::to_value(&()).unwrap())
+-                    ),
+-                )+
+-            ]),
+-        };
+-        $crate::send_event(event);
+-    }};
+-}
+-
+-#[macro_export]
+-macro_rules! serialize_property {
+-    ($key:ident) => {
+-        $key
+-    };
+-    ($key:ident = $value:expr) => {
+-        $value
+-    };
+-}
+-
+-pub fn send_event(event: Event) {
+-    if let Some(queue) = TELEMETRY_QUEUE.get() {
+-        queue.unbounded_send(event).ok();
+-    }
+-}
+-
+-pub fn init(tx: mpsc::UnboundedSender<Event>) {
+-    TELEMETRY_QUEUE.set(tx).ok();
+-}
+-
+-static TELEMETRY_QUEUE: OnceLock<mpsc::UnboundedSender<Event>> = OnceLock::new();
+diff --git a/crates/theme_selector/Cargo.toml b/crates/theme_selector/Cargo.toml
+index 68f9c7d0c3..6cd63ebc88 100644
+--- a/crates/theme_selector/Cargo.toml
++++ b/crates/theme_selector/Cargo.toml
+@@ -20,7 +20,6 @@ log.workspace = true
+ picker.workspace = true
+ serde.workspace = true
+ settings.workspace = true
+-telemetry.workspace = true
+ theme.workspace = true
+ theme_settings.workspace = true
+ ui.workspace = true
+diff --git a/crates/theme_selector/src/icon_theme_selector.rs b/crates/theme_selector/src/icon_theme_selector.rs
+index f677ce27da..72d924ab6f 100644
+--- a/crates/theme_selector/src/icon_theme_selector.rs
++++ b/crates/theme_selector/src/icon_theme_selector.rs
+@@ -187,11 +187,6 @@ impl PickerDelegate for IconThemeSelectorDelegate {
+             .icon_theme
+             .name(SystemAppearance::global(cx).0);
+ 
+-        telemetry::event!(
+-            "Settings Changed",
+-            setting = "icon_theme",
+-            value = theme_name
+-        );
+ 
+         let appearance = Appearance::from(window.appearance());
+ 
+diff --git a/crates/theme_selector/src/theme_selector.rs b/crates/theme_selector/src/theme_selector.rs
+index a245e95529..a6aea34283 100644
+--- a/crates/theme_selector/src/theme_selector.rs
++++ b/crates/theme_selector/src/theme_selector.rs
+@@ -402,7 +402,6 @@ impl PickerDelegate for ThemeSelectorDelegate {
+         let theme_appearance = self.new_theme.appearance;
+         let system_appearance = SystemAppearance::global(cx).0;
+ 
+-        telemetry::event!("Settings Changed", setting = "theme", value = theme_name);
+ 
+         update_settings_file(self.fs.clone(), cx, move |settings, _| {
+             theme_settings::set_theme(settings, theme_name, theme_appearance, system_appearance);
+diff --git a/crates/title_bar/Cargo.toml b/crates/title_bar/Cargo.toml
+index 90f5dc8c40..9fddce407f 100644
+--- a/crates/title_bar/Cargo.toml
++++ b/crates/title_bar/Cargo.toml
+@@ -57,7 +57,6 @@ schemars.workspace = true
+ serde.workspace = true
+ settings.workspace = true
+ smallvec.workspace = true
+-telemetry.workspace = true
+ theme.workspace = true
+ ui.workspace = true
+ util.workspace = true
+diff --git a/crates/title_bar/src/collab.rs b/crates/title_bar/src/collab.rs
+index 3d498c6fd8..8e1d28f5a1 100644
+--- a/crates/title_bar/src/collab.rs
++++ b/crates/title_bar/src/collab.rs
+@@ -56,20 +56,10 @@ pub fn toggle_screen_sharing(
+                     });
+                 let should_unshare_current_screen = room.is_sharing_screen();
+                 let unshared_current_screen = should_unshare_current_screen.then(|| {
+-                    telemetry::event!(
+-                        "Screen Share Disabled",
+-                        room_id = room.id(),
+-                        channel_id = room.channel_id(),
+-                    );
+                     room.unshare_screen(clicked_on_currently_shared_screen || screen.is_none(), cx)
+                 });
+                 if let Some(screen) = screen {
+                     if !should_unshare_current_screen {
+-                        telemetry::event!(
+-                            "Screen Share Enabled",
+-                            room_id = room.id(),
+-                            channel_id = room.channel_id(),
+-                        );
+                     }
+                     cx.spawn(async move |room, cx| {
+                         unshared_current_screen.transpose()?;
+@@ -99,11 +89,6 @@ pub fn toggle_mute(cx: &mut App) {
+             } else {
+                 "Microphone Disabled"
+             };
+-            telemetry::event!(
+-                operation,
+-                room_id = room.id(),
+-                channel_id = room.channel_id(),
+-            );
+ 
+             room.toggle_mute(cx)
+         });
+diff --git a/crates/title_bar/src/onboarding_banner.rs b/crates/title_bar/src/onboarding_banner.rs
+index c8e2003e8a..6840e58c8a 100644
+--- a/crates/title_bar/src/onboarding_banner.rs
++++ b/crates/title_bar/src/onboarding_banner.rs
+@@ -149,7 +149,6 @@ impl Render for OnboardingBanner {
+                             ),
+                     )
+                     .on_click(cx.listener(|this, _, window, cx| {
+-                        telemetry::event!("Banner Clicked", source = this.source);
+                         this.dismiss(cx);
+                         window.dispatch_action(this.details.action.boxed_clone(), cx)
+                     })),
+@@ -159,7 +158,6 @@ impl Render for OnboardingBanner {
+                     IconButton::new("close", IconName::Close)
+                         .icon_size(IconSize::Indicator)
+                         .on_click(cx.listener(|this, _, _window, cx| {
+-                            telemetry::event!("Banner Dismissed", source = this.source);
+                             this.dismiss(cx)
+                         }))
+                         .tooltip(|_window, cx| {
+diff --git a/crates/workspace/Cargo.toml b/crates/workspace/Cargo.toml
+index 4fa5c14259..09a2de4f15 100644
+--- a/crates/workspace/Cargo.toml
++++ b/crates/workspace/Cargo.toml
+@@ -62,7 +62,6 @@ smallvec.workspace = true
+ sqlez.workspace = true
+ strum.workspace = true
+ task.workspace = true
+-telemetry.workspace = true
+ theme.workspace = true
+ theme_settings.workspace = true
+ ui.workspace = true
+diff --git a/crates/workspace/src/multi_workspace.rs b/crates/workspace/src/multi_workspace.rs
+index 11461d38ee..8ffee7a4a7 100644
+--- a/crates/workspace/src/multi_workspace.rs
++++ b/crates/workspace/src/multi_workspace.rs
+@@ -87,7 +87,6 @@ pub fn sidebar_side_context_menu(
+                             SidebarDockPosition::Left => "left",
+                             SidebarDockPosition::Right => "right",
+                         };
+-                        telemetry::event!("Sidebar Side Changed", side = side);
+                         settings::update_settings_file(fs.clone(), cx, move |settings, _cx| {
+                             settings
+                                 .agent
+@@ -474,7 +473,6 @@ impl MultiWorkspace {
+             SidebarSide::Left => "left",
+             SidebarSide::Right => "right",
+         };
+-        telemetry::event!("Sidebar Toggled", action = "open", side = side);
+         self.apply_open_sidebar(cx);
+     }
+ 
+@@ -502,7 +500,6 @@ impl MultiWorkspace {
+             SidebarSide::Left => "left",
+             SidebarSide::Right => "right",
+         };
+-        telemetry::event!("Sidebar Toggled", action = "close", side = side);
+         self.sidebar_open = false;
+         for workspace in self.retained_workspaces.clone() {
+             workspace.update(cx, |workspace, _cx| {
+@@ -1465,10 +1462,6 @@ impl MultiWorkspace {
+ 
+         let key = workspace.read(cx).project_group_key(cx);
+         self.retain_workspace(workspace, key, cx);
+-        telemetry::event!(
+-            "Workspace Added",
+-            workspace_count = self.retained_workspaces.len()
+-        );
+         cx.notify();
+     }
+ 
+diff --git a/crates/workspace/src/pane.rs b/crates/workspace/src/pane.rs
+index 47ae694201..6b43b01d9d 100644
+--- a/crates/workspace/src/pane.rs
++++ b/crates/workspace/src/pane.rs
+@@ -1125,7 +1125,6 @@ impl Pane {
+             }
+ 
+             if let Some(text) = new_item.telemetry_event_text(cx) {
+-                telemetry::event!(text);
+             }
+ 
+             pane.add_item_inner(
+@@ -1353,7 +1352,6 @@ impl Pane {
+         cx: &mut Context<Self>,
+     ) {
+         if let Some(text) = item.telemetry_event_text(cx) {
+-            telemetry::event!(text);
+         }
+ 
+         self.add_item_inner(
+diff --git a/crates/workspace/src/security_modal.rs b/crates/workspace/src/security_modal.rs
+index 3f8e4d95b8..fa3005baee 100644
+--- a/crates/workspace/src/security_modal.rs
++++ b/crates/workspace/src/security_modal.rs
+@@ -63,11 +63,9 @@ impl ModalView for SecurityModal {
+     fn on_before_dismiss(&mut self, _: &mut Window, _: &mut Context<Self>) -> DismissDecision {
+         match self.trusted {
+             Some(false) => {
+-                telemetry::event!("Open in Restricted", source = "Worktree Trust Modal");
+                 DismissDecision::Dismiss(true)
+             }
+             Some(true) => {
+-                telemetry::event!("Trust and Continue", source = "Worktree Trust Modal");
+                 DismissDecision::Dismiss(true)
+             }
+             // Block dismiss via escape or clicking outside; user must pick an action
+diff --git a/crates/workspace/src/workspace.rs b/crates/workspace/src/workspace.rs
+index dd88d76741..d815efac72 100644
+--- a/crates/workspace/src/workspace.rs
++++ b/crates/workspace/src/workspace.rs
+@@ -4151,11 +4151,6 @@ impl Workspace {
+         let was_visible = self.is_dock_at_position_open(dock_side, cx) && !other_is_zoomed;
+ 
+         if let Some(panel) = self.dock_at_position(dock_side).read(cx).active_panel() {
+-            telemetry::event!(
+-                "Panel Button Clicked",
+-                name = panel.persistent_name(),
+-                toggle_state = !was_visible
+-            );
+         }
+         if was_visible {
+             self.save_open_dock_positions(cx);
+@@ -4324,11 +4319,6 @@ impl Workspace {
+             self.close_panel::<T>(window, cx);
+         }
+ 
+-        telemetry::event!(
+-            "Panel Button Clicked",
+-            name = T::persistent_name(),
+-            toggle_state = did_focus_panel
+-        );
+ 
+         did_focus_panel
+     }
+diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
+index 6b0a3ee00b..3512f5fe35 100644
+--- a/crates/zed/Cargo.toml
++++ b/crates/zed/Cargo.toml
+@@ -196,7 +196,6 @@ sysinfo.workspace = true
+ tab_switcher.workspace = true
+ task.workspace = true
+ tasks_ui.workspace = true
+-telemetry.workspace = true
+ telemetry_events.workspace = true
+ terminal_view.workspace = true
+ theme.workspace = true
+diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
+index 1dcac5480f..a3c469518d 100644
+--- a/crates/zed/src/main.rs
++++ b/crates/zed/src/main.rs
+@@ -631,14 +631,10 @@ fn main() {
+         if let (Some(system_id), Some(installation_id)) = (&system_id, &installation_id) {
+             match (&system_id, &installation_id) {
+                 (IdType::New(_), IdType::New(_)) => {
+-                    telemetry::event!("App First Opened");
+-                    telemetry::event!("App First Opened For Release Channel");
+                 }
+                 (IdType::Existing(_), IdType::New(_)) => {
+-                    telemetry::event!("App First Opened For Release Channel");
+                 }
+                 (_, IdType::Existing(_)) => {
+-                    telemetry::event!("App Opened");
+                 }
+             }
+         }
+@@ -830,16 +826,6 @@ fn main() {
+             }
+         })
+         .detach();
+-        telemetry::event!(
+-            "Settings Changed",
+-            setting = "theme",
+-            value = cx.theme().name.to_string()
+-        );
+-        telemetry::event!(
+-            "Settings Changed",
+-            setting = "keymap",
+-            value = BaseKeymap::get_global(cx).to_string()
+-        );
+         telemetry.flush_events().detach();
+ 
+         let fs = app_state.fs.clone();
+diff --git a/crates/zed/src/reliability.rs b/crates/zed/src/reliability.rs
+index b4a06b2629..9510c84630 100644
+--- a/crates/zed/src/reliability.rs
++++ b/crates/zed/src/reliability.rs
+@@ -242,12 +242,6 @@ async fn upload_minidump(
+         form = form.text("sentry[user][id]", format!("installation-{}", id))
+     }
+ 
+-    ::telemetry::event!(
+-        "Minidump Uploaded",
+-        panic_message = panic_message,
+-        crashed_version = metadata.init.zed_version.clone(),
+-        commit_sha = metadata.init.commit_sha.clone(),
+-    );
+ 
+     let gpu_count = metadata.gpus.len();
+     for (index, gpu) in metadata.gpus.iter().cloned().enumerate() {
+@@ -386,17 +380,6 @@ async fn upload_build_timings(_client: Arc<Client>) -> Result<()> {
+             }
+         };
+ 
+-        telemetry::event!(
+-            "Build Timing: Cargo Build",
+-            started_at = timing.started_at.to_rfc3339(),
+-            duration_ms = timing.duration_ms,
+-            first_crate = timing.first_crate,
+-            target = timing.target,
+-            blocked_ms = timing.blocked_ms,
+-            command = timing.command,
+-            cpu_count = cpu_count,
+-            ram_size_gb = ram_size_gb
+-        );
+ 
+         if let Err(err) = smol::fs::remove_file(&path).await {
+             log::warn!("Failed to delete build timing file {:?}: {}", path, err);
+diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
+index 01f887b6b4..fdbe4d239a 100644
+--- a/crates/zed/src/zed.rs
++++ b/crates/zed/src/zed.rs
+@@ -950,7 +950,6 @@ fn register_actions(
+             }
+         })
+         .register_action(|workspace, action: &workspace::Open, window, cx| {
+-            telemetry::event!("Project Opened");
+             workspace::prompt_for_open_path_and_open(
+                 workspace,
+                 workspace.app_state().clone(),
+@@ -995,7 +994,6 @@ fn register_actions(
+             if workspace.project().read(cx).is_local() {
+                 return;
+             }
+-            telemetry::event!("Project Opened");
+             let paths = workspace.prompt_for_open_path(
+                 PathPromptOptions {
+                     files: true,
+diff --git a/crates/zed/src/zed/edit_prediction_registry.rs b/crates/zed/src/zed/edit_prediction_registry.rs
+index f0968bf9ef..763c8fd8e6 100644
+--- a/crates/zed/src/zed/edit_prediction_registry.rs
++++ b/crates/zed/src/zed/edit_prediction_registry.rs
+@@ -90,11 +90,6 @@ pub fn init(client: Arc<Client>, user_store: Entity<UserStore>, cx: &mut App) {
+             let new_provider_config = edit_prediction_provider_config_for_settings(cx);
+ 
+             if new_provider_config != previous_config {
+-                telemetry::event!(
+-                    "Edit Prediction Provider Changed",
+-                    from = previous_config.map(|config| config.name()),
+-                    to = new_provider_config.map(|config| config.name())
+-                );
+ 
+                 previous_config = new_provider_config;
+                 assign_edit_prediction_providers(

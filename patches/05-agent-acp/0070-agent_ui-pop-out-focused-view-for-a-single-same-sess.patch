@@ -1,0 +1,366 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Tue, 23 Jun 2026 23:15:25 +0300
+Subject: [PATCH] agent_ui: pop-out focused view for a single same-session
+ subagent
+
+Add a per-subagent focused transcript: the group card gains an "Open" button that
+focuses the thread on that subagent's subtree, showing only its members plus a
+breadcrumb bar to return. Realized as a visibility filter over the existing
+ListState (focused mode shows only the subtree; normal mode hides members), so no
+list-state surgery and the focused root renders as a plain summary rather than a
+nested group card.
+
+Verified: cargo check -p agent_ui (0 errors; warning count unchanged from baseline).
+Runtime/visual verification with a live qwen --acp session still pending.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018eQmq1oThzqNcQsJ1hT2Tg
+---
+ .overnight/acp-subagent-grouping/PLAN.md      |   8 +-
+ .overnight/acp-subagent-grouping/REPORT.md    |  92 +++++++++++++++
+ .overnight/acp-subagent-grouping/WORKLOG.md   |  33 ++++++
+ .../src/conversation_view/thread_view.rs      | 110 ++++++++++++++++--
+ 4 files changed, 228 insertions(+), 15 deletions(-)
+ create mode 100644 .overnight/acp-subagent-grouping/REPORT.md
+
+diff --git a/.overnight/acp-subagent-grouping/PLAN.md b/.overnight/acp-subagent-grouping/PLAN.md
+index 70499cd645..ed869ce97a 100644
+--- a/.overnight/acp-subagent-grouping/PLAN.md
++++ b/.overnight/acp-subagent-grouping/PLAN.md
+@@ -22,25 +22,25 @@ index range; qwen = single session + flat tool calls tagged `parentToolCallId` /
+ ## Milestones (dependency-ordered)
+ 
+ - **M0 — Baseline green.** `cargo check -p acp_thread` passes on the starting tree.
+-  STATUS: IN-PROGRESS (background build)
++  STATUS: GREEN (cargo check 58s)
+ 
+ - **M1 — Normalized model.** `SubagentMembership`, `SubagentGroup`, `SubagentIndex`
+   (roots IndexMap, membership map, `is_subagent_root`/`membership_of`/`subtree_entries`),
+   and the `SubagentGrouping` trait, all in `acp_thread`. Pure data + queries, no provider
+   logic, no UI. Unit tests for the index/tree queries.
+-  VERIFY: `cargo test -p acp_thread`. STATUS: TODO
++  VERIFY: `cargo test -p acp_thread`. STATUS: GREEN (commit 2ba2c25d52, 76 passed)
+ 
+ - **M2 — Adapters.** `QwenSubagentGrouping` (`_meta.parentToolCallId`/`provenance`/
+   `subagentType`, root = `toolName=="agent"`) and `NativeSubagentGrouping`
+   (`subagent_session_info`). Unit tests driven by the live qwen wire capture distilled to
+   a JSONL fixture + a synthetic nested case + a native case.
+-  VERIFY: `cargo test -p acp_thread`. STATUS: TODO
++  VERIFY: `cargo test -p acp_thread`. STATUS: GREEN (commit 2ba2c25d52, 76 passed)
+ 
+ - **M3 — Ingest + seam.** `AgentConnection::subagent_grouping() -> Option<Rc<dyn ...>>`
+   (default None). Wire classify into `handle_session_update` (operate on raw `acp::ToolCall`
+   where full `_meta` is present). Maintain the index; lazy/out-of-order resolution; orphan
+   fallback; no-adapter no-op. Ingest tests.
+-  VERIFY: `cargo test -p acp_thread`. STATUS: TODO
++  VERIFY: `cargo test -p acp_thread`. STATUS: GREEN (commit 2ba2c25d52, 76 passed)
+ 
+ - **M4 — Adapter selection.** `AcpConnection` (agent_servers) returns an adapter chosen
+   from `agentInfo.name` ("qwen-code" → Qwen). `NativeAgentConnection` returns Native.
+diff --git a/.overnight/acp-subagent-grouping/REPORT.md b/.overnight/acp-subagent-grouping/REPORT.md
+new file mode 100644
+index 0000000000..d9113e0648
+--- /dev/null
++++ b/.overnight/acp-subagent-grouping/REPORT.md
+@@ -0,0 +1,92 @@
++# Morning Report — ACP Subagent Grouping & Virtual Transcripts
++
++**Branch:** `feature/acp-subagent-grouping` (off `zedium-applied`, in the `zed/` submodule)
++**Date:** 2026-06-23 → overnight
++**Spec:** `docs/superpowers/specs/2026-06-23-acp-subagent-grouping-design.md`
++
++## TL;DR
++
++Built the feature end-to-end: external ACP providers that express subagents as flat
++same-session tool calls (qwen-code, verified live on the wire) now get their subagent
++steps **grouped out of the main transcript** into an expandable card, with a **pop-out
++focused view** of just that subagent's transcript. The model/logic layer is unit-tested;
++the UI layer is compile-verified and logic-reviewed but **not yet runtime/visually verified
++in the live app** (see Blocked/Parked).
++
++## Shipped (verified)
++
++| Milestone | Commit | What | Verification |
++|---|---|---|---|
++| M1–M3 model+adapters+ingest | `2ba2c25d52` | `SubagentGrouping` trait, `Qwen`/`Native` adapters, `SubagentIndex` on `AcpThread`, ingest classification in upsert/update | `cargo test -p acp_thread` → 76 passed (6 new) |
++| M4 adapter selection | `1d9733472c` | `AcpConnection` picks `QwenSubagentGrouping` by agent name; exposes `subagent_grouping()` | `cargo check -p agent_servers` exit 0 |
++| M5 group rendering | `bd007a680e` | Hide same-thread members from flat list; render roots as expandable subagent group | `cargo test -p acp_thread` 76; `cargo check -p agent_ui` clean |
++| M6 pop-out focused view | (pending this run's verify) | Per-subagent focused transcript + breadcrumb back; "Open" button on the group | `cargo check -p agent_ui` (in progress) |
++
++**How subagents cross the wire (verified live with `qwen --acp` v0.19.1):** single session;
++the subagent invocation is a tool call with `_meta.toolName=="agent"`; each child step is a
++flat top-level tool call tagged `_meta.{provenance:"subagent", parentToolCallId, subagentType}`.
++Captured in `docs/superpowers/specs/2026-06-23-qwen-acp-wire-capture.log` and distilled to the
++test fixture `crates/acp_thread/src/tests/qwen_subagent_session_updates.jsonl`.
++
++## Decisions needing your review (highest stakes)
++
++1. **Native subagent path left untouched (scoping).** This iteration generalizes only the
++   SAME-SESSION shape (qwen). Zed-native subagents (separate child session +
++   `subagent_session_info`) keep their existing card/fullscreen path. The `NativeSubagentGrouping`
++   adapter is implemented + unit-tested (proving the trait is provider-general) but
++   `NativeAgentConnection` is NOT wired to return it, and the new group/pop-out path is gated
++   on `SubagentIndex::is_same_thread_root` so native cannot be double-rendered. **Seam to flip
++   later:** wire `NativeAgentConnection::subagent_grouping()` + let the new card path handle
++   `ExternalSession` roots, then retire the legacy native card. Rationale: avoid regressing a
++   working feature and avoid recompiling the large `agent` crate overnight.
++
++2. **Provider detection by name string `"qwen-code"`** (`agent_servers/src/acp.rs`,
++   `subagent_grouping` selection). If qwen changes its reported `agentInfo.name` this silently
++   reverts to flat rendering. It's a one-line, well-marked match. Consider a capability/meta
++   sniff instead if you want robustness.
++
++3. **Pop-out is a visibility filter over the same `ListState`, not a separate view.** Focused
++   mode renders only the subtree's entries and zero-height `Empty` for the rest (no list-state
++   surgery — lowest risk). Trade-off: scroll metrics include the hidden (zero-height) slots;
++   should be visually fine but is the kind of thing to eyeball.
++
++## Decisions made (FYI, reversible)
++
++- Membership stored in a side-index keyed by `ToolCallId` rather than widening `ToolCall`.
++- Classification runs on the raw `acp::ToolCall`/`acp::ToolCallUpdate` at ingest (the converted
++  Zed `ToolCall` drops arbitrary `_meta`).
++- Lazy parent-pointer resolution with a depth-64 cycle guard (tolerates out-of-order arrival).
++- Group card reuses `render_tool_call` for the summary body and `render_entry` for member rows
++  rather than re-implementing the elaborate native card.
++
++## Blocked / parked
++
++- **Runtime/visual verification not done.** `cargo check`/unit tests pass, but I did not launch
++  the Zed app against `qwen --acp` to see the card/pop-out render. The model-layer logic (which
++  decides grouping) is unit-tested; the rendering is review-verified only. **To finish to 100%:**
++  run Zed, open the agent panel with the qwen ACP agent, issue a subagent-forcing prompt, and
++  confirm (a) members are absent from the flat transcript, (b) the group card + step disclosure
++  appear, (c) "Open" pops out the focused subagent transcript and "Back" returns, (d) native
++  subagents still render as before.
++- **Recursive deep nesting unverified.** The live capture is depth-1 only. The data model
++  supports arbitrary depth (parent pointers), but the Qwen adapter classifies a node as root
++  XOR member, so a nested "agent" call that is *also* a subagent child isn't fully linked. If
++  qwen nests in practice, the adapter needs to emit Root-with-parent. Deferred; flagged.
++- **No agent_ui render test added.** The agent_ui test harness for a full `ThreadView` is heavy;
++  I relied on the thoroughly-tested model layer instead. A focused render test would raise
++  confidence on the skip/visibility logic.
++
++## State of the tree
++
++- Branch `feature/acp-subagent-grouping`, 4 feature commits on top of the spec commit.
++- `acp_thread`: green (76 tests). `agent_servers`: green (check). `agent_ui`: M5 green; M6 verify
++  in progress at time of writing — see PLAN.md/WORKLOG.md for the final status line.
++- Local only. Nothing pushed. No PR.
++
++## Recommended next steps
++
++1. Visually verify with live qwen (the manual steps above). This is the one gap to "done".
++2. Decide on the native unification (Decision 1) — flip the seam or keep the split intentionally.
++3. If qwen nesting matters, extend `QwenSubagentGrouping` to Root-with-parent + recursive group
++   rendering (the renderer already calls `render_entry`, which would recurse into nested groups).
++4. Consider an agent_ui render test for the visibility/skip logic.
+diff --git a/.overnight/acp-subagent-grouping/WORKLOG.md b/.overnight/acp-subagent-grouping/WORKLOG.md
+index a7639cafa4..6bc908f445 100644
+--- a/.overnight/acp-subagent-grouping/WORKLOG.md
++++ b/.overnight/acp-subagent-grouping/WORKLOG.md
+@@ -43,3 +43,36 @@ Refined normalized model:
+   Classification { Root{subagent_type:Option, subtree}, Member{parent, subagent_type}, NotSubagent }
+ - Created fixture crates/acp_thread/src/tests/qwen_subagent_session_updates.jsonl from the
+   live capture (root call_4ca2… "agent" + 5 Explore children).
++
++## 2026-06-23 23:30 MSK — M1-M3 GREEN, committed 2ba2c25d52
++Delegated acp_thread model+adapters+ingest+tests to a subagent; reviewed the diff
++myself (model, lazy walk + cycle guard, both ingest hooks classify on raw meta before
++conversion — correct) and independently ran `cargo test -p acp_thread` → 76 passed.
++- Honest note: distilled fixture has 4 member tool calls (1 glob + 3 reads); I dropped
++  the 5th read (.qwen/settings.json) when distilling. Real capture had 5. Tests assert
++  the true fixture count (4). Spec doc says 5 (referring to live capture) — not reconciled,
++  harmless. Subagent correctly refused to fabricate a 5th line.
++- collections::IndexMap used (already available, not a new dep).
++Next: M4 — adapter selection in agent_servers AcpConnection (by agentInfo.name).
++
++## 2026-06-23 23:55 MSK — M4 GREEN (commit 1d9733472c). Planning M5/M6.
++- M4: AcpConnection selects QwenSubagentGrouping when telemetry_id=="qwen-code";
++  exposes via subagent_grouping(). NativeAgentConnection deliberately NOT wired this
++  iteration (avoids recompiling the big `agent` crate + keeps native on its proven path).
++- M5/M6 design decisions:
++  * Member-skip done at the LIST PROCESSOR level (render_entries), returning Empty for
++    SameThread members — keeps render_entry pure so the group card can re-render members.
++  * SameThread roots intercepted in render_any_tool_call BEFORE the existing is_subagent()
++    branch; rendered by a new render_subagent_group that reuses render_tool_call for the
++    summary body + render_entry for expandable member rows. Toggle via expanded_tool_calls.
++  * Native (ExternalSession) roots stay on the existing render_subagent_card path. The new
++    path is gated on subtree==SameThread (new index helper is_same_thread_root) — defense
++    in depth so native cannot be double-rendered.
++  * M6 pop-out (if budget allows): a focused-visibility predicate over the SAME list_state
++    (zero-height Empty for non-subtree indices) + breadcrumb back. No list_state surgery.
++- UNCERTAINTY (flagged): live qwen capture is depth-1 only. Recursive nesting is supported
++  in the DATA model (parent pointers) but unverified against real data, and the Qwen
++  adapter currently classifies a node as root XOR member (a nested agent call that is both
++  is not fully captured). Rendering scoped to the real depth-1 case; deep nesting deferred.
++- Decision: implement M5 myself (surgical) rather than delegate — 11k-line file, slow
++  compile cycles make subagent iteration risky.
+diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
+index 51124d4552..63deea80e7 100644
+--- a/crates/agent_ui/src/conversation_view/thread_view.rs
++++ b/crates/agent_ui/src/conversation_view/thread_view.rs
+@@ -586,6 +586,13 @@ pub struct ThreadView {
+     thread_feedback: ThreadFeedbackState,
+     pub list_state: ListState,
+     pub session_capabilities: SharedSessionCapabilities,
++    /// Tracks which tool calls have their content/output expanded.
++    /// Used for showing/hiding tool call results, terminal output, etc.
++    pub expanded_tool_calls: HashSet<acp::ToolCallId>,
++    /// When set, the transcript is focused on a single same-thread subagent root,
++    /// showing only that subagent's subtree (a virtual pop-out). `None` shows the
++    /// full transcript.
++    focused_subagent: Option<acp::ToolCallId>,
+     pub expanded_tool_call_raw_inputs: HashSet<acp::ToolCallId>,
+     collapsed_sandbox_authorization_details: HashSet<acp::ToolCallId>,
+     collapsed_sandbox_network_details: HashSet<acp::ToolCallId>,
+@@ -993,6 +1000,8 @@ impl ThreadView {
+             token_limit_callout_dismissed: false,
+             last_token_limit_telemetry: None,
+             thread_feedback: Default::default(),
++            expanded_tool_calls: HashSet::default(),
++            focused_subagent: None,
+             expanded_tool_call_raw_inputs: HashSet::default(),
+             collapsed_sandbox_authorization_details: HashSet::default(),
+             collapsed_sandbox_network_details: HashSet::default(),
+@@ -5991,16 +6000,11 @@ impl ThreadView {
+             cx.processor(move |this, index: usize, window, cx| {
+                 let entries = this.thread.read(cx).entries();
+                 if let Some(entry) = entries.get(index) {
+-                    // Same-thread subagent members are not shown in the flat transcript;
+-                    // they render inside their root's subagent group instead. The list
+-                    // slot is kept (zero-height) so list indexing stays aligned.
+-                    if let AgentThreadEntry::ToolCall(tool_call) = entry
+-                        && this
+-                            .thread
+-                            .read(cx)
+-                            .subagent_index()
+-                            .is_member(&tool_call.id)
+-                    {
++                    // Subagent visibility: in normal mode same-thread members are
++                    // hidden (they render inside their root's group); in focused
++                    // (pop-out) mode only the focused subtree is shown. The list slot
++                    // is kept (zero-height) so list indexing stays aligned.
++                    if !this.is_entry_visible(entry, cx) {
+                         return Empty.into_any();
+                     }
+                     let rendered = this.render_entry(index, entries.len(), entry, window, cx);
+@@ -8012,11 +8016,14 @@ impl ThreadView {
+             layout.id_str()
+         )));
+ 
++        // The focused (popped-out) root renders as a plain summary; its members are
++        // shown directly in the list, so it must not also render as a group card.
+         let is_same_thread_subagent_root = self
+             .thread
+             .read(cx)
+             .subagent_index()
+-            .is_same_thread_root(&tool_call.id);
++            .is_same_thread_root(&tool_call.id)
++            && self.focused_subagent.as_ref() != Some(&tool_call.id);
+ 
+         div().w_full().id(container_id).map(|this| {
+             if is_same_thread_subagent_root {
+@@ -10061,6 +10068,70 @@ impl ThreadView {
+             .into_any_element()
+     }
+ 
++    /// Whether an entry should appear in the flat transcript list. In normal mode
++    /// same-thread subagent members are hidden (shown inside their root's group);
++    /// in focused mode only the focused subagent's subtree is shown.
++    fn is_entry_visible(&self, entry: &AgentThreadEntry, cx: &App) -> bool {
++        let index = self.thread.read(cx).subagent_index();
++        match &self.focused_subagent {
++            Some(root) => match entry {
++                AgentThreadEntry::ToolCall(tool_call) => {
++                    &tool_call.id == root || index.root_of(&tool_call.id).as_ref() == Some(root)
++                }
++                _ => false,
++            },
++            None => match entry {
++                AgentThreadEntry::ToolCall(tool_call) => !index.is_member(&tool_call.id),
++                _ => true,
++            },
++        }
++    }
++
++    /// Breadcrumb shown above the transcript while focused on a single subagent,
++    /// with a button to return to the full transcript.
++    fn render_focused_subagent_bar(&self, cx: &Context<Self>) -> Option<Div> {
++        let root = self.focused_subagent.clone()?;
++        let label = self
++            .thread
++            .read(cx)
++            .subagent_index()
++            .root_label(&root)
++            .unwrap_or_else(|| "Subagent".into());
++        let max_content_width = AgentSettings::get_global(cx).max_content_width;
++
++        Some(
++            h_flex()
++                .w_full()
++                .h(Tab::container_height(cx))
++                .border_b_1()
++                .border_color(cx.theme().colors().border)
++                .bg(cx.theme().colors().editor_background.opacity(0.2))
++                .child(
++                    h_flex()
++                        .size_full()
++                        .when_some(max_content_width, |this, max_w| this.max_w(max_w).mx_auto())
++                        .pl_1()
++                        .pr_2()
++                        .gap_1()
++                        .child(
++                            IconButton::new("focused-subagent-back", IconName::ArrowLeft)
++                                .icon_size(IconSize::Small)
++                                .tooltip(Tooltip::text("Back to Transcript"))
++                                .on_click(cx.listener(|this, _event, _window, cx| {
++                                    this.focused_subagent = None;
++                                    cx.notify();
++                                })),
++                        )
++                        .child(
++                            Icon::new(IconName::ForwardArrowUp)
++                                .size(IconSize::Small)
++                                .color(Color::Muted),
++                        )
++                        .child(Label::new(format!("{label} subagent")).size(LabelSize::Small)),
++                ),
++        )
++    }
++
+     /// Renders a same-thread (e.g. qwen) subagent root: the root tool call's
+     /// summary plus a disclosure that reveals the subagent's member steps inline.
+     /// The members are otherwise hidden from the flat transcript.
+@@ -10133,6 +10204,22 @@ impl ThreadView {
+                         .size(LabelSize::Small)
+                         .color(Color::Muted),
+                 )
++                .child(
++                    IconButton::new(
++                        SharedString::from(format!("subagent-group-open-{entry_ix}")),
++                        IconName::Maximize,
++                    )
++                    .icon_size(IconSize::Small)
++                    .tooltip(Tooltip::text("Open Subagent Transcript"))
++                    .on_click(cx.listener({
++                        let id = tool_call.id.clone();
++                        move |this, _event, _window, cx| {
++                            this.focused_subagent = Some(id.clone());
++                            this.list_state.scroll_to(ListOffset::default());
++                            cx.notify();
++                        }
++                    })),
++                )
+                 .on_click(cx.listener({
+                     let id = tool_call.id.clone();
+                     move |this, _event, _window, cx| {
+@@ -12076,6 +12163,7 @@ impl Render for ThreadView {
+                     .flatten(),
+                 |this, bar| this.child(bar),
+             )
++            .children(self.render_focused_subagent_bar(cx))
+             .child(conversation)
+             .children(self.render_multi_root_callout(cx))
+             .children(self.render_activity_bar(window, cx))

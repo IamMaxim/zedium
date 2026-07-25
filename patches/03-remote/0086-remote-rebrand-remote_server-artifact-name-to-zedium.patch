@@ -1,0 +1,187 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Sun, 26 Jul 2026 01:42:20 +0300
+Subject: [PATCH] remote: rebrand remote_server artifact name to
+ zedium-remote-server
+
+Renames the fork's remote-server binary namespace end-to-end so the
+bundled artifact, the client-side lookup, and the daemon's self-identity
+all say `zedium-remote-server`:
+
+- bundled artifact `.gz`: `remote_connection::bundled_server_artifact_name`
+  + its unit test, and the bundle-script copy globs that stage the files
+  next to the editor binary.
+- remote-side installed binary: the SSH/Docker/WSL transports' upload
+  filename and `remote_server`'s matching `cleanup_old_binaries` prefix
+  (these must move together or old binaries are neither reused nor swept).
+- daemon identity: the crash-handler `binary:` field and the run/proxy
+  crash-handler temp-file prefixes.
+
+Upstream's own CI chain (`script/bundle-{linux,mac,freebsd,windows}`
+release artifacts, `.github/workflows`, `tooling/xtask` vars) keeps the
+`zed-` prefix -- it is self-consistent, the fork does not run it, and
+leaving it alone keeps the rebase surface small.
+---
+ crates/remote/src/transport/docker.rs             |  2 +-
+ crates/remote/src/transport/ssh.rs                |  2 +-
+ crates/remote/src/transport/wsl.rs                |  2 +-
+ crates/remote_connection/src/remote_connection.rs | 11 ++++++-----
+ crates/remote_server/src/server.rs                |  8 ++++----
+ crates/util/src/shell.rs                          |  2 +-
+ script/bundle-linux                               |  4 ++--
+ script/bundle-mac                                 |  4 ++--
+ 8 files changed, 18 insertions(+), 17 deletions(-)
+
+diff --git a/crates/remote/src/transport/docker.rs b/crates/remote/src/transport/docker.rs
+index efefbe8e50..305a2013df 100644
+--- a/crates/remote/src/transport/docker.rs
++++ b/crates/remote/src/transport/docker.rs
+@@ -214,7 +214,7 @@ impl DockerExecConnection {
+             _ => version.to_string(),
+         };
+         let binary_name = format!(
+-            "zed-remote-server-{}-{}",
++            "zedium-remote-server-{}-{}",
+             release_channel.dev_name(),
+             version_str
+         );
+diff --git a/crates/remote/src/transport/ssh.rs b/crates/remote/src/transport/ssh.rs
+index 6261eefb46..a1e58cd80e 100644
+--- a/crates/remote/src/transport/ssh.rs
++++ b/crates/remote/src/transport/ssh.rs
+@@ -812,7 +812,7 @@ impl SshRemoteConnection {
+             _ => version.to_string(),
+         };
+         let binary_name = format!(
+-            "zed-remote-server-{}-{}{}",
++            "zedium-remote-server-{}-{}{}",
+             release_channel.dev_name(),
+             version_str,
+             if self.ssh_platform.os.is_windows() {
+diff --git a/crates/remote/src/transport/wsl.rs b/crates/remote/src/transport/wsl.rs
+index 9b8e776394..343065ed0f 100644
+--- a/crates/remote/src/transport/wsl.rs
++++ b/crates/remote/src/transport/wsl.rs
+@@ -197,7 +197,7 @@ impl WslRemoteConnection {
+         };
+ 
+         let binary_name = format!(
+-            "zed-remote-server-{}-{}",
++            "zedium-remote-server-{}-{}",
+             release_channel.dev_name(),
+             version_str
+         );
+diff --git a/crates/remote_connection/src/remote_connection.rs b/crates/remote_connection/src/remote_connection.rs
+index f1865a9ed8..329e2ffef8 100644
+--- a/crates/remote_connection/src/remote_connection.rs
++++ b/crates/remote_connection/src/remote_connection.rs
+@@ -666,10 +666,11 @@ pub fn connect(
+ use anyhow::Context as _;
+ 
+ /// Filename of the bundled `remote_server` artifact for a given host platform,
+-/// matching the names produced by `script/bundle-linux` and `tools/build-remote-servers.sh`.
++/// matching the names produced by `tools/build-remote-servers.sh` (the fork builds its own
++/// remote servers; upstream's `script/bundle-*` CI artifacts keep the `zed-` prefix).
+ fn bundled_server_artifact_name(platform: RemotePlatform) -> String {
+     format!(
+-        "zed-remote-server-{}-{}.gz",
++        "zedium-remote-server-{}-{}.gz",
+         platform.os.as_str(),
+         platform.arch.as_str(),
+     )
+@@ -720,9 +721,9 @@ mod tests {
+         use remote::{RemoteArch, RemoteOs, RemotePlatform};
+ 
+         let cases = [
+-            (RemoteOs::Linux, RemoteArch::X86_64, "zed-remote-server-linux-x86_64.gz"),
+-            (RemoteOs::Linux, RemoteArch::Aarch64, "zed-remote-server-linux-aarch64.gz"),
+-            (RemoteOs::MacOs, RemoteArch::Aarch64, "zed-remote-server-macos-aarch64.gz"),
++            (RemoteOs::Linux, RemoteArch::X86_64, "zedium-remote-server-linux-x86_64.gz"),
++            (RemoteOs::Linux, RemoteArch::Aarch64, "zedium-remote-server-linux-aarch64.gz"),
++            (RemoteOs::MacOs, RemoteArch::Aarch64, "zedium-remote-server-macos-aarch64.gz"),
+         ];
+         for (os, arch, expected) in cases {
+             let platform = RemotePlatform { os, arch };
+diff --git a/crates/remote_server/src/server.rs b/crates/remote_server/src/server.rs
+index 372e9c97ef..7c5e5d9d88 100644
+--- a/crates/remote_server/src/server.rs
++++ b/crates/remote_server/src/server.rs
+@@ -566,7 +566,7 @@ pub fn execute_run(
+             crashes::InitCrashHandler {
+                 session_id: id,
+                 zed_version: VERSION.to_owned(),
+-                binary: "zed-remote-server".to_string(),
++                binary: "zedium-remote-server".to_string(),
+                 release_channel: release_channel::RELEASE_CHANNEL_NAME.clone(),
+                 commit_sha: option_env!("ZED_COMMIT_SHA").unwrap_or("no_sha").to_owned(),
+             },
+@@ -576,7 +576,7 @@ pub fn execute_run(
+                     background_executor.spawn(task).detach();
+                 }
+             },
+-            |pid| paths::temp_dir().join(format!("zed-remote-server-crash-handler-{pid}")),
++            |pid| paths::temp_dir().join(format!("zedium-remote-server-crash-handler-{pid}")),
+             // we are running outside gpui
+             #[allow(clippy::disallowed_methods)]
+             |duration| FutureExt::map(Timer::after(duration), |_| ()),
+@@ -853,7 +853,7 @@ pub(crate) fn execute_proxy(
+             |task| {
+                 smol::spawn(task).detach();
+             },
+-            |pid| paths::temp_dir().join(format!("zed-remote-server-proxy-crash-handler-{pid}")),
++            |pid| paths::temp_dir().join(format!("zedium-remote-server-proxy-crash-handler-{pid}")),
+             // we are running outside gpui
+             #[allow(clippy::disallowed_methods)]
+             |duration| FutureExt::map(Timer::after(duration), |_| ()),
+@@ -1309,7 +1309,7 @@ fn read_proxy_settings(cx: &mut Context<HeadlessProject>) -> Option<Url> {
+ fn cleanup_old_binaries() -> Result<()> {
+     let server_dir = paths::remote_server_dir_relative();
+     let release_channel = release_channel::RELEASE_CHANNEL.dev_name();
+-    let prefix = format!("zed-remote-server-{}-", release_channel);
++    let prefix = format!("zedium-remote-server-{}-", release_channel);
+ 
+     for entry in std::fs::read_dir(server_dir.as_std_path())? {
+         let path = entry?.path();
+diff --git a/crates/util/src/shell.rs b/crates/util/src/shell.rs
+index e9b6d05499..8a91926e40 100644
+--- a/crates/util/src/shell.rs
++++ b/crates/util/src/shell.rs
+@@ -701,7 +701,7 @@ mod tests {
+     // WSL
+     // wsl.exe --distribution NixOS --cd /home/user -- /usr/bin/zsh -c "echo hello"
+     // wsl.exe --distribution NixOS --cd /home/user -- /usr/bin/zsh -c "\"echo hello\"" | grep hello"
+-    // wsl.exe --distribution NixOS --cd ~ env RUST_LOG=info,remote=debug .zed_wsl_server/zed-remote-server-dev-build proxy --identifier dev-workspace-53
++    // wsl.exe --distribution NixOS --cd ~ env RUST_LOG=info,remote=debug .zed_wsl_server/zedium-remote-server-dev-build proxy --identifier dev-workspace-53
+     // PowerShell from Nushell
+     // nu -c overlay use "C:\Users\kubko\dev\python\39007\tests\.venv\Scripts\activate.nu"; ^"C:\Program Files\PowerShell\7\pwsh.exe" -C "C:\Users\kubko\dev\python\39007\tests\.venv\Scripts\python.exe -m pytest \"test_foo.py::test_foo\""
+     // PowerShell from CMD
+diff --git a/script/bundle-linux b/script/bundle-linux
+index edddfd74fd..0d442a4379 100755
+--- a/script/bundle-linux
++++ b/script/bundle-linux
+@@ -154,8 +154,8 @@ cp "${target_dir}/${target_triple}/release/cli" "${zed_dir}/bin/zed"
+ # the editor binary, where the editor resolves them at connect time.
+ remote_servers_src="${REMOTE_SERVERS_DIR:-${target_dir}/remote-servers-bundle}"
+ mkdir -p "${zed_dir}/libexec/remote_servers"
+-if compgen -G "${remote_servers_src}/zed-remote-server-"*.gz >/dev/null; then
+-    cp "${remote_servers_src}"/zed-remote-server-*.gz "${zed_dir}/libexec/remote_servers/"
++if compgen -G "${remote_servers_src}/zedium-remote-server-"*.gz >/dev/null; then
++    cp "${remote_servers_src}"/zedium-remote-server-*.gz "${zed_dir}/libexec/remote_servers/"
+ else
+     echo "warning: no bundled remote_server artifacts found in ${remote_servers_src}; run 'just remote-servers'"
+ fi
+diff --git a/script/bundle-mac b/script/bundle-mac
+index a8dd0949d1..8d57da9db9 100755
+--- a/script/bundle-mac
++++ b/script/bundle-mac
+@@ -338,8 +338,8 @@ cp target/${target_triple}/${target_dir}/cli "${app_path}/Contents/MacOS/cli"
+ # Bundle pre-compiled remote_server artifacts next to the editor binary.
+ remote_servers_src="${REMOTE_SERVERS_DIR:-target/remote-servers-bundle}"
+ mkdir -p "${app_path}/Contents/MacOS/remote_servers"
+-if compgen -G "${remote_servers_src}/zed-remote-server-"*.gz >/dev/null; then
+-    cp "${remote_servers_src}"/zed-remote-server-*.gz "${app_path}/Contents/MacOS/remote_servers/"
++if compgen -G "${remote_servers_src}/zedium-remote-server-"*.gz >/dev/null; then
++    cp "${remote_servers_src}"/zedium-remote-server-*.gz "${app_path}/Contents/MacOS/remote_servers/"
+ else
+     echo "warning: no bundled remote_server artifacts in ${remote_servers_src}; run 'just remote-servers'"
+ fi

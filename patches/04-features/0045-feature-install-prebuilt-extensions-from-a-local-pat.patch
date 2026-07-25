@@ -1,0 +1,353 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Wed, 10 Jun 2026 01:12:54 +0300
+Subject: [PATCH] feature: install prebuilt extensions from a local path
+ (air-gapped)
+
+Add ExtensionStore::install_prebuilt_extension(source): installs a prebuilt
+extension from a local directory or .tar.gz archive with no network and no
+compilation, reusing the existing toolchain-free load path. Refuses (bails) if
+the input ships Rust source but no compiled extension.wasm, pointing the user to
+build it on a networked machine. Reuses the existing async-compression/async-tar
+deps for unpack; no http_client/URL path is reintroduced.
+
+Test covers both the directory and .tar.gz install paths (RealFs + TempTree),
+asserting the extension installs as a real (dev:false) extension and its theme
+registers.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/extension_host/src/extension_host.rs   | 167 ++++++++++++++++++
+ .../src/extension_store_test.rs               | 141 +++++++++++++++
+ 2 files changed, 308 insertions(+)
+
+diff --git a/crates/extension_host/src/extension_host.rs b/crates/extension_host/src/extension_host.rs
+index b5a01660aa..d4814bf2a1 100644
+--- a/crates/extension_host/src/extension_host.rs
++++ b/crates/extension_host/src/extension_host.rs
+@@ -946,6 +946,173 @@ impl ExtensionStore {
+         })
+     }
+ 
++    /// Installs a prebuilt extension from a local path, with no network access and
++    /// no compilation. This is intended for air-gapped environments: the operator
++    /// transfers an extension that was already built on a networked machine (either an
++    /// unpacked directory or the `.tar.gz` archive that `tools/snapshot-extensions.sh`
++    /// produces and the upstream registry serves) and installs it as a regular (non-dev)
++    /// extension.
++    pub fn install_prebuilt_extension(
++        &mut self,
++        source: PathBuf,
++        cx: &mut Context<Self>,
++    ) -> Task<Result<()>> {
++        let fs = self.fs.clone();
++        let installed_dir = self.installed_dir.clone();
++        let staging_dir = self.staging_dir.clone();
++
++        cx.spawn(async move |this, cx| {
++            // Resolve `source` to an unpacked extension directory. A regular file is
++            // treated as a gzip tarball and unpacked into a fresh temp dir under
++            // `staging_dir`; a directory is used directly. When we unpack a tarball we
++            // can later move the temp dir into place, but a user-provided directory must
++            // be copied rather than moved.
++            let source_metadata = fs
++                .metadata(&source)
++                .await?
++                .with_context(|| format!("source path {source:?} does not exist"))?;
++
++            let staged_temp_dir;
++            let unpacked_dir: PathBuf;
++            let move_into_place;
++            if source_metadata.is_dir {
++                staged_temp_dir = None;
++                unpacked_dir = source.clone();
++                move_into_place = false;
++            } else {
++                let tar_gz_bytes = fs
++                    .load_bytes(&source)
++                    .await
++                    .with_context(|| format!("reading extension archive {source:?}"))?;
++
++                fs.create_dir(&staging_dir).await?;
++                let temp_dir = tempfile::tempdir_in(&staging_dir)?;
++
++                let decompressed_bytes = GzipDecoder::new(BufReader::new(tar_gz_bytes.as_slice()));
++                let archive = Archive::new(decompressed_bytes);
++                archive
++                    .unpack(temp_dir.path())
++                    .await
++                    .with_context(|| format!("unpacking extension archive {source:?}"))?;
++
++                unpacked_dir = temp_dir.path().to_path_buf();
++                staged_temp_dir = Some(temp_dir);
++                move_into_place = true;
++            }
++
++            let manifest = ExtensionManifest::load(fs.clone(), &unpacked_dir).await?;
++            let extension_id = manifest.id.clone();
++
++            // Air-gap guard: refuse to install an extension that ships Rust source but
++            // no compiled artifact, since compiling it would require the wasm toolchain
++            // (and, in practice, network access). Themes and grammars have neither file.
++            let ships_source = fs.is_file(&unpacked_dir.join("Cargo.toml")).await;
++            let has_wasm = fs.is_file(&unpacked_dir.join("extension.wasm")).await;
++            if ships_source && !has_wasm {
++                bail!(
++                    "extension '{extension_id}' ships source but no compiled extension.wasm; \
++                     build it on a networked machine (it requires the Rust/wasm toolchain) \
++                     and install the resulting archive"
++                );
++            }
++
++            if let Some(uninstall_task) = this
++                .update(cx, |this, cx| {
++                    this.extension_index
++                        .extensions
++                        .contains_key(extension_id.as_ref())
++                        .then(|| this.uninstall_extension(extension_id.clone(), cx))
++                })
++                .ok()
++                .flatten()
++            {
++                uninstall_task.await.log_err();
++            }
++
++            if !this.update(cx, |this, cx| {
++                match this.outstanding_operations.entry(extension_id.clone()) {
++                    btree_map::Entry::Occupied(_) => return false,
++                    btree_map::Entry::Vacant(e) => e.insert(ExtensionOperation::Install),
++                };
++                cx.notify();
++                true
++            })? {
++                return Ok(());
++            }
++
++            let _finish = cx.on_drop(&this, {
++                let extension_id = extension_id.clone();
++                move |this, cx| {
++                    this.outstanding_operations.remove(extension_id.as_ref());
++                    cx.notify();
++                }
++            });
++
++            let extension_dir = installed_dir.join(extension_id.as_ref());
++            cx.background_spawn({
++                let fs = fs.clone();
++                async move {
++                    fs.remove_dir(
++                        &extension_dir,
++                        RemoveOptions {
++                            recursive: true,
++                            ignore_if_not_exists: true,
++                        },
++                    )
++                    .await?;
++
++                    if move_into_place {
++                        fs.rename(
++                            &unpacked_dir,
++                            &extension_dir,
++                            RenameOptions {
++                                overwrite: true,
++                                ignore_if_exists: true,
++                                create_parents: true,
++                            },
++                        )
++                        .await?;
++                        // The temp dir was renamed into place; release the guard without
++                        // attempting to delete the (now moved) directory.
++                        if let Some(temp_dir) = staged_temp_dir {
++                            let _ = temp_dir.keep();
++                        }
++                    } else {
++                        fs::copy_recursive(
++                            &*fs,
++                            &unpacked_dir,
++                            &extension_dir,
++                            fs::CopyOptions {
++                                overwrite: true,
++                                ignore_if_exists: false,
++                            },
++                        )
++                        .await?;
++                    }
++
++                    anyhow::Ok(())
++                }
++            })
++            .await?;
++
++            this.update(cx, |this, cx| this.reload(Some(extension_id.clone()), cx))?
++                .await;
++
++            this.update(cx, |this, cx| {
++                cx.emit(Event::ExtensionInstalled(extension_id.clone()));
++                if let Some(events) = ExtensionEvents::try_global(cx)
++                    && let Some(manifest) = this.extension_manifest_for_id(&extension_id)
++                {
++                    events.update(cx, |this, cx| {
++                        this.emit(extension::Event::ExtensionInstalled(manifest.clone()), cx)
++                    });
++                }
++            })?;
++
++            Ok(())
++        })
++    }
++
+     pub fn rebuild_dev_extension(&mut self, extension_id: Arc<str>, cx: &mut Context<Self>) {
+         let path = self.installed_dir.join(extension_id.as_ref());
+         let builder = self.builder.clone();
+diff --git a/crates/extension_host/src/extension_store_test.rs b/crates/extension_host/src/extension_store_test.rs
+index 3fa08a1311..fb4124df9c 100644
+--- a/crates/extension_host/src/extension_store_test.rs
++++ b/crates/extension_host/src/extension_store_test.rs
+@@ -1226,6 +1226,147 @@ async fn test_extension_store_with_test_extension(cx: &mut TestAppContext) {
+     );
+ }
+ 
++#[gpui::test]
++async fn test_install_prebuilt_extension(cx: &mut TestAppContext) {
++    init_test(cx);
++    cx.executor().allow_parking();
++
++    let theme_family_json = r#"{
++        "name": "Airgap",
++        "author": "Someone",
++        "themes": [
++            {
++                "name": "Airgap Dark",
++                "appearance": "dark",
++                "style": {}
++            }
++        ]
++    }"#;
++
++    // A theme-only extension carries no Cargo.toml and no extension.wasm, so it
++    // exercises the no-compile install path.
++    let extension_id = "airgap-theme";
++    let fixture_tree = TempTree::new(json!({
++        "extension.toml": format!(
++            "id = \"{extension_id}\"\n\
++             name = \"Airgap Theme\"\n\
++             version = \"1.0.0\"\n\
++             schema_version = 1\n\
++             themes = [\"themes/airgap.json\"]\n"
++        ),
++        "themes": {
++            "airgap.json": theme_family_json,
++        },
++    }));
++    let fixture_dir = fixture_tree.path().canonicalize().unwrap();
++
++    let fs = Arc::new(RealFs::new(None, cx.executor()));
++    let extensions_tree = TempTree::new(json!({
++        "installed": {},
++        "work": {},
++        "staging": {},
++    }));
++    let extensions_dir = extensions_tree.path().canonicalize().unwrap();
++
++    let proxy = Arc::new(ExtensionHostProxy::new());
++    let theme_registry = Arc::new(ThemeRegistry::new(Box::new(())));
++    theme_extension::init(proxy.clone(), theme_registry.clone(), cx.executor());
++    let language_registry = Arc::new(LanguageRegistry::test(cx.executor()));
++    language_extension::init(LspAccess::Noop, proxy.clone(), language_registry.clone());
++    let node_runtime = NodeRuntime::unavailable();
++    let http_client = FakeHttpClient::with_404_response();
++
++    let extension_store = cx.new(|cx| {
++        ExtensionStore::new(
++            extensions_dir.clone(),
++            None,
++            proxy,
++            fs.clone(),
++            http_client.clone(),
++            http_client.clone(),
++            node_runtime,
++            cx,
++        )
++    });
++
++    // Keep reload debounces firing.
++    let mut events = cx.events(&extension_store);
++    let executor = cx.executor();
++    let _task = cx.executor().spawn(async move {
++        while let Some(event) = events.next().await {
++            if let Event::StartedReloading = event {
++                executor.advance_clock(RELOAD_DEBOUNCE_DURATION);
++            }
++        }
++    });
++
++    // Case 1: install from an unpacked directory.
++    extension_store
++        .update(cx, |store, cx| {
++            store.install_prebuilt_extension(fixture_dir.clone(), cx)
++        })
++        .await
++        .unwrap();
++    cx.executor().run_until_parked();
++
++    extension_store.read_with(cx, |store, _| {
++        let entry = store
++            .extension_index
++            .extensions
++            .get(extension_id)
++            .expect("extension should be in the index after directory install");
++        assert!(!entry.dev, "prebuilt extension must be a non-dev install");
++        assert!(
++            store
++                .extension_index
++                .themes
++                .contains_key(&Arc::from("Airgap Dark")),
++            "theme should be registered in the index"
++        );
++    });
++    assert!(
++        theme_registry
++            .list_names()
++            .iter()
++            .any(|name| name == "Airgap Dark"),
++        "theme should be registered in the theme registry after directory install"
++    );
++
++    // Case 2: install the same fixture packed as a .tar.gz archive. The archive is binary,
++    // so write the raw bytes directly rather than through a string-based fs API.
++    let archive_path = extensions_dir.join("airgap-theme.tar.gz");
++    std::fs::write(&archive_path, {
++        let mut tar_bytes = Vec::<u8>::new();
++        {
++            let mut archive = async_tar::Builder::new(&mut tar_bytes);
++            archive.append_dir_all(".", &fixture_dir).await.unwrap();
++            archive.into_inner().await.unwrap();
++        }
++        let mut gzipped_bytes = Vec::new();
++        let mut encoder = GzipEncoder::new(BufReader::new(tar_bytes.as_slice()));
++        encoder.read_to_end(&mut gzipped_bytes).await.unwrap();
++        gzipped_bytes
++    })
++    .unwrap();
++
++    extension_store
++        .update(cx, |store, cx| {
++            store.install_prebuilt_extension(archive_path.clone(), cx)
++        })
++        .await
++        .unwrap();
++    cx.executor().run_until_parked();
++
++    extension_store.read_with(cx, |store, _| {
++        let entry = store
++            .extension_index
++            .extensions
++            .get(extension_id)
++            .expect("extension should be in the index after archive install");
++        assert!(!entry.dev, "prebuilt extension must be a non-dev install");
++    });
++}
++
+ fn init_test(cx: &mut TestAppContext) {
+     cx.update(|cx| {
+         let store = SettingsStore::test(cx);

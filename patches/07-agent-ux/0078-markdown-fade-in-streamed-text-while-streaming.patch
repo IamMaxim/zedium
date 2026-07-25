@@ -1,0 +1,398 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Fri, 10 Jul 2026 01:39:43 +0300
+Subject: [PATCH] markdown: fade in streamed text while streaming
+
+Recently appended streamed text eases in from transparent over a
+configurable duration. Live-test feedback dropped the write-head glow
+that originally shipped alongside the fade.
+---
+ .../src/conversation_view/thread_view.rs      |  12 +-
+ crates/markdown/src/markdown.rs               | 208 +++++++++++++++++-
+ 2 files changed, 217 insertions(+), 3 deletions(-)
+
+diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
+index ea304a0de2..665820ccad 100644
+--- a/crates/agent_ui/src/conversation_view/thread_view.rs
++++ b/crates/agent_ui/src/conversation_view/thread_view.rs
+@@ -37,6 +37,7 @@ use language_model::{
+     FastModeConfirmation, LanguageModel, LanguageModelEffortLevel, LanguageModelId,
+     LanguageModelProvider, LanguageModelProviderId, LanguageModelRegistry, Speed,
+ };
++use markdown::StreamedTextFade;
+ use notifications::status_toast::StatusToast;
+ use settings::{AnimationLevel, update_settings_file, update_settings_file_with_completion};
+ use ui::{
+@@ -6405,7 +6406,16 @@ impl ThreadView {
+                 let mut is_blank = true;
+                 let is_last = entry_ix + 1 == total_entries;
+ 
+-                let style = MarkdownStyle::themed(MarkdownFont::Agent, window, cx);
++                let mut style = MarkdownStyle::themed(MarkdownFont::Agent, window, cx);
++                style.streamed_text_fade = match AgentSettings::get_global(cx).animations {
++                    AnimationLevel::Full => Some(StreamedTextFade {
++                        duration: Duration::from_millis(250),
++                    }),
++                    AnimationLevel::Reduced => Some(StreamedTextFade {
++                        duration: Duration::from_millis(100),
++                    }),
++                    AnimationLevel::Off => None,
++                };
+                 let message_body = v_flex()
+                     .w_full()
+                     .gap_3()
+diff --git a/crates/markdown/src/markdown.rs b/crates/markdown/src/markdown.rs
+index 69f5aa3208..41e0161fec 100644
+--- a/crates/markdown/src/markdown.rs
++++ b/crates/markdown/src/markdown.rs
+@@ -21,13 +21,14 @@ use theme_settings::ThemeSettings;
+ use util::maybe;
+ 
+ use std::borrow::Cow;
+-use std::collections::BTreeMap;
++use std::collections::{BTreeMap, VecDeque};
++use std::iter;
+ use std::mem;
+ use std::ops::Range;
+ use std::path::Path;
+ use std::rc::Rc;
+ use std::sync::Arc;
+-use std::time::Duration;
++use std::time::{Duration, Instant};
+ 
+ use collections::{HashMap, HashSet};
+ use gpui::{
+@@ -91,6 +92,14 @@ pub struct HeadingLevelStyles {
+     pub h6: Option<TextStyleRefinement>,
+ }
+ 
++/// Opt-in streaming animation for markdown that grows via [`Markdown::append`]:
++/// recently appended text fades in from transparent.
++#[derive(Clone, Copy, Debug)]
++pub struct StreamedTextFade {
++    /// How long newly appended text takes to ease from transparent to opaque.
++    pub duration: Duration,
++}
++
+ #[derive(Clone)]
+ pub struct MarkdownStyle {
+     pub base_text_style: TextStyle,
+@@ -113,6 +122,7 @@ pub struct MarkdownStyle {
+     pub prevent_mouse_interaction: bool,
+     pub table_columns_min_size: bool,
+     pub soft_break_as_hard_break: bool,
++    pub streamed_text_fade: Option<StreamedTextFade>,
+ }
+ 
+ impl Default for MarkdownStyle {
+@@ -138,6 +148,7 @@ impl Default for MarkdownStyle {
+             prevent_mouse_interaction: false,
+             table_columns_min_size: false,
+             soft_break_as_hard_break: false,
++            streamed_text_fade: None,
+         }
+     }
+ }
+@@ -377,6 +388,36 @@ impl MarkdownStyle {
+     }
+ }
+ 
++const MAX_RECENT_APPENDS: usize = 32;
++const MAX_RECENT_APPEND_AGE: Duration = Duration::from_secs(1);
++
++#[derive(Debug, Clone, Copy)]
++pub(crate) struct RecentAppend {
++    pub start: usize,
++    pub at: Instant,
++}
++
++fn eased_fade_alpha(
++    appends: &VecDeque<RecentAppend>,
++    source_offset: usize,
++    now: Instant,
++    fade: Duration,
++) -> Option<f32> {
++    if fade.is_zero() {
++        return None;
++    }
++    let append = appends
++        .iter()
++        .rev()
++        .find(|append| append.start <= source_offset)?;
++    let elapsed = now.saturating_duration_since(append.at);
++    if elapsed >= fade {
++        return None;
++    }
++    let progress = (elapsed.as_secs_f32() / fade.as_secs_f32()).clamp(0.0, 1.0);
++    Some(1.0 - (1.0 - progress) * (1.0 - progress))
++}
++
+ pub struct Markdown {
+     source: SharedString,
+     selection: Selection,
+@@ -403,6 +444,7 @@ pub struct Markdown {
+     context_menu_selected_markdown: Option<SharedString>,
+     search_highlights: Vec<Range<usize>>,
+     active_search_highlight: Option<usize>,
++    recent_appends: VecDeque<RecentAppend>,
+ }
+ 
+ #[derive(Clone, Copy, Default)]
+@@ -596,6 +638,7 @@ impl Markdown {
+             context_menu_selected_markdown: None,
+             search_highlights: Vec::new(),
+             active_search_highlight: None,
++            recent_appends: VecDeque::new(),
+         };
+         this.parse(cx);
+         this
+@@ -693,6 +736,33 @@ impl Markdown {
+         self.pending_parse.is_some()
+     }
+ 
++    /// Eased fade-in alpha for source text at `source_offset` when it was
++    /// appended recently enough to still be fading in. `None` = fully opaque.
++    pub fn fade_alpha_for_offset(
++        &self,
++        source_offset: usize,
++        now: Instant,
++        fade: Duration,
++    ) -> Option<f32> {
++        eased_fade_alpha(&self.recent_appends, source_offset, now, fade)
++    }
++
++    fn has_live_appends(&self, now: Instant, fade: Duration) -> bool {
++        self.recent_appends
++            .iter()
++            .any(|append| now.saturating_duration_since(append.at) < fade)
++    }
++
++    fn prune_recent_appends(&mut self, now: Instant) {
++        while let Some(front) = self.recent_appends.front() {
++            if now.saturating_duration_since(front.at) > MAX_RECENT_APPEND_AGE {
++                self.recent_appends.pop_front();
++            } else {
++                break;
++            }
++        }
++    }
++
+     pub fn scroll_to_heading(&mut self, slug: &str, cx: &mut Context<Self>) -> Option<usize> {
+         if let Some(source_index) = self.parsed_markdown.heading_slugs.get(slug).copied() {
+             self.autoscroll_request = Some(source_index);
+@@ -730,11 +800,23 @@ impl Markdown {
+     }
+ 
+     pub fn append(&mut self, text: &str, cx: &mut Context<Self>) {
++        if !text.is_empty() {
++            let now = Instant::now();
++            self.prune_recent_appends(now);
++            self.recent_appends.push_back(RecentAppend {
++                start: self.source.len(),
++                at: now,
++            });
++            while self.recent_appends.len() > MAX_RECENT_APPENDS {
++                self.recent_appends.pop_front();
++            }
++        }
+         self.source = SharedString::new(self.source.to_string() + text);
+         self.parse(cx);
+     }
+ 
+     pub fn replace(&mut self, source: impl Into<SharedString>, cx: &mut Context<Self>) {
++        self.recent_appends.clear();
+         self.source = source.into();
+         self.parse(cx);
+     }
+@@ -774,6 +856,7 @@ impl Markdown {
+         if &source == self.source() {
+             return;
+         }
++        self.recent_appends.clear();
+         self.source = source;
+         self.selection = Selection::default();
+         self.autoscroll_request = None;
+@@ -1720,6 +1803,18 @@ impl MarkdownElement {
+         );
+     }
+ 
++    fn request_animation_frame_if_streaming(&self, window: &Window, cx: &App) {
++        let Some(fade) = self.style.streamed_text_fade else {
++            return;
++        };
++        let markdown = self.markdown.read(cx);
++        let now = Instant::now();
++        let fades_live = markdown.has_live_appends(now, fade.duration);
++        if fades_live {
++            window.request_animation_frame();
++        }
++    }
++
+     fn paint_search_highlights(
+         &self,
+         rendered_text: &RenderedText,
+@@ -2072,6 +2167,17 @@ impl Element for MarkdownElement {
+                 markdown.mermaid_state.clone(),
+             )
+         };
++        builder.streamed_fade = self.style.streamed_text_fade.and_then(|config| {
++            let markdown = self.markdown.read(cx);
++            if markdown.recent_appends.is_empty() {
++                return None;
++            }
++            Some(StreamedFadeState {
++                config,
++                appends: markdown.recent_appends.clone(),
++                now: Instant::now(),
++            })
++        });
+         let markdown_end = if let Some(last) = parsed_markdown.events.last() {
+             last.0.end
+         } else {
+@@ -2813,6 +2919,7 @@ impl Element for MarkdownElement {
+         rendered_markdown.element.paint(window, cx);
+         self.paint_search_highlights(&rendered_markdown.text, window, cx);
+         self.paint_selection(&rendered_markdown.text, window, cx);
++        self.request_animation_frame_if_streaming(window, cx);
+     }
+ }
+ 
+@@ -3095,6 +3202,18 @@ struct MetadataCellStyle {
+     is_key: bool,
+ }
+ 
++struct StreamedFadeState {
++    config: StreamedTextFade,
++    appends: VecDeque<RecentAppend>,
++    now: Instant,
++}
++
++impl StreamedFadeState {
++    fn alpha_for_offset(&self, source_offset: usize) -> Option<f32> {
++        eased_fade_alpha(&self.appends, source_offset, self.now, self.config.duration)
++    }
++}
++
+ struct MarkdownElementBuilder {
+     div_stack: Vec<DivStackEntry>,
+     rendered_lines: Vec<RenderedLine>,
+@@ -3111,6 +3230,7 @@ struct MarkdownElementBuilder {
+     list_stack: Vec<ListStackEntry>,
+     table: TableState,
+     syntax_theme: Arc<SyntaxTheme>,
++    streamed_fade: Option<StreamedFadeState>,
+ }
+ 
+ struct DivStackEntry {
+@@ -3170,6 +3290,7 @@ impl MarkdownElementBuilder {
+             list_stack: Vec::new(),
+             table: TableState::default(),
+             syntax_theme,
++            streamed_fade: None,
+         }
+     }
+ 
+@@ -3364,6 +3485,12 @@ impl MarkdownElementBuilder {
+         self.pending_line.text.push_str(text);
+         self.current_source_index = source_range.end;
+ 
++        let fade_alpha = self
++            .streamed_fade
++            .as_ref()
++            .and_then(|fade| fade.alpha_for_offset(source_range.start));
++        let runs_start = self.pending_line.runs.len();
++
+         // Compute the base text style once
+         let text_style = self.text_style();
+ 
+@@ -3395,6 +3522,12 @@ impl MarkdownElementBuilder {
+         } else {
+             self.pending_line.runs.push(text_style.to_run(text.len()));
+         }
++
++        if let Some(alpha) = fade_alpha {
++            for run in &mut self.pending_line.runs[runs_start..] {
++                run.color = run.color.opacity(alpha);
++            }
++        }
+     }
+ 
+     fn trim_trailing_newline(&mut self) {
+@@ -4078,6 +4211,77 @@ mod tests {
+         });
+     }
+ 
++    #[test]
++    fn test_fade_alpha_for_offset() {
++        let fade = Duration::from_millis(250);
++        let start_time = Instant::now();
++        let mut appends = VecDeque::new();
++        appends.push_back(RecentAppend {
++            start: 100,
++            at: start_time,
++        });
++
++        // Offsets before the first recorded append are fully opaque.
++        assert_eq!(eased_fade_alpha(&appends, 0, start_time, fade), None);
++        assert_eq!(eased_fade_alpha(&appends, 99, start_time, fade), None);
++
++        // A fresh append starts (nearly) fully transparent.
++        let fresh = eased_fade_alpha(&appends, 100, start_time, fade).unwrap();
++        assert!(fresh < 0.01, "fresh alpha should be ~0, got {fresh}");
++
++        // Halfway through the window the alpha has increased; with ease-out it
++        // is already past the halfway alpha.
++        let halfway =
++            eased_fade_alpha(&appends, 100, start_time + Duration::from_millis(125), fade).unwrap();
++        assert!(halfway > fresh && halfway < 1.0);
++        assert!(halfway > 0.5, "ease-out should front-load, got {halfway}");
++
++        // Once the window has elapsed the offset is opaque again.
++        assert_eq!(eased_fade_alpha(&appends, 100, start_time + fade, fade), None);
++
++        // The youngest append at-or-before the offset wins.
++        let second_time = start_time + Duration::from_millis(200);
++        appends.push_back(RecentAppend {
++            start: 140,
++            at: second_time,
++        });
++        assert!(eased_fade_alpha(&appends, 150, second_time, fade).unwrap() < 0.01);
++        // Offset 120 belongs to the first (older) append, which has expired here.
++        assert_eq!(eased_fade_alpha(&appends, 120, second_time + fade, fade), None);
++
++        // Zero duration disables fading entirely.
++        assert_eq!(
++            eased_fade_alpha(&appends, 150, second_time, Duration::ZERO),
++            None
++        );
++    }
++
++    #[gpui::test]
++    async fn test_recent_appends_recorded_and_cleared(cx: &mut TestAppContext) {
++        ensure_theme_initialized(cx);
++        let markdown = cx.new(|cx| Markdown::new("hello".into(), None, None, cx));
++        markdown.update(cx, |markdown, cx| {
++            markdown.append(" world", cx);
++            assert_eq!(markdown.recent_appends.len(), 1);
++            assert_eq!(markdown.recent_appends[0].start, 5);
++
++            markdown.append("!", cx);
++            assert_eq!(markdown.recent_appends.len(), 2);
++            assert_eq!(markdown.recent_appends[1].start, 11);
++
++            markdown.append("", cx);
++            assert_eq!(markdown.recent_appends.len(), 2, "empty append records nothing");
++
++            markdown.replace("fresh", cx);
++            assert!(markdown.recent_appends.is_empty(), "replace clears the deque");
++
++            markdown.append("!", cx);
++            assert_eq!(markdown.recent_appends.len(), 1);
++            markdown.reset("reset".into(), cx);
++            assert!(markdown.recent_appends.is_empty(), "reset clears the deque");
++        });
++    }
++
+     #[gpui::test]
+     fn test_code_block_controls_are_unique_across_markdown_entities(cx: &mut TestAppContext) {
+         struct TestWindow;

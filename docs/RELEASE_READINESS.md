@@ -1,5 +1,59 @@
 # Release Readiness — Zedium v1
 
+## Current — upstream v1.11.3 (2026-07-26), released as `v1.11.3-1`
+
+The baseline was bumped **`v1.7.2` → `v1.10.3` → `v1.11.3`**. The functional rebase plus the
+extracted `database_client` crate shipped first; a follow-up hygiene pass folded the rebase WIP
+commits into themed patches and reorganized the flat series into a 7-folder semantic category tree
+(`just apply`/`just export` are tree-aware, ordered by the global `NNNN-` basename prefix).
+A post-rebase regression — `DatabasePanel` never added to the workspace dock, because the fork's
+`initialize_panels` line was dropped when `crates/zed/src/zed.rs` was taken upstream-side — was
+found and fixed; a full-class sweep for other lost fork wiring came back clean.
+
+Final milestone: the long-parked **remote-server artifact rebrand** (`zed-remote-server` →
+`zedium-remote-server`) landed as patch `03-remote/0086`, renaming the fork's chain end-to-end
+(build script output, bundle-script copy globs, client `.gz` lookup, SSH/Docker/WSL upload
+filename, `cleanup_old_binaries` prefix, crash-handler identity). Upstream's own CI chain keeps the
+`zed-` prefix deliberately — it is self-consistent and the fork does not run it.
+
+Result: **86 patches**, applying onto `v1.11.3` to a byte-identical tree.
+
+**Release gates — all green (2026-07-26):**
+
+- `just apply` 86/86 clean; `just verify` pass (3445 files, 42 patterns, 24 banned crates) — on
+  both macOS arm64 and Linux x86_64.
+- `cargo build -p zed` (full `zedium` binary) exit 0; `cargo check --workspace --all-targets` exit 0.
+- Tests: `database_client` 279, mascot 25, `remote_connection` + `remote_server` 36,
+  `agent_settings::test_animation_settings`.
+- Live GUI session verified by the user.
+
+**GAP-8 runtime air-gap smoke — PASS on v1.11.3 (2026-07-26).** Ran `tools/airgap-smoke.sh`
+(= `strace -f -e trace=connect,network`, 40s dwell) against the debug `zedium` built from the
+applied v1.11.3 tree on Linux x86_64 (Arch, AMD GPU, X11 session). All 18 `AF_INET`/`AF_INET6`
+`connect()` calls were loopback only (`127.0.0.1` / `::1`): port-0 socket probes plus the
+user-opt-in local-LLM probes (Ollama `11434`, LM Studio `1234`); 23 `AF_UNIX` were local IPC.
+**Zero connects to any external host.**
+
+> **Harness note.** The script's `pkill -KILL -f "$(basename "$BIN")"` cleanup also matches any
+> shell whose command line contains the repo path (`…/zedium/…`), so running it over SSH from the
+> repo directory kills the script before it prints its analysis. The trace file survives; re-run the
+> analysis block against it, or invoke the script from a wrapper whose command line omits the name.
+
+**Remote-provisioning smoke — PASS on v1.11.3 (2026-07-26).** The runtime gate for the 0086
+rebrand: a macOS arm64 client (`ZED_BUILD_REMOTE_SERVER=never`, bundle dir overridden) opened an
+`ssh://` project on a Linux x86_64 host. The client resolved the bundled
+`zedium-remote-server-linux-x86_64.gz` by its new name, uploaded it, and the host unpacked it to an
+executable `~/.zed_server/zedium-remote-server-stable-1.11.3+stable.<sha>`; the `proxy` and `run`
+processes came up, the project opened, git repositories were scanned and language servers loaded.
+The crash-handler temp path used the renamed `zedium-remote-server-proxy-crash-handler-` prefix,
+confirming that site too. No errors in the server log.
+
+> Pre-existing, unrelated to the rebrand: `tools/build-remote-servers.sh` logs
+> `zig objcopy failed; shipping unstripped` on a macOS host, so the Linux artifact is ~145 MB
+> instead of stripped-and-small. Harmless for provisioning; worth fixing before artifact size
+> matters. Also note stale `zed-`named binaries in remote `~/.zed_server/` dirs are no longer
+> swept by `cleanup_old_binaries` — delete them by hand.
+
 ## 0. Rebased to upstream v1.7.2 (2026-06-17)
 
 The baseline was bumped **`v1.5.4` → `v1.7.2`**. The patch series was replayed onto

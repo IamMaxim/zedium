@@ -1,0 +1,227 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Mon, 15 Jun 2026 13:55:36 +0300
+Subject: [PATCH] Add centered project tab strip to the title bar
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Cargo.toml                        |   1 -
+ crates/title_bar/src/title_bar.rs | 158 +++++++++++++++++++++++++++++-
+ 2 files changed, 157 insertions(+), 2 deletions(-)
+
+diff --git a/Cargo.toml b/Cargo.toml
+index bdb200a22d..2afd9249e8 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -873,7 +873,6 @@ windows-capture = { git = "https://github.com/zed-industries/windows-capture.git
+ calloop = { git = "https://github.com/zed-industries/calloop" }
+ notify = { git = "https://github.com/zed-industries/notify", rev = "faecbc33db4f59313e5225ef766bfd9e54a54cfd" }
+ notify-types = { git = "https://github.com/zed-industries/notify", rev = "faecbc33db4f59313e5225ef766bfd9e54a54cfd" }
+->>>>>>> strip: drop libwebrtc/webrtc-sys from audio (no-op echo canceller)
+ 
+ [profile.dev]
+ split-debuginfo = "unpacked"
+diff --git a/crates/title_bar/src/title_bar.rs b/crates/title_bar/src/title_bar.rs
+index 8ce52fb137..2a1398d26f 100644
+--- a/crates/title_bar/src/title_bar.rs
++++ b/crates/title_bar/src/title_bar.rs
+@@ -47,6 +47,17 @@ use zed_actions::OpenRemote;
+ 
+ pub use onboarding_banner::restore_banner;
+ 
++#[derive(Clone)]
++struct DraggedProjectTab {
++    ix: usize,
++}
++
++impl Render for DraggedProjectTab {
++    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
++        gpui::Empty
++    }
++}
++
+ const MAX_PROJECT_NAME_LENGTH: usize = 40;
+ const MAX_BRANCH_NAME_LENGTH: usize = 40;
+ const MAX_SHORT_SHA_LENGTH: usize = 8;
+@@ -190,6 +201,9 @@ impl Render for TitleBar {
+                 .and_then(|ws| ws.read(cx).multi_workspace().cloned())
+             {
+                 self.multi_workspace = Some(mw.clone());
++                if let Some(mw_strong) = mw.upgrade() {
++                    self.observe_multi_workspace(&mw_strong, window, cx);
++                }
+                 self.platform_titlebar.update(cx, |titlebar, _cx| {
+                     titlebar.set_multi_workspace(mw);
+                 });
+@@ -202,7 +216,7 @@ impl Render for TitleBar {
+ 
+         let show_menus = show_menus(cx);
+ 
+-        let mut children = <ArrayVec<_, 5>>::new();
++        let mut children = <ArrayVec<_, 6>>::new();
+ 
+         let mut project_name = None;
+         let mut repository = None;
+@@ -307,6 +321,18 @@ impl Render for TitleBar {
+             }
+         }
+ 
++        if let Some(tabs) = self.render_project_tabs(window, cx) {
++            children.push(
++                h_flex()
++                    .id("project-tabs-container")
++                    .flex_1()
++                    .justify_center()
++                    .overflow_x_scroll()
++                    .child(tabs)
++                    .into_any_element(),
++            );
++        }
++
+         let status = self.client.status();
+         let status = &*status.borrow();
+         let signed_in = self.user_store.read(cx).current_user().is_some();
+@@ -448,6 +474,10 @@ impl TitleBar {
+             screen_share_popover_handle: PopoverMenuHandle::default(),
+         };
+ 
++        if let Some(mw) = this.multi_workspace.as_ref().and_then(|mw| mw.upgrade()) {
++            this.observe_multi_workspace(&mw, window, cx);
++        }
++
+         this
+     }
+ 
+@@ -777,6 +807,132 @@ impl TitleBar {
+             .into_any_element()
+     }
+ 
++    fn observe_multi_workspace(
++        &mut self,
++        mw: &Entity<MultiWorkspace>,
++        window: &mut Window,
++        cx: &mut Context<Self>,
++    ) {
++        self._subscriptions.push(cx.subscribe_in(
++            mw,
++            window,
++            |_this, _mw, _event: &workspace::MultiWorkspaceEvent, _window, cx| {
++                cx.notify();
++            },
++        ));
++    }
++
++    fn render_project_tabs(
++        &self,
++        _window: &mut Window,
++        cx: &mut Context<Self>,
++    ) -> Option<AnyElement> {
++        let mw = self.multi_workspace.as_ref()?.upgrade()?;
++
++        if !mw.read(cx).multi_workspace_enabled(cx) {
++            return None;
++        }
++
++        let keys = mw.read(cx).project_group_keys();
++        if keys.len() < 2 {
++            return None;
++        }
++
++        let ws = mw.read(cx).workspace().clone();
++        let active_key = mw.read(cx).project_group_key_for_workspace(&ws, cx);
++
++        let mw_weak = self.multi_workspace.clone();
++        let mut strip = h_flex().id("project-tabs").gap_0p5().items_center();
++
++        for (ix, key) in keys.into_iter().enumerate() {
++            let is_active = key == active_key;
++            let label = key.display_name(&std::collections::HashMap::new());
++
++            let activate_key = key.clone();
++            let activate_mw = mw_weak.clone();
++            let close_key = key.clone();
++            let close_mw = mw_weak.clone();
++
++            let tab = h_flex()
++                .id(("project-tab", ix))
++                .gap_1()
++                .items_center()
++                .px_2()
++                .py_0p5()
++                .rounded_t_md()
++                .bg(if is_active {
++                    cx.theme().colors().tab_active_background
++                } else {
++                    cx.theme().colors().tab_inactive_background
++                })
++                .child(
++                    Label::new(label)
++                        .size(LabelSize::Small)
++                        .color(if is_active {
++                            Color::Default
++                        } else {
++                            Color::Muted
++                        }),
++                )
++                .child(
++                    IconButton::new(("close-project-tab", ix), IconName::Close)
++                        .icon_size(IconSize::XSmall)
++                        .on_click(move |_event, window, cx| {
++                            if let Some(mw) = close_mw.as_ref().and_then(|m| m.upgrade()) {
++                                let close_key = close_key.clone();
++                                mw.update(cx, |mw, cx| {
++                                    mw.remove_project_group(&close_key, window, cx)
++                                        .detach_and_log_err(cx);
++                                });
++                            }
++                        }),
++                )
++                .on_click(move |_event, window, cx| {
++                    if let Some(mw) = activate_mw.as_ref().and_then(|m| m.upgrade()) {
++                        let activate_key = activate_key.clone();
++                        mw.update(cx, |mw, cx| {
++                            mw.activate_project_group(&activate_key, window, cx)
++                        });
++                    }
++                })
++                .on_drag(DraggedProjectTab { ix }, |tab, _, _, cx| {
++                    cx.new(|_| tab.clone())
++                })
++                .drag_over::<DraggedProjectTab>(|style, _, _, cx| {
++                    style.bg(cx.theme().colors().drop_target_background)
++                })
++                .on_drop(cx.listener(
++                    move |this, dragged: &DraggedProjectTab, _window, cx| {
++                        if let Some(mw) = this
++                            .multi_workspace
++                            .as_ref()
++                            .and_then(|m| m.upgrade())
++                        {
++                            let from = dragged.ix;
++                            mw.update(cx, |mw, cx| mw.move_project_group(from, ix, cx));
++                        }
++                    },
++                ));
++
++            strip = strip.child(tab);
++        }
++
++        strip = strip.child(
++            IconButton::new("new-project-tab", IconName::Plus)
++                .icon_size(IconSize::Small)
++                .on_click(|_event, window, cx| {
++                    window.dispatch_action(
++                        Box::new(zed_actions::OpenRecent {
++                            create_new_window: false,
++                        }),
++                        cx,
++                    )
++                }),
++        );
++
++        Some(strip.into_any_element())
++    }
++
+     fn render_recent_projects_popover(
+         &self,
+         display_name: String,

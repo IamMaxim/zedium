@@ -1,0 +1,338 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 14 Jun 2026 13:30:27 +0300
+Subject: [PATCH] extension_host: serve extension catalog from local registry
+ index.json
+
+Also drop the erroneous #[serde(default)] on local_registry, which the
+#[with_fallible_options] macro already injects for Option fields; the
+duplicate attribute broke settings_content compilation.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/extension_host/src/extension_host.rs   | 156 +++++++++++++++++-
+ .../src/extension_store_test.rs               | 105 +++++++++++-
+ crates/settings_content/src/extension.rs      |   1 -
+ 3 files changed, 256 insertions(+), 6 deletions(-)
+
+diff --git a/crates/extension_host/src/extension_host.rs b/crates/extension_host/src/extension_host.rs
+index d4814bf2a1..57cb27c010 100644
+--- a/crates/extension_host/src/extension_host.rs
++++ b/crates/extension_host/src/extension_host.rs
+@@ -721,11 +721,92 @@ impl ExtensionStore {
+ 
+     fn fetch_extensions_from_api(
+         &self,
+-        _path: &str,
+-        _query: &[(&str, &str)],
+-        _cx: &mut Context<ExtensionStore>,
++        path: &str,
++        query: &[(&str, &str)],
++        cx: &mut Context<ExtensionStore>,
+     ) -> Task<Result<Vec<ExtensionMetadata>>> {
+-        Task::ready(Ok(Vec::new()))
++        let fs = self.fs.clone();
++        let cache_root = self.staging_dir.join("registry-cache");
++        let configured = ExtensionSettings::get_global(cx).local_registry.clone();
++
++        // `/extensions/<id>` (but not `/extensions/updates`) asks for one id's versions.
++        let single_id = path
++            .strip_prefix("/extensions/")
++            .filter(|rest| !rest.is_empty() && *rest != "updates")
++            .map(|id| id.to_string());
++
++        let filter = query
++            .iter()
++            .find(|(key, _)| *key == "filter")
++            .map(|(_, value)| value.to_lowercase());
++        let provides: BTreeSet<ExtensionProvides> = query
++            .iter()
++            .find(|(key, _)| *key == "provides")
++            .map(|(_, value)| value.split(',').filter_map(|p| p.parse().ok()).collect())
++            .unwrap_or_default();
++        let ids: Option<BTreeSet<String>> = query
++            .iter()
++            .find(|(key, _)| *key == "ids")
++            .map(|(_, value)| {
++                value
++                    .split(',')
++                    .filter(|s| !s.is_empty())
++                    .map(|s| s.to_string())
++                    .collect()
++            });
++
++        cx.background_spawn(async move {
++            let Some(configured) = configured.filter(|path| !path.is_empty()) else {
++                return Ok(Vec::new());
++            };
++            let Some(registry_dir) =
++                resolve_registry_dir(fs.clone(), PathBuf::from(configured), cache_root).await?
++            else {
++                return Ok(Vec::new());
++            };
++
++            let index_bytes = fs
++                .load_bytes(&registry_dir.join("index.json"))
++                .await
++                .context("reading local registry index.json")?;
++            let response: GetExtensionsResponse =
++                serde_json::from_slice(&index_bytes).context("parsing local registry index.json")?;
++
++            let extensions = response
++                .data
++                .into_iter()
++                .filter(|extension| {
++                    single_id
++                        .as_ref()
++                        .is_none_or(|id| extension.id.as_ref() == id)
++                })
++                .filter(|extension| {
++                    ids.as_ref()
++                        .is_none_or(|ids| ids.contains(extension.id.as_ref()))
++                })
++                .filter(|extension| {
++                    provides.is_empty()
++                        || provides
++                            .iter()
++                            .all(|provided| extension.manifest.provides.contains(provided))
++                })
++                .filter(|extension| match &filter {
++                    Some(filter) => {
++                        extension.id.to_lowercase().contains(filter)
++                            || extension.manifest.name.to_lowercase().contains(filter)
++                            || extension
++                                .manifest
++                                .description
++                                .as_deref()
++                                .is_some_and(|description| {
++                                    description.to_lowercase().contains(filter)
++                                })
++                    }
++                    None => true,
++                })
++                .collect();
++            Ok(extensions)
++        })
+     }
+ 
+     pub fn install_extension(
+@@ -1947,6 +2028,73 @@ impl ExtensionStore {
+     }
+ }
+ 
++/// Resolves the configured `extensions.local_registry` path to an unpacked bundle
++/// directory (one that directly contains `index.json`), or `None` if it cannot be
++/// resolved. A directory is used in place; a `.tar.gz` is unpacked once into
++/// `cache_root/<size-mtime>/` and reused on subsequent calls. No network.
++async fn resolve_registry_dir(
++    fs: Arc<dyn Fs>,
++    configured: PathBuf,
++    cache_root: PathBuf,
++) -> Result<Option<PathBuf>> {
++    let Some(metadata) = fs.metadata(&configured).await? else {
++        log::warn!("extensions.local_registry path {configured:?} does not exist");
++        return Ok(None);
++    };
++
++    if metadata.is_dir {
++        return Ok(find_bundle_dir(&fs, configured).await);
++    }
++
++    // Treat a regular file as a gzip tarball. Key the cache by size + mtime so a
++    // replaced bundle is re-unpacked, but an unchanged one is read straight from
++    // the cache.
++    let (secs, nanos) = metadata
++        .mtime
++        .to_seconds_and_nanos_for_persistence()
++        .unwrap_or((0, 0));
++    let cache_dir = cache_root.join(format!("{:x}-{:x}-{:x}", metadata.len, secs, nanos));
++    let marker = cache_dir.join(".unpacked");
++    if !fs.is_file(&marker).await {
++        fs.remove_dir(
++            &cache_dir,
++            RemoveOptions {
++                recursive: true,
++                ignore_if_not_exists: true,
++            },
++        )
++        .await?;
++        fs.create_dir(&cache_dir).await?;
++        let bytes = fs
++            .load_bytes(&configured)
++            .await
++            .with_context(|| format!("reading extension registry archive {configured:?}"))?;
++        let archive = Archive::new(GzipDecoder::new(BufReader::new(bytes.as_slice())));
++        archive
++            .unpack(&cache_dir)
++            .await
++            .with_context(|| format!("unpacking extension registry archive {configured:?}"))?;
++        fs.write(&marker, b"").await?;
++    }
++
++    Ok(find_bundle_dir(&fs, cache_dir).await)
++}
++
++/// Returns the directory that directly contains `index.json`: either `dir` itself,
++/// or its single bundle subdirectory (the snapshot tar wraps a top-level dir).
++async fn find_bundle_dir(fs: &Arc<dyn Fs>, dir: PathBuf) -> Option<PathBuf> {
++    if fs.is_file(&dir.join("index.json")).await {
++        return Some(dir);
++    }
++    let mut entries = fs.read_dir(&dir).await.log_err()?;
++    while let Some(Ok(child)) = entries.next().await {
++        if fs.is_file(&child.join("index.json")).await {
++            return Some(child);
++        }
++    }
++    None
++}
++
+ fn load_plugin_queries(root_path: &Path) -> LanguageQueries {
+     let mut result = LanguageQueries::default();
+     if let Some(entries) = std::fs::read_dir(root_path).log_err() {
+diff --git a/crates/extension_host/src/extension_store_test.rs b/crates/extension_host/src/extension_store_test.rs
+index fb4124df9c..cf6b2f0cab 100644
+--- a/crates/extension_host/src/extension_store_test.rs
++++ b/crates/extension_host/src/extension_store_test.rs
+@@ -4,11 +4,12 @@ use crate::{
+     RELOAD_DEBOUNCE_DURATION, SchemaVersion,
+ };
+ use async_compression::futures::bufread::GzipEncoder;
++use cloud_api_types::ExtensionProvides;
+ use collections::{BTreeMap, HashSet};
+ use extension::ExtensionHostProxy;
+ use fs::{FakeFs, Fs, RealFs};
+ use futures::{AsyncReadExt, FutureExt, StreamExt, io::BufReader};
+-use gpui::{AppContext as _, BackgroundExecutor, TaskExt, TestAppContext};
++use gpui::{AppContext as _, BackgroundExecutor, TaskExt, TestAppContext, UpdateGlobal as _};
+ use http_client::{FakeHttpClient, Response};
+ use language::{BinaryStatus, LanguageMatcher, LanguageName, LanguageRegistry};
+ use language_extension::LspAccess;
+@@ -21,6 +22,7 @@ use reqwest_client::ReqwestClient;
+ use serde_json::json;
+ use settings::SettingsStore;
+ use std::{
++    collections::BTreeSet,
+     ffi::OsString,
+     path::{Path, PathBuf},
+     sync::Arc,
+@@ -1367,6 +1369,107 @@ async fn test_install_prebuilt_extension(cx: &mut TestAppContext) {
+     });
+ }
+ 
++#[gpui::test]
++async fn test_fetch_extensions_from_local_registry(cx: &mut TestAppContext) {
++    init_test(cx);
++    cx.executor().allow_parking();
++
++    let index_json = r#"{
++        "data": [
++            {
++                "id": "airgap-theme",
++                "name": "Airgap Theme",
++                "version": "1.0.0",
++                "description": "A dark theme",
++                "authors": ["Someone"],
++                "repository": "https://example.invalid/airgap",
++                "schema_version": 1,
++                "wasm_api_version": null,
++                "provides": ["themes"],
++                "published_at": "2024-01-01T00:00:00Z",
++                "download_count": 0
++            },
++            {
++                "id": "ruby-lang",
++                "name": "Ruby",
++                "version": "2.0.0",
++                "description": "Ruby language support",
++                "authors": ["Someone"],
++                "repository": "https://example.invalid/ruby",
++                "schema_version": 1,
++                "wasm_api_version": null,
++                "provides": ["languages", "grammars"],
++                "published_at": "2024-01-01T00:00:00Z",
++                "download_count": 0
++            }
++        ]
++    }"#;
++
++    let registry_tree = TempTree::new(json!({
++        "index.json": index_json,
++    }));
++    let registry_dir = registry_tree.path().canonicalize().unwrap();
++
++    let fs = Arc::new(RealFs::new(None, cx.executor()));
++    let extensions_tree = TempTree::new(json!({
++        "installed": {},
++        "work": {},
++        "staging": {},
++    }));
++    let extensions_dir = extensions_tree.path().canonicalize().unwrap();
++
++    cx.update(|cx| {
++        SettingsStore::update_global(cx, |store, cx| {
++            store.update_user_settings(cx, |content| {
++                content.extension.local_registry =
++                    Some(registry_dir.to_string_lossy().into_owned());
++            });
++        });
++    });
++
++    let proxy = Arc::new(ExtensionHostProxy::new());
++    let node_runtime = NodeRuntime::unavailable();
++    let http_client = FakeHttpClient::with_404_response();
++    let extension_store = cx.new(|cx| {
++        ExtensionStore::new(
++            extensions_dir.clone(),
++            None,
++            proxy,
++            fs.clone(),
++            http_client.clone(),
++            http_client.clone(),
++            node_runtime,
++            cx,
++        )
++    });
++
++    let all = extension_store
++        .update(cx, |store, cx| store.fetch_extensions(None, None, cx))
++        .await
++        .unwrap();
++    assert_eq!(all.len(), 2, "both registry extensions should be listed");
++
++    let filtered = extension_store
++        .update(cx, |store, cx| store.fetch_extensions(Some("ruby"), None, cx))
++        .await
++        .unwrap();
++    assert_eq!(filtered.len(), 1);
++    assert_eq!(filtered[0].id.as_ref(), "ruby-lang");
++
++    let themes_only = extension_store
++        .update(cx, |store, cx| {
++            store.fetch_extensions(
++                None,
++                Some(&BTreeSet::from_iter([ExtensionProvides::Themes])),
++                cx,
++            )
++        })
++        .await
++        .unwrap();
++    assert_eq!(themes_only.len(), 1);
++    assert_eq!(themes_only[0].id.as_ref(), "airgap-theme");
++}
++
+ fn init_test(cx: &mut TestAppContext) {
+     cx.update(|cx| {
+         let store = SettingsStore::test(cx);
+diff --git a/crates/settings_content/src/extension.rs b/crates/settings_content/src/extension.rs
+index 708e4ab5fb..0ee88acdd7 100644
+--- a/crates/settings_content/src/extension.rs
++++ b/crates/settings_content/src/extension.rs
+@@ -25,7 +25,6 @@ pub struct ExtensionSettingsContent {
+     /// unset, the in-app marketplace shows only already-installed extensions.
+     ///
+     /// Default: null
+-    #[serde(default)]
+     pub local_registry: Option<String>,
+     /// The capabilities granted to extensions.
+     pub granted_extension_capabilities: Option<Vec<ExtensionCapabilityContent>>,

@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Wed, 17 Jun 2026 21:45:04 +0300
+Subject: [PATCH] rebase v1.7.2: fix create_new_window Option, title_bar layout
+ imports, registry Entity import
+
+---
+ crates/title_bar/src/title_bar.rs              | 3 ++-
+ crates/zed/src/zed/edit_prediction_registry.rs | 2 +-
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/crates/title_bar/src/title_bar.rs b/crates/title_bar/src/title_bar.rs
+index 2a1398d26f..a1bcec461e 100644
+--- a/crates/title_bar/src/title_bar.rs
++++ b/crates/title_bar/src/title_bar.rs
+@@ -30,6 +30,7 @@ use project::{
+     trusted_worktrees::TrustedWorktrees,
+ };
+ use remote::RemoteConnectionOptions;
++use agent_settings::{AgentSettings, WindowLayout};
+ use settings::{Settings as _, SettingsStore};
+ 
+ use std::any::TypeId;
+@@ -923,7 +924,7 @@ impl TitleBar {
+                 .on_click(|_event, window, cx| {
+                     window.dispatch_action(
+                         Box::new(zed_actions::OpenRecent {
+-                            create_new_window: false,
++                            create_new_window: Some(false),
+                         }),
+                         cx,
+                     )
+diff --git a/crates/zed/src/zed/edit_prediction_registry.rs b/crates/zed/src/zed/edit_prediction_registry.rs
+index a7519301d5..68bd70855d 100644
+--- a/crates/zed/src/zed/edit_prediction_registry.rs
++++ b/crates/zed/src/zed/edit_prediction_registry.rs
+@@ -2,7 +2,7 @@ use codestral::{CodestralEditPredictionDelegate, load_codestral_api_key};
+ use collections::HashMap;
+ use edit_prediction::{EditPredictionModel, ZedEditPredictionDelegate};
+ use editor::Editor;
+-use gpui::{AnyWindowHandle, App, AppContext as _, Context, WeakEntity};
++use gpui::{AnyWindowHandle, App, AppContext as _, Context, Entity, WeakEntity};
+ use language::{
+     ZetaVersion,
+     language_settings::{

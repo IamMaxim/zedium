@@ -9,7 +9,7 @@ This fork provisions the `remote_server` daemon onto SSH/Docker/WSL hosts from
     just remote-servers macos-aarch64   # on a macOS host
 
 Artifacts land in `zed/target/remote-servers-bundle/` as
-`zed-remote-server-<os>-<arch>.gz` and are copied into the app by the bundle
+`zedium-remote-server-<os>-<arch>.gz` and are copied into the app by the bundle
 scripts (`libexec/remote_servers/` on Linux, `Contents/MacOS/remote_servers/`
 on macOS). Debug symbols are stripped (mirrors upstream `script/bundle-linux`)
 to keep the compressed artifacts small.
@@ -29,13 +29,19 @@ to keep the compressed artifacts small.
 ## How the editor finds them
 
 At connect time the editor looks in `<exe_dir>/remote_servers/` for
-`zed-remote-server-<os>-<arch>.gz` matching the host, where `<exe_dir>` is the
+`zedium-remote-server-<os>-<arch>.gz` matching the host, where `<exe_dir>` is the
 directory of the running editor executable. Override the directory for
 development with `ZED_REMOTE_SERVER_BUNDLE_DIR`.
 
 The match is served from `download_server_binary_locally`; the existing
 transport pipeline uploads the `.gz` and `gunzip`s + `chmod`s + `mv`s it into
-place on the host. If no matching artifact is found, the connection fails with a
+place on the host as `zedium-remote-server-<channel>-<version>`.
+
+> **Upgrading from a pre-rename build:** the on-host binary was previously named
+> `zed-remote-server-<channel>-<version>`. The first connect after upgrading
+> uploads a fresh `zedium-`-named binary; the stale `zed-`-named ones are no
+> longer matched by `cleanup_old_binaries` and can be deleted by hand from the
+> remote server directory. If no matching artifact is found, the connection fails with a
 message naming the expected file and the `just remote-servers` recipe.
 
 ## Testing locally

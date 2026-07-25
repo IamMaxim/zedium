@@ -9,7 +9,7 @@
 #   linux-aarch64  -> aarch64-unknown-linux-musl  (cargo-zigbuild)
 #   macos-aarch64  -> aarch64-apple-darwin        (native cargo; macOS host only)
 #
-# Output: <OUT_DIR>/zed-remote-server-<os>-<arch>.gz
+# Output: <OUT_DIR>/zedium-remote-server-<os>-<arch>.gz
 # OUT_DIR defaults to zed/target/remote-servers-bundle (override via OUT_DIR env).
 set -euo pipefail
 
@@ -36,7 +36,7 @@ build_one() {
     local logical="$1"
     local triple
     triple="$(triple_for "$logical")" || exit 1
-    local artifact="${out_dir}/zed-remote-server-${logical}.gz"
+    local artifact="${out_dir}/zedium-remote-server-${logical}.gz"
 
     echo ">>> building remote_server for ${logical} (${triple})"
     # Add the target to the toolchain cargo will actually use. zed/ pins a

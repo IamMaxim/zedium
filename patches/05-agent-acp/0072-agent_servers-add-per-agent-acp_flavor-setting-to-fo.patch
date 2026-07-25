@@ -1,0 +1,328 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Tue, 23 Jun 2026 23:38:00 +0300
+Subject: [PATCH] agent_servers: add per-agent acp_flavor setting to force
+ subagent grouping
+
+The subagent-grouping adapter was auto-selected from the agent's self-reported
+name, which differs across environments. Add an `acp_flavor` setting on each
+agent under `agent_servers` ("auto" | "qwen" | "none"; default auto). An explicit
+value forces or disables qwen-style grouping; "auto" keeps the name-based
+detection. Threaded settings_content::AcpFlavor -> project (From + accessor) ->
+custom::connect -> AcpConnection::stdio, where it overrides the name match.
+
+Verified: cargo check --workspace exit 0; cargo test -p acp_thread 76 passed.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_018eQmq1oThzqNcQsJ1hT2Tg
+---
+ crates/agent_servers/src/acp.rs               | 19 ++++++++--
+ crates/agent_servers/src/custom.rs            | 10 +++++
+ crates/agent_ui/src/agent_registry_ui.rs      |  1 +
+ crates/onboarding/src/basics_page.rs          |  1 +
+ crates/project/src/agent_server_store.rs      | 18 +++++++++
+ crates/settings_content/src/agent.rs          | 37 +++++++++++++++++++
+ ...2026-06-23-acp-subagent-grouping-design.md | 21 ++++++++++-
+ 7 files changed, 102 insertions(+), 5 deletions(-)
+
+diff --git a/crates/agent_servers/src/acp.rs b/crates/agent_servers/src/acp.rs
+index 84565a5604..8f14e4dc72 100644
+--- a/crates/agent_servers/src/acp.rs
++++ b/crates/agent_servers/src/acp.rs
+@@ -641,6 +641,7 @@ pub async fn connect(
+     agent_server_store: WeakEntity<AgentServerStore>,
+     default_mode: Option<acp::SessionModeId>,
+     default_config_options: HashMap<String, AgentConfigOptionValue>,
++    acp_flavor: settings::AcpFlavor,
+     cx: &mut AsyncApp,
+ ) -> Result<Rc<dyn AgentConnection>> {
+     let conn = AcpConnection::stdio(
+@@ -650,6 +651,7 @@ pub async fn connect(
+         agent_server_store,
+         default_mode,
+         default_config_options,
++        acp_flavor,
+         cx,
+     )
+     .await?;
+@@ -812,6 +814,7 @@ impl AcpConnection {
+         agent_server_store: WeakEntity<AgentServerStore>,
+         default_mode: Option<acp::SessionModeId>,
+         default_config_options: HashMap<String, AgentConfigOptionValue>,
++        acp_flavor: settings::AcpFlavor,
+         cx: &mut AsyncApp,
+     ) -> Result<Self> {
+         let root_dir = project.read_with(cx, |project, cx| {
+@@ -1079,12 +1082,18 @@ impl AcpConnection {
+         } else {
+             response.auth_methods
+         };
+-        // Select a subagent-grouping adapter from the agent's self-reported name.
++        // Select a subagent-grouping adapter. An explicit `acp_flavor` in settings
++        // forces a specific behavior (useful when an agent reports a name Zed does
++        // not recognize); `Auto` detects from the agent's self-reported name.
+         // qwen-code expresses subagents as flat same-session tool calls tagged via
+         // meta, which the Qwen adapter reconstructs into a tree.
+-        let subagent_grouping: Option<Rc<dyn SubagentGrouping>> = match telemetry_id.as_ref() {
+-            "qwen-code" => Some(Rc::new(QwenSubagentGrouping)),
+-            _ => None,
++        let subagent_grouping: Option<Rc<dyn SubagentGrouping>> = match acp_flavor {
++            settings::AcpFlavor::Qwen => Some(Rc::new(QwenSubagentGrouping)),
++            settings::AcpFlavor::None => None,
++            settings::AcpFlavor::Auto => match telemetry_id.as_ref() {
++                "qwen-code" => Some(Rc::new(QwenSubagentGrouping)),
++                _ => None,
++            },
+         };
+ 
+         let defaults = AcpConnectionDefaults::new(default_mode, default_config_options);
+@@ -3520,6 +3529,7 @@ mod tests {
+                             AgentConfigOptionValue::from("manual"),
+                         )]),
+                         favorite_config_option_values: HashMap::default(),
++                        acp_flavor: None,
+                     }
+                     .into(),
+                 )])),
+@@ -3744,6 +3754,7 @@ mod tests {
+             agent_server_store,
+             None,
+             HashMap::default(),
++            settings::AcpFlavor::Auto,
+             &mut async_cx,
+         )
+         .fuse();
+diff --git a/crates/agent_servers/src/custom.rs b/crates/agent_servers/src/custom.rs
+index b674465630..4fa5704b8b 100644
+--- a/crates/agent_servers/src/custom.rs
++++ b/crates/agent_servers/src/custom.rs
+@@ -215,6 +215,13 @@ impl AgentServer for CustomAgentServer {
+                 })
+                 .unwrap_or_default()
+         });
++        let acp_flavor = cx.read_global(|settings: &SettingsStore, _| {
++            settings
++                .get::<AllAgentServersSettings>(None)
++                .get(self.agent_id().as_ref())
++                .map(|s| s.acp_flavor())
++                .unwrap_or_default()
++        });
+ 
+         let mut extra_env = load_proxy_env(cx);
+         if delegate.store.read(cx).no_browser() {
+@@ -267,6 +274,7 @@ impl AgentServer for CustomAgentServer {
+                 store.clone(),
+                 default_mode,
+                 default_config_options,
++                acp_flavor,
+                 cx,
+             )
+             .await?;
+@@ -321,6 +329,7 @@ fn default_settings_for_agent() -> settings::CustomAgentServerSettings {
+         env: Default::default(),
+         default_config_options: Default::default(),
+         favorite_config_option_values: Default::default(),
++        acp_flavor: None,
+     }
+ }
+ 
+@@ -415,6 +424,7 @@ mod tests {
+                     default_mode: None,
+                     default_config_options: HashMap::default(),
+                     favorite_config_option_values: HashMap::default(),
++                    acp_flavor: None,
+                 },
+             )],
+         );
+diff --git a/crates/agent_ui/src/agent_registry_ui.rs b/crates/agent_ui/src/agent_registry_ui.rs
+index a3c5b863f1..0600e0efe2 100644
+--- a/crates/agent_ui/src/agent_registry_ui.rs
++++ b/crates/agent_ui/src/agent_registry_ui.rs
+@@ -489,6 +489,7 @@ impl AgentRegistryPage {
+                                         env: Default::default(),
+                                         default_config_options: HashMap::default(),
+                                         favorite_config_option_values: HashMap::default(),
++                                        acp_flavor: None,
+                                     }
+                                 });
+                             }
+diff --git a/crates/onboarding/src/basics_page.rs b/crates/onboarding/src/basics_page.rs
+index 32faf6a929..30ae0e5d6b 100644
+--- a/crates/onboarding/src/basics_page.rs
++++ b/crates/onboarding/src/basics_page.rs
+@@ -465,6 +465,7 @@ fn render_registry_agent_button(
+                             default_mode: None,
+                             default_config_options: HashMap::default(),
+                             favorite_config_option_values: HashMap::default(),
++                            acp_flavor: None,
+                         }
+                     });
+                 }
+diff --git a/crates/project/src/agent_server_store.rs b/crates/project/src/agent_server_store.rs
+index 0983db16d8..8f0a2428ce 100644
+--- a/crates/project/src/agent_server_store.rs
++++ b/crates/project/src/agent_server_store.rs
+@@ -235,6 +235,7 @@ impl AgentServerStore {
+                     env: Default::default(),
+                     default_config_options: HashMap::default(),
+                     favorite_config_option_values: HashMap::default(),
++                    acp_flavor: None,
+                 }),
+             );
+         });
+@@ -1526,6 +1527,9 @@ pub enum CustomAgentServerSettings {
+         ///
+         /// Default: {}
+         favorite_config_option_values: HashMap<String, Vec<String>>,
++        /// Which ACP provider's subagent convention to use for grouping subagent
++        /// tool calls.
++        acp_flavor: settings::AcpFlavor,
+     },
+     Registry {
+         /// Additional environment variables to pass to the agent.
+@@ -1550,10 +1554,20 @@ pub enum CustomAgentServerSettings {
+         ///
+         /// Default: {}
+         favorite_config_option_values: HashMap<String, Vec<String>>,
++        /// Which ACP provider's subagent convention to use for grouping subagent
++        /// tool calls.
++        acp_flavor: settings::AcpFlavor,
+     },
+ }
+ 
+ impl CustomAgentServerSettings {
++    pub fn acp_flavor(&self) -> settings::AcpFlavor {
++        match self {
++            CustomAgentServerSettings::Custom { acp_flavor, .. }
++            | CustomAgentServerSettings::Registry { acp_flavor, .. } => *acp_flavor,
++        }
++    }
++
+     pub fn command(&self) -> Option<&AgentServerCommand> {
+         match self {
+             CustomAgentServerSettings::Custom { command, .. } => Some(command),
+@@ -1607,6 +1621,7 @@ impl From<settings::CustomAgentServerSettings> for CustomAgentServerSettings {
+                 default_mode,
+                 default_config_options,
+                 favorite_config_option_values,
++                acp_flavor,
+             } => CustomAgentServerSettings::Custom {
+                 command: AgentServerCommand {
+                     path: PathBuf::from(shellexpand::tilde(&path.to_string_lossy()).as_ref()),
+@@ -1616,17 +1631,20 @@ impl From<settings::CustomAgentServerSettings> for CustomAgentServerSettings {
+                 default_mode,
+                 default_config_options,
+                 favorite_config_option_values,
++                acp_flavor: acp_flavor.unwrap_or_default(),
+             },
+             settings::CustomAgentServerSettings::Registry {
+                 env,
+                 default_mode,
+                 default_config_options,
+                 favorite_config_option_values,
++                acp_flavor,
+             } => CustomAgentServerSettings::Registry {
+                 env,
+                 default_mode,
+                 default_config_options,
+                 favorite_config_option_values,
++                acp_flavor: acp_flavor.unwrap_or_default(),
+             },
+         }
+     }
+diff --git a/crates/settings_content/src/agent.rs b/crates/settings_content/src/agent.rs
+index 0d27b3f9a8..2b5c351dcb 100644
+--- a/crates/settings_content/src/agent.rs
++++ b/crates/settings_content/src/agent.rs
+@@ -716,6 +716,33 @@ impl From<bool> for AgentConfigOptionValue {
+     }
+ }
+ 
++/// Which ACP provider's subagent convention to use when grouping subagent tool
++/// calls. `Auto` detects from the agent's self-reported name; the other values
++/// force a specific behavior, useful when an agent reports a name Zed does not
++/// recognize.
++#[derive(
++    Clone,
++    Copy,
++    Debug,
++    Default,
++    PartialEq,
++    Eq,
++    Serialize,
++    Deserialize,
++    JsonSchema,
++    MergeFrom,
++)]
++#[serde(rename_all = "snake_case")]
++pub enum AcpFlavor {
++    /// Detect the subagent convention from the agent's reported name.
++    #[default]
++    Auto,
++    /// Force qwen-code's same-session, parent-pointer subagent grouping.
++    Qwen,
++    /// Disable subagent grouping for this agent.
++    None,
++}
++
+ #[with_fallible_options]
+ #[derive(Deserialize, Serialize, Clone, JsonSchema, MergeFrom, Debug, PartialEq)]
+ #[serde(tag = "type", rename_all = "snake_case")]
+@@ -748,6 +775,11 @@ pub enum CustomAgentServerSettings {
+         /// Default: {}
+         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+         favorite_config_option_values: HashMap<String, Vec<String>>,
++        /// Which ACP provider's subagent convention to use for grouping subagent
++        /// tool calls (`auto`, `qwen`, or `none`).
++        ///
++        /// Default: auto
++        acp_flavor: Option<AcpFlavor>,
+     },
+     // Used for the ACP extension migration
+     #[serde(alias = "extension")]
+@@ -777,6 +809,11 @@ pub enum CustomAgentServerSettings {
+         /// Default: {}
+         #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+         favorite_config_option_values: HashMap<String, Vec<String>>,
++        /// Which ACP provider's subagent convention to use for grouping subagent
++        /// tool calls (`auto`, `qwen`, or `none`).
++        ///
++        /// Default: auto
++        acp_flavor: Option<AcpFlavor>,
+     },
+ }
+ 
+diff --git a/docs/superpowers/specs/2026-06-23-acp-subagent-grouping-design.md b/docs/superpowers/specs/2026-06-23-acp-subagent-grouping-design.md
+index 5601aa49f6..6a925ee60d 100644
+--- a/docs/superpowers/specs/2026-06-23-acp-subagent-grouping-design.md
++++ b/docs/superpowers/specs/2026-06-23-acp-subagent-grouping-design.md
+@@ -129,9 +129,28 @@ fn subagent_grouping(&self) -> Option<Rc<dyn SubagentGrouping>> { None }
+ 
+ - `NativeAgentConnection` returns `NativeSubagentGrouping`.
+ - `AcpConnection` (`crates/agent_servers/src/acp.rs`) returns an adapter chosen from the
+-  agent's reported `agentInfo.name` (e.g. `"qwen-code"` → `QwenSubagentGrouping`).
++  per-agent `acp_flavor` setting, falling back to the agent's reported `agentInfo.name`.
+ - Unknown providers → `None` → today's flat behavior, **zero regression**.
+ 
++### Manual flavor override (`acp_flavor` setting)
++
++Because an agent's self-reported name varies across environments, each agent under
++`agent_servers` in settings takes an optional `acp_flavor`:
++
++```json
++"agent_servers": {
++  "my-qwen-thing": {
++    "command": { "path": "qwen", "args": ["--acp"] },
++    "acp_flavor": "qwen"
++  }
++}
++```
++
++Values: `auto` (default — detect from the reported name), `qwen` (force qwen grouping),
++`none` (disable grouping). Defined as `settings_content::AcpFlavor`, carried through
++`project::CustomAgentServerSettings::acp_flavor()` and `agent_servers::custom::connect`
++into `AcpConnection::stdio`, where it overrides the name-based selection.
++
+ This trait + the `subagent_grouping()` connection method is the concrete "extension point
+ for ACP providers" the exploration set out to find.
+ 

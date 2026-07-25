@@ -1,0 +1,1102 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Wed, 22 Jul 2026 22:55:54 +0300
+Subject: [PATCH] database_client: wire the extracted crate into the v1.11.3
+ workspace
+
+The database_client crate lives in the parent repo (zedium/crates/database_client);
+join it to the zed workspace via an in-tree symlink (crates/database_client ->
+../../crates/database_client) since an out-of-root member can't resolve
+workspace.package inheritance.
+
+Wiring:
+- Cargo: workspace member + dep (path = crates/database_client), zed dep,
+  tokio-postgres / tokio-postgres-rustls workspace deps.
+- settings_content: add `database` field + DatabaseSettingsContent /
+  Database{Sidebar,Toolbar}SettingsContent (reconstructed from patches
+  0126/0148/0179/0212/0226). vscode_import: database: None.
+- icons: add Calendar/Database/Fingerprint/Key/Table/ToggleLeft variants + SVGs.
+- init: database_client::init(cx) in main.rs (prod) + zed.rs (test).
+
+v1.11.3 crate API drift fixed: PickerDelegate::name (object_search,
+query_history); highlight_rows now takes fn(&App) -> Hsla (query_view).
+
+cargo check --workspace: 0 errors. just verify: pass.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Cargo.lock                                    | 390 ++++++++++++++++--
+ Cargo.toml                                    |   4 +
+ assets/icons/calendar.svg                     |   1 +
+ assets/icons/database.svg                     |   1 +
+ assets/icons/fingerprint.svg                  |   1 +
+ assets/icons/key.svg                          |   1 +
+ assets/icons/table.svg                        |   1 +
+ assets/icons/toggle_left.svg                  |   1 +
+ crates/database_client                        |   1 +
+ crates/icons/src/icons.rs                     |   6 +
+ crates/settings/src/vscode_import.rs          |   1 +
+ .../settings_content/src/settings_content.rs  |  94 +++++
+ crates/zed/Cargo.toml                         |   1 +
+ crates/zed/src/main.rs                        |   1 +
+ crates/zed/src/zed.rs                         |   3 +
+ 15 files changed, 472 insertions(+), 35 deletions(-)
+ create mode 100644 assets/icons/calendar.svg
+ create mode 100644 assets/icons/database.svg
+ create mode 100644 assets/icons/fingerprint.svg
+ create mode 100644 assets/icons/key.svg
+ create mode 100644 assets/icons/table.svg
+ create mode 100644 assets/icons/toggle_left.svg
+ create mode 120000 crates/database_client
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 52aec6e282..f8f9d3e51b 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -228,7 +228,7 @@ checksum = "b169f7a6d4742236a0a00c541b845991d0ac43e546831af1249753ab4c3aa3a0"
+ dependencies = [
+  "cfg-if",
+  "cipher",
+- "cpufeatures",
++ "cpufeatures 0.2.17",
+  "zeroize",
+ ]
+ 
+@@ -1637,6 +1637,15 @@ dependencies = [
+  "generic-array",
+ ]
+ 
++[[package]]
++name = "block-buffer"
++version = "0.12.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d2f6c7dbe95a6ed67ad9f18e57daf93a2f034c524b99fd2b76d18fdfeb6660aa"
++dependencies = [
++ "hybrid-array",
++]
++
+ [[package]]
+ name = "block-padding"
+ version = "0.3.3"
+@@ -2176,6 +2185,17 @@ dependencies = [
+  "num-traits",
+ ]
+ 
++[[package]]
++name = "chacha20"
++version = "0.10.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "d524456ba66e72eb8b115ff89e01e497f8e6d11d78b70b1aa13c0fbd97540a81"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.3.0",
++ "rand_core 0.10.1",
++]
++
+ [[package]]
+ name = "chardetng"
+ version = "0.1.17"
+@@ -2240,7 +2260,7 @@ version = "0.4.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "773f3b9af64447d2ce9850330c473515014aa235e6a783b02db81ff39e4a3dad"
+ dependencies = [
+- "crypto-common",
++ "crypto-common 0.1.6",
+  "inout",
+  "zeroize",
+ ]
+@@ -2392,7 +2412,7 @@ dependencies = [
+  "serde_json",
+  "serde_urlencoded",
+  "settings",
+- "sha2",
++ "sha2 0.10.9",
+  "smol",
+  "telemetry_events",
+  "text",
+@@ -2471,6 +2491,12 @@ dependencies = [
+  "cc",
+ ]
+ 
++[[package]]
++name = "cmov"
++version = "0.5.4"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0c9ea0ac24bc397ab3c98583a3c9ba74fa56b09a4449bbe172b9b1ddb016027a"
++
+ [[package]]
+ name = "cobs"
+ version = "0.3.0"
+@@ -2773,6 +2799,12 @@ version = "0.9.6"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+ 
++[[package]]
++name = "const-oid"
++version = "0.10.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "a6ef517f0926dd24a1582492c791b6a4818a4d94e789a334894aa15b0d12f55c"
++
+ [[package]]
+ name = "const-random"
+ version = "0.1.18"
+@@ -2837,7 +2869,7 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "settings",
+- "sha2",
++ "sha2 0.10.9",
+  "slotmap",
+  "tempfile",
+  "url",
+@@ -3110,6 +3142,15 @@ dependencies = [
+  "libc",
+ ]
+ 
++[[package]]
++name = "cpufeatures"
++version = "0.3.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
++dependencies = [
++ "libc",
++]
++
+ [[package]]
+ name = "cranelift-assembler-x64"
+ version = "0.123.12"
+@@ -3171,7 +3212,7 @@ dependencies = [
+  "rustc-hash 2.1.1",
+  "serde",
+  "serde_derive",
+- "sha2",
++ "sha2 0.10.9",
+  "smallvec",
+  "target-lexicon",
+  "wasmtime-internal-math",
+@@ -3418,6 +3459,15 @@ dependencies = [
+  "typenum",
+ ]
+ 
++[[package]]
++name = "crypto-common"
++version = "0.2.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
++dependencies = [
++ "hybrid-array",
++]
++
+ [[package]]
+ name = "cssparser"
+ version = "0.35.0"
+@@ -3489,6 +3539,15 @@ dependencies = [
+  "windows-sys 0.61.2",
+ ]
+ 
++[[package]]
++name = "ctutils"
++version = "0.4.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7d5515a3834141de9eafb9717ad39eea8247b5674e6066c404e8c4b365d2a29e"
++dependencies = [
++ "cmov",
++]
++
+ [[package]]
+ name = "cursor-icon"
+ version = "1.2.0"
+@@ -3722,6 +3781,41 @@ version = "0.3.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
+ 
++[[package]]
++name = "database_client"
++version = "0.1.0"
++dependencies = [
++ "anyhow",
++ "db",
++ "editor",
++ "fs",
++ "futures 0.3.32",
++ "gpui",
++ "gpui_tokio",
++ "language",
++ "log",
++ "menu",
++ "paths",
++ "picker",
++ "project",
++ "rustls",
++ "rustls-platform-verifier",
++ "serde",
++ "serde_json",
++ "settings",
++ "smallvec",
++ "tempfile",
++ "theme",
++ "theme_settings",
++ "tokio",
++ "tokio-postgres",
++ "tokio-postgres-rustls",
++ "ui",
++ "util",
++ "workspace",
++ "zed_actions",
++]
++
+ [[package]]
+ name = "db"
+ version = "0.1.0"
+@@ -3863,11 +3957,24 @@ version = "0.7.10"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "e7c1832837b905bbfb5101e07cc24c8deddf52f93225eee6ead5f4d63d53ddcb"
+ dependencies = [
+- "const-oid",
++ "const-oid 0.9.6",
++ "der_derive",
++ "flagset",
+  "pem-rfc7468",
+  "zeroize",
+ ]
+ 
++[[package]]
++name = "der_derive"
++version = "0.7.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8034092389675178f570469e6c3b0465d3d30b4505c294a6550db47f3c17ad18"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.117",
++]
++
+ [[package]]
+ name = "deranged"
+ version = "0.5.4"
+@@ -4053,12 +4160,24 @@ version = "0.10.7"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
+ dependencies = [
+- "block-buffer",
+- "const-oid",
+- "crypto-common",
++ "block-buffer 0.10.4",
++ "const-oid 0.9.6",
++ "crypto-common 0.1.6",
+  "subtle",
+ ]
+ 
++[[package]]
++name = "digest"
++version = "0.11.3"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f1dd6dbb5841937940781866fa1281a1ff7bd3bf827091440879f9994983d5c2"
++dependencies = [
++ "block-buffer 0.12.1",
++ "const-oid 0.10.2",
++ "crypto-common 0.2.2",
++ "ctutils",
++]
++
+ [[package]]
+ name = "dirs"
+ version = "6.0.0"
+@@ -5102,6 +5221,12 @@ version = "0.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "c942e64b20ecd39933d5ff938ca4fdb6ef0d298cc3855b231179a5ef0b24948d"
+ 
++[[package]]
++name = "fallible-iterator"
++version = "0.2.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "4443176a9f2c162692bd3d352d745ef9413eec5782a80d8fd6f8a1ac692a07f7"
++
+ [[package]]
+ name = "fallible-iterator"
+ version = "0.3.0"
+@@ -5300,6 +5425,12 @@ version = "0.5.7"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+ 
++[[package]]
++name = "flagset"
++version = "0.4.7"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b7ac824320a75a52197e8f2d787f6a38b6718bb6897a35142d749af3c0e8f4fe"
++
+ [[package]]
+ name = "flate2"
+ version = "1.1.8"
+@@ -5810,6 +5941,7 @@ dependencies = [
+  "cfg-if",
+  "libc",
+  "r-efi",
++ "rand_core 0.10.1",
+  "wasip2",
+  "wasip3",
+ ]
+@@ -5857,7 +5989,7 @@ version = "0.32.3"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "e629b9b98ef3dd8afe6ca2bd0f89306cec16d43d907889945bc5d6687f2f13c7"
+ dependencies = [
+- "fallible-iterator",
++ "fallible-iterator 0.3.0",
+  "indexmap 2.14.0",
+  "stable_deref_trait",
+ ]
+@@ -6893,7 +7025,7 @@ version = "0.12.4"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+ dependencies = [
+- "hmac",
++ "hmac 0.12.1",
+ ]
+ 
+ [[package]]
+@@ -6902,7 +7034,16 @@ version = "0.12.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+ dependencies = [
+- "digest",
++ "digest 0.10.7",
++]
++
++[[package]]
++name = "hmac"
++version = "0.13.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "6303bc9732ae41b04cb554b844a762b4115a61bfaa81e3e83050991eeb56863f"
++dependencies = [
++ "digest 0.11.3",
+ ]
+ 
+ [[package]]
+@@ -7044,7 +7185,7 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "serde_urlencoded",
+- "sha2",
++ "sha2 0.10.9",
+  "tempfile",
+  "url",
+  "util",
+@@ -7098,6 +7239,15 @@ version = "2.3.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
+ 
++[[package]]
++name = "hybrid-array"
++version = "0.4.10"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3944cf8cf766b40e2a1a333ee5e9b563f854d5fa49d6a8ca2764e97c6eddb214"
++dependencies = [
++ "typenum",
++]
++
+ [[package]]
+ name = "hyper"
+ version = "0.14.32"
+@@ -8274,7 +8424,7 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "settings",
+- "sha2",
++ "sha2 0.10.9",
+  "smol",
+  "strum 0.27.2",
+  "ui",
+@@ -9039,7 +9189,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "d89e7ee0cfbedfc4da3340218492196241d89eefb6dab27de5df917a6d2e78cf"
+ dependencies = [
+  "cfg-if",
+- "digest",
++ "digest 0.10.7",
++]
++
++[[package]]
++name = "md-5"
++version = "0.11.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98"
++dependencies = [
++ "cfg-if",
++ "digest 0.11.3",
+ ]
+ 
+ [[package]]
+@@ -10436,20 +10596,20 @@ dependencies = [
+  "blocking",
+  "cbc",
+  "cipher",
+- "digest",
++ "digest 0.10.7",
+  "endi",
+  "futures-lite 2.6.1",
+  "futures-util",
+  "getrandom 0.4.1",
+  "hkdf",
+- "hmac",
+- "md-5",
++ "hmac 0.12.1",
++ "md-5 0.10.6",
+  "num",
+  "num-bigint-dig 0.9.1",
+  "pbkdf2",
+  "serde",
+  "serde_bytes",
+- "sha2",
++ "sha2 0.10.9",
+  "subtle",
+  "zbus",
+  "zbus_macros",
+@@ -10837,8 +10997,8 @@ version = "0.12.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f8ed6a7761f76e3b9f92dfb0a60a6a6477c61024b775147ff0973a02653abaf2"
+ dependencies = [
+- "digest",
+- "hmac",
++ "digest 0.10.7",
++ "hmac 0.12.1",
+ ]
+ 
+ [[package]]
+@@ -10948,7 +11108,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "72f27a2cfee9f9039c4d86faa5af122a0ac3851441a34865b8a043b46be0065a"
+ dependencies = [
+  "pest",
+- "sha2",
++ "sha2 0.10.9",
+ ]
+ 
+ [[package]]
+@@ -11196,7 +11356,7 @@ dependencies = [
+  "regex",
+  "serde",
+  "serde_json",
+- "sha2",
++ "sha2 0.10.9",
+  "toml 0.8.23",
+ ]
+ 
+@@ -11232,7 +11392,7 @@ dependencies = [
+  "regex",
+  "serde",
+  "serde_json",
+- "sha2",
++ "sha2 0.10.9",
+ ]
+ 
+ [[package]]
+@@ -11842,6 +12002,35 @@ dependencies = [
+  "serde",
+ ]
+ 
++[[package]]
++name = "postgres-protocol"
++version = "0.6.12"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "08808e3c483c46e999108051c78334f473d5adb59d78bb80a1268c7e6aa6c514"
++dependencies = [
++ "base64 0.22.1",
++ "byteorder",
++ "bytes 1.11.1",
++ "fallible-iterator 0.2.0",
++ "hmac 0.13.0",
++ "md-5 0.11.0",
++ "memchr",
++ "rand 0.10.2",
++ "sha2 0.11.0",
++ "stringprep",
++]
++
++[[package]]
++name = "postgres-types"
++version = "0.2.14"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "851ca9db4932932d69f3ea811b1abe63087a0f740a47692619dd40d4899b68be"
++dependencies = [
++ "bytes 1.11.1",
++ "fallible-iterator 0.2.0",
++ "postgres-protocol",
++]
++
+ [[package]]
+ name = "potential_utf"
+ version = "0.1.3"
+@@ -12066,7 +12255,7 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "settings",
+- "sha2",
++ "sha2 0.10.9",
+  "shellexpand",
+  "smallvec",
+  "smol",
+@@ -12564,6 +12753,17 @@ dependencies = [
+  "rand_core 0.9.3",
+ ]
+ 
++[[package]]
++name = "rand"
++version = "0.10.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c7f5fa3a058cd35567ef9bfa5e75732bee0f9e4c55fa90477bef2dfcdbc4be80"
++dependencies = [
++ "chacha20",
++ "getrandom 0.4.1",
++ "rand_core 0.10.1",
++]
++
+ [[package]]
+ name = "rand_chacha"
+ version = "0.3.1"
+@@ -12602,6 +12802,12 @@ dependencies = [
+  "getrandom 0.3.4",
+ ]
+ 
++[[package]]
++name = "rand_core"
++version = "0.10.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "63b8176103e19a2643978565ca18b50549f6101881c443590420e4dc998a3c69"
++
+ [[package]]
+ name = "rand_distr"
+ version = "0.5.1"
+@@ -13333,7 +13539,7 @@ dependencies = [
+  "rsa",
+  "serde",
+  "serde_json",
+- "sha2",
++ "sha2 0.10.9",
+  "strum 0.27.2",
+  "tracing",
+  "util",
+@@ -13347,8 +13553,8 @@ version = "0.9.10"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "b8573f03f5883dcaebdfcf4725caa1ecb9c15b2ef50c43a07b816e06799bb12d"
+ dependencies = [
+- "const-oid",
+- "digest",
++ "const-oid 0.9.6",
++ "digest 0.10.7",
+  "num-bigint-dig 0.8.6",
+  "num-integer",
+  "num-traits",
+@@ -13434,7 +13640,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "5bcdef0be6fe7f6fa333b1073c949729274b05f123a0ad7efcb8efd878e5c3b1"
+ dependencies = [
+  "globset",
+- "sha2",
++ "sha2 0.10.9",
+  "walkdir",
+ ]
+ 
+@@ -14337,8 +14543,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "e3bf829a2d51ab4a5ddf1352d8470c140cadc8301b2ae1789db023f01cedd6ba"
+ dependencies = [
+  "cfg-if",
+- "cpufeatures",
+- "digest",
++ "cpufeatures 0.2.17",
++ "digest 0.10.7",
+ ]
+ 
+ [[package]]
+@@ -14354,8 +14560,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "a7507d819769d01a365ab707794a4084392c824f54a7a6a7862f8c3d0892b283"
+ dependencies = [
+  "cfg-if",
+- "cpufeatures",
+- "digest",
++ "cpufeatures 0.2.17",
++ "digest 0.10.7",
++]
++
++[[package]]
++name = "sha2"
++version = "0.11.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "446ba717509524cb3f22f17ecc096f10f4822d76ab5c0b9822c5f9c284e825f4"
++dependencies = [
++ "cfg-if",
++ "cpufeatures 0.3.0",
++ "digest 0.11.3",
+ ]
+ 
+ [[package]]
+@@ -14483,7 +14700,7 @@ version = "2.2.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "77549399552de45a898a580c1b41d445bf730df867cc44e6c0233bbc4b8329de"
+ dependencies = [
+- "digest",
++ "digest 0.10.7",
+  "rand_core 0.6.4",
+ ]
+ 
+@@ -14914,6 +15131,17 @@ dependencies = [
+  "quote",
+ ]
+ 
++[[package]]
++name = "stringprep"
++version = "0.1.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "7b4df3d392d81bd458a8a621b8bffbd2302a12ffe288a9d931670948749463b1"
++dependencies = [
++ "unicode-bidi",
++ "unicode-normalization",
++ "unicode-properties",
++]
++
+ [[package]]
+ name = "strsim"
+ version = "0.10.0"
+@@ -15509,7 +15737,7 @@ dependencies = [
+  "serde",
+  "serde_json",
+  "serde_json_lenient",
+- "sha2",
++ "sha2 0.10.9",
+  "shellexpand",
+  "util",
+  "zed_actions",
+@@ -16021,6 +16249,27 @@ dependencies = [
+  "zed_actions",
+ ]
+ 
++[[package]]
++name = "tls_codec"
++version = "0.4.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "0de2e01245e2bb89d6f05801c564fa27624dbd7b1846859876c7dad82e90bf6b"
++dependencies = [
++ "tls_codec_derive",
++ "zeroize",
++]
++
++[[package]]
++name = "tls_codec_derive"
++version = "0.4.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2d2e76690929402faae40aebdda620a2c0e25dd6d3b9afe48867dfd95991f4bd"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 2.0.117",
++]
++
+ [[package]]
+ name = "tokio"
+ version = "1.52.1"
+@@ -16070,6 +16319,47 @@ dependencies = [
+  "tokio",
+ ]
+ 
++[[package]]
++name = "tokio-postgres"
++version = "0.7.15"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "2b40d66d9b2cfe04b628173409368e58247e8eddbbd3b0e6c6ba1d09f20f6c9e"
++dependencies = [
++ "async-trait",
++ "byteorder",
++ "bytes 1.11.1",
++ "fallible-iterator 0.2.0",
++ "futures-channel",
++ "futures-util",
++ "log",
++ "parking_lot",
++ "percent-encoding",
++ "phf 0.13.1",
++ "pin-project-lite",
++ "postgres-protocol",
++ "postgres-types",
++ "rand 0.9.4",
++ "socket2 0.6.3",
++ "tokio",
++ "tokio-util",
++ "whoami",
++]
++
++[[package]]
++name = "tokio-postgres-rustls"
++version = "0.13.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "27d684bad428a0f2481f42241f821db42c54e2dc81d8c00db8536c506b0a0144"
++dependencies = [
++ "const-oid 0.9.6",
++ "ring",
++ "rustls",
++ "tokio",
++ "tokio-postgres",
++ "tokio-rustls",
++ "x509-cert",
++]
++
+ [[package]]
+ name = "tokio-rustls"
+ version = "0.26.4"
+@@ -17331,6 +17621,12 @@ dependencies = [
+  "wit-bindgen 0.51.0",
+ ]
+ 
++[[package]]
++name = "wasite"
++version = "0.1.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "b8dad83b4f25e74f184f64c43b150b91efe7647395b42289f38e50566d82855b"
++
+ [[package]]
+ name = "wasm-bindgen"
+ version = "0.2.120"
+@@ -18283,6 +18579,17 @@ dependencies = [
+  "workspace",
+ ]
+ 
++[[package]]
++name = "whoami"
++version = "1.6.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "5d4a4db5077702ca3015d3d02d74974948aba2ad9e12ab7df718ee64ccd7e97d"
++dependencies = [
++ "libredox",
++ "wasite",
++ "web-sys",
++]
++
+ [[package]]
+ name = "wide"
+ version = "0.7.33"
+@@ -19665,6 +19972,18 @@ version = "0.13.2"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "ea6fc2961e4ef194dcbfe56bb845534d0dc8098940c7e5c012a258bfec6701bd"
+ 
++[[package]]
++name = "x509-cert"
++version = "0.2.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1301e935010a701ae5f8655edc0ad17c44bad3ac5ce8c39185f75453b720ae94"
++dependencies = [
++ "const-oid 0.9.6",
++ "der",
++ "spki",
++ "tls_codec",
++]
++
+ [[package]]
+ name = "xattr"
+ version = "0.2.3"
+@@ -19974,6 +20293,7 @@ dependencies = [
+  "crashes",
+  "csv_preview",
+  "dap_adapters",
++ "database_client",
+  "db",
+  "debug_adapter_extension",
+  "debugger_tools",
+diff --git a/Cargo.toml b/Cargo.toml
+index 8c62cf452d..a066c75dfe 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -35,6 +35,7 @@ members = [
+     "crates/csv_preview",
+     "crates/dap",
+     "crates/dap_adapters",
++    "crates/database_client",
+     "crates/db",
+     "crates/debug_adapter_extension",
+     "crates/debugger_tools",
+@@ -280,6 +281,7 @@ crossbeam = "0.8.4"
+ csv_preview = { path = "crates/csv_preview"}
+ dap = { path = "crates/dap" }
+ dap_adapters = { path = "crates/dap_adapters" }
++database_client = { path = "crates/database_client" }
+ db = { path = "crates/db" }
+ debug_adapter_extension = { path = "crates/debug_adapter_extension" }
+ debugger_tools = { path = "crates/debugger_tools" }
+@@ -736,6 +738,8 @@ time = { version = "0.3", features = [
+ ] }
+ tiny_http = "0.12"
+ tokio = { version = "1" }
++tokio-postgres = { version = "0.7" }
++tokio-postgres-rustls = { version = "0.13" }
+ tokio-socks = { version = "0.5.2", default-features = false, features = [
+     "futures-io",
+     "tokio",
+diff --git a/assets/icons/calendar.svg b/assets/icons/calendar.svg
+new file mode 100644
+index 0000000000..aa3a46cd6d
+--- /dev/null
++++ b/assets/icons/calendar.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none"><g stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2"><path d="M5.333 1.333v2.667"/><path d="M10.667 1.333v2.667"/><rect x="2" y="2.667" width="12" height="12" rx="1.333"/><path d="M2 6.667h12"/></g></svg>
+diff --git a/assets/icons/database.svg b/assets/icons/database.svg
+new file mode 100644
+index 0000000000..b8b6a5fcb8
+--- /dev/null
++++ b/assets/icons/database.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none"><g stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2"><ellipse cx="8" cy="3.333" rx="6" ry="2"/><path d="M2 3.333V12.667A6 2 0 0 0 14 12.667V3.333"/><path d="M2 8A6 2 0 0 0 14 8"/></g></svg>
+diff --git a/assets/icons/fingerprint.svg b/assets/icons/fingerprint.svg
+new file mode 100644
+index 0000000000..304b3c8e36
+--- /dev/null
++++ b/assets/icons/fingerprint.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none"><g stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2"><path d="M8 6.667a1.333 1.333 0 0 0-1.333 1.333c0 .68-.067 1.673-.173 2.667"/><path d="M9.333 8.747c0 1.587 0 4.253-.667 5.92"/><path d="M11.527 14.013c.08-.4 .287-1.533 .333-2.013"/><path d="M1.333 8a6.667 6.667 0 0 1 12-4"/><path d="M1.333 10.667h.007"/><path d="M14.533 10.667c.133-1.333 .087-3.569 0-4"/><path d="M3.333 13C3.667 12 4 10 4 8a4 4 0 0 1 .227-1.333"/><path d="M5.767 14.667c.14-.44 .3-.88 .38-1.333"/><path d="M6 4.533a4 4 0 0 1 6 3.467v1.333"/></g></svg>
+diff --git a/assets/icons/key.svg b/assets/icons/key.svg
+new file mode 100644
+index 0000000000..8daca61372
+--- /dev/null
++++ b/assets/icons/key.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none"><g stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2"><path d="m10.333 5 1.533 1.533a.667 .667 0 0 0 .933 0l1.4-1.4a.667 .667 0 0 0 0-.933L12.667 2.667"/><path d="m14 1.333-6.4 6.4"/><circle cx="5" cy="10.333" r="3.667"/></g></svg>
+diff --git a/assets/icons/table.svg b/assets/icons/table.svg
+new file mode 100644
+index 0000000000..afec7ddb14
+--- /dev/null
++++ b/assets/icons/table.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none"><g stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2"><path d="M8 2v12"/><rect x="2" y="2" width="12" height="12" rx="1.333"/><path d="M2 6h12"/><path d="M2 10h12"/></g></svg>
+diff --git a/assets/icons/toggle_left.svg b/assets/icons/toggle_left.svg
+new file mode 100644
+index 0000000000..49694c23c0
+--- /dev/null
++++ b/assets/icons/toggle_left.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none"><g stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2"><rect x="1.333" y="4" width="13.333" height="8" rx="4"/><circle cx="6" cy="8" r="2"/></g></svg>
+diff --git a/crates/database_client b/crates/database_client
+new file mode 120000
+index 0000000000..f1a7c20de7
+--- /dev/null
++++ b/crates/database_client
+@@ -0,0 +1 @@
++../../crates/database_client
+\ No newline at end of file
+diff --git a/crates/icons/src/icons.rs b/crates/icons/src/icons.rs
+index 3e22896e32..e10f575eef 100644
+--- a/crates/icons/src/icons.rs
++++ b/crates/icons/src/icons.rs
+@@ -57,6 +57,7 @@ pub enum IconName {
+     BookCopy,
+     Box,
+     BoxOpen,
++    Calendar,
+     CaseSensitive,
+     Chat,
+     Check,
+@@ -86,6 +87,7 @@ pub enum IconName {
+     Crosshair,
+     CursorIBeam,
+     Dash,
++    Database,
+     DatabaseZap,
+     Debug,
+     DebugBreakpoint,
+@@ -137,6 +139,7 @@ pub enum IconName {
+     FileToml,
+     FileTree,
+     Filter,
++    Fingerprint,
+     Flame,
+     FoldVertical,
+     Folder,
+@@ -173,6 +176,7 @@ pub enum IconName {
+     Indicator,
+     Info,
+     Json,
++    Key,
+     Keyboard,
+     LineHeight,
+     Link,
+@@ -247,6 +251,7 @@ pub enum IconName {
+     StarFilled,
+     Stop,
+     Tab,
++    Table,
+     Terminal,
+     TerminalAlt,
+     TextSnippet,
+@@ -276,6 +281,7 @@ pub enum IconName {
+     ToolTerminal,
+     ToolThink,
+     ToolWeb,
++    ToggleLeft,
+     Trash,
+     Triangle,
+     TriangleRight,
+diff --git a/crates/settings/src/vscode_import.rs b/crates/settings/src/vscode_import.rs
+index e809f743d6..6b301dc00c 100644
+--- a/crates/settings/src/vscode_import.rs
++++ b/crates/settings/src/vscode_import.rs
+@@ -180,6 +180,7 @@ impl VsCodeSettings {
+             calls: None,
+             collaboration_panel: None,
+             credentials_url: None,
++            database: None,
+             debugger: None,
+             diagnostics: None,
+             editor: self.editor_settings_content(),
+diff --git a/crates/settings_content/src/settings_content.rs b/crates/settings_content/src/settings_content.rs
+index f0f652d2ba..8afaa46981 100644
+--- a/crates/settings_content/src/settings_content.rs
++++ b/crates/settings_content/src/settings_content.rs
+@@ -234,6 +234,9 @@ pub struct SettingsContent {
+     /// Configuration of the terminal in Zed.
+     pub terminal: Option<TerminalSettingsContent>,
+ 
++    /// Configuration for the database client panel and query results.
++    pub database: Option<DatabaseSettingsContent>,
++
+     pub title_bar: Option<TitleBarSettingsContent>,
+ 
+     /// Whether or not to enable Vim mode.
+@@ -1417,3 +1420,94 @@ impl std::fmt::Display for DelayMs {
+         write!(f, "{}ms", self.0)
+     }
+ }
++
++/// Settings for the database client's query results grid and pagination.
++#[with_fallible_options]
++#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
++pub struct DatabaseSettingsContent {
++    /// Sets the font family for the query results grid.
++    ///
++    /// If this option is not included, the results grid will default to
++    /// matching the buffer's font family.
++    pub results_font_family: Option<FontFamilyName>,
++    /// Sets the font size for the query results grid.
++    ///
++    /// If this option is not included, the results grid will default to
++    /// matching the buffer's font size.
++    pub results_font_size: Option<FontSize>,
++    /// Number of rows fetched per page of query results.
++    /// Values below 50 are clamped to 50.
++    ///
++    /// Default: 500
++    pub page_size: Option<usize>,
++    /// Horizontal padding (px), per side, of results-grid cells.
++    /// Values are clamped to the range 0-24.
++    ///
++    /// If this option is not included, defaults to 6 (the current density).
++    pub results_row_padding: Option<f32>,
++    /// Line height of the query results grid, decoupled from the global
++    /// `ui_line_height` setting.
++    ///
++    /// If this option is not included, the results grid falls back to the
++    /// global `ui_line_height`.
++    pub results_line_height: Option<UiLineHeight>,
++    /// Density settings for the sidebar connection/database/schema/table tree.
++    pub sidebar: Option<DatabaseSidebarSettingsContent>,
++    /// Density settings for the query console toolbar (Run button, status
++    /// labels).
++    pub toolbar: Option<DatabaseToolbarSettingsContent>,
++    /// Enables the one-time schema metadata sweep that powers SQL autocomplete
++    /// in query editors.
++    ///
++    /// Default: true
++    pub metadata_cache: Option<bool>,
++    /// String written for SQL `NULL` values in CSV export.
++    ///
++    /// If this option is not included, NULLs export as an empty field.
++    pub export_null_string: Option<String>,
++    /// Confirm before submitting grid DML edits.
++    ///
++    /// Default: true
++    pub confirm_edits: Option<bool>,
++    /// Global read-only default; disables all edit/DML affordances.
++    /// A per-profile `read_only` also forces this on for that connection.
++    ///
++    /// Default: false
++    pub read_only: Option<bool>,
++    /// Default commit mode for new query tabs: "auto" or "manual".
++    ///
++    /// Default: "auto"
++    pub commit_mode: Option<String>,
++    /// Executed-statement history retention (oldest pruned beyond this).
++    ///
++    /// Default: 1000
++    pub history_limit: Option<usize>,
++}
++
++/// Density settings for the database client sidebar tree.
++#[with_fallible_options]
++#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
++pub struct DatabaseSidebarSettingsContent {
++    /// Vertical padding (px) added to each tree row, on top of the row's
++    /// content height. Values are clamped to the range 0-40.
++    pub padding: Option<f32>,
++    /// Font size (px) of tree row labels.
++    pub font_size: Option<f32>,
++    /// Icon size (px) of node and disclosure icons. Values are clamped to
++    /// the range 6-48.
++    pub icon_size: Option<f32>,
++}
++
++/// Density settings for the database client's query console toolbar.
++#[with_fallible_options]
++#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize, JsonSchema, MergeFrom)]
++pub struct DatabaseToolbarSettingsContent {
++    /// Vertical padding (px) of the query console toolbar. Values are
++    /// clamped to the range 0-40.
++    pub padding: Option<f32>,
++    /// Font size (px) of toolbar labels and buttons.
++    pub font_size: Option<f32>,
++    /// Icon size (px) of the Run button. Values are clamped to the range
++    /// 6-48.
++    pub icon_size: Option<f32>,
++}
+diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
+index 2715bdfd08..fe20540a86 100644
+--- a/crates/zed/Cargo.toml
++++ b/crates/zed/Cargo.toml
+@@ -87,6 +87,7 @@ component_preview.workspace = true
+ crashes.workspace = true
+ csv_preview.workspace = true
+ dap_adapters.workspace = true
++database_client.workspace = true
+ db.workspace = true
+ debug_adapter_extension.workspace = true
+ debugger_tools.workspace = true
+diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
+index f588612ee8..8d63c348e8 100644
+--- a/crates/zed/src/main.rs
++++ b/crates/zed/src/main.rs
+@@ -677,6 +677,7 @@ fn main() {
+         project_symbols::init(cx);
+         project_panel::init(cx);
+         outline_panel::init(cx);
++        database_client::init(cx);
+         tasks_ui::init(cx);
+         snippets_ui::init(cx);
+         search::init(cx);
+diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
+index 8770f60ca0..3fd28dfd24 100644
+--- a/crates/zed/src/zed.rs
++++ b/crates/zed/src/zed.rs
+@@ -749,6 +749,7 @@ fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<a
+         let outline_panel = OutlinePanel::load(workspace_handle.clone(), cx.clone());
+         let terminal_panel = TerminalPanel::load(workspace_handle.clone(), cx.clone());
+         let git_panel = GitPanel::load(workspace_handle.clone(), cx.clone());
++        let database_panel = database_client::DatabasePanel::load(workspace_handle.clone(), cx.clone());
+         let debug_panel = DebugPanel::load(workspace_handle.clone(), cx);
+ 
+         async fn add_panel_when_ready(
+@@ -771,6 +772,7 @@ fn initialize_panels(window: &mut Window, cx: &mut Context<Workspace>) -> Task<a
+             add_panel_when_ready(outline_panel, workspace_handle.clone(), cx.clone()),
+             add_panel_when_ready(terminal_panel, workspace_handle.clone(), cx.clone()),
+             add_panel_when_ready(git_panel, workspace_handle.clone(), cx.clone()),
++            add_panel_when_ready(database_panel, workspace_handle.clone(), cx.clone()),
+             add_panel_when_ready(debug_panel, workspace_handle.clone(), cx.clone()),
+             initialize_agent_panel(workspace_handle, cx.clone()).map(|r| r.log_err()),
+         );
+@@ -5596,6 +5598,7 @@ mod tests {
+             git_ui::init(cx);
+             project_panel::init(cx);
+             outline_panel::init(cx);
++            database_client::init(cx);
+             terminal_view::init(cx);
+             image_viewer::init(cx);
+             language_model::init(cx);

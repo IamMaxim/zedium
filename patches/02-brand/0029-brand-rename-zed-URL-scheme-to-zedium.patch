@@ -1,0 +1,781 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 31 May 2026 14:24:59 +0300
+Subject: [PATCH] brand: rename zed:// URL scheme to zedium://
+
+Rename the deep-link and internal JSON-schema URI scheme from zed:// to
+zedium:// across the parser (open_listener), all emitters, the schema store
+(SCHEMA_URI_PREFIX, LSP_SETTINGS_SCHEMA_URL_PREFIX), default.json $schema,
+cli URL_PREFIX, OS registration (ZED_URL_SCHEME), and the test assertions.
+Fixes the patch-0027 mismatch where macOS registered the zedium:// scheme
+while the code still emitted/parsed zed://.
+
+Also set default edit_predictions.provider from the removed "zed" variant
+to "none": default.json failed strict deserialization since patch 0023
+dropped EditPredictionProvider::Zed, which had silently broken the entire
+workspace test suite. Zedium ships no hosted edit-prediction provider.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Cargo.toml                                    |  8 --
+ assets/settings/default.json                  |  8 +-
+ crates/acp_thread/src/mention.rs              | 43 +++++----
+ crates/agent_ui/src/agent_panel.rs            |  2 +-
+ crates/cli/src/main.rs                        |  2 +-
+ crates/client/src/client.rs                   |  6 +-
+ crates/client/src/zed_urls.rs                 |  2 +-
+ crates/gpui/src/app.rs                        |  2 +-
+ crates/install_cli/src/register_zed_scheme.rs | 28 +++---
+ .../src/json_schema_store.rs                  |  2 +-
+ .../src/lsp_store/json_language_server_ext.rs |  2 +-
+ crates/settings/src/settings_store.rs         | 10 +-
+ crates/settings_ui/src/settings_ui.rs         |  2 +-
+ crates/zed/src/main.rs                        | 12 +--
+ crates/zed/src/zed.rs                         |  4 +-
+ crates/zed/src/zed/open_listener.rs           | 94 ++++++++++++++-----
+ crates/zed/src/zed/open_url_modal.rs          |  6 +-
+ crates/zed/src/zed/windows_only_instance.rs   |  2 +-
+ crates/zed_actions/src/lib.rs                 |  2 +-
+ 19 files changed, 147 insertions(+), 90 deletions(-)
+
+diff --git a/Cargo.toml b/Cargo.toml
+index 2b34f5ddf7..e479550043 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -14,11 +14,7 @@ members = [
+     "crates/assets",
+     "crates/audio",
+     "crates/aws_http_client",
+-<<<<<<< HEAD
+-    "crates/bedrock",
+     "crates/benchmarks",
+-=======
+->>>>>>> c67c3adb44 (strip: delete orphan vendor LLM provider crates)
+     "crates/breadcrumbs",
+     "crates/buffer_diff",
+     "crates/cli",
+@@ -43,11 +39,7 @@ members = [
+     "crates/debug_adapter_extension",
+     "crates/debugger_tools",
+     "crates/debugger_ui",
+-<<<<<<< HEAD
+-    "crates/deepseek",
+-=======
+     "crates/denoise",
+->>>>>>> c67c3adb44 (strip: delete orphan vendor LLM provider crates)
+     "crates/dev_container",
+     "crates/diagnostics",
+     "crates/docs_preprocessor",
+diff --git a/assets/settings/default.json b/assets/settings/default.json
+index 67c9f793ed..a25d9a1ec8 100644
+--- a/assets/settings/default.json
++++ b/assets/settings/default.json
+@@ -1,5 +1,5 @@
+ {
+-  "$schema": "zed://schemas/settings",
++  "$schema": "zedium://schemas/settings",
+   // The name of the Zed theme to use for the UI.
+   //
+   // `mode` is one of:
+@@ -1714,8 +1714,10 @@
+   //      "load_direnv": "disabled"
+   "load_direnv": "direct",
+   "edit_predictions": {
+-    // Which edit prediction provider to use.
+-    "provider": "zed",
++    // Which edit prediction provider to use. Zedium ships no hosted provider;
++    // set this to a self-hosted/BYO provider (ollama, openai_compatible_api,
++    // codestral, mercury) to enable edit predictions.
++    "provider": "none",
+     // A list of globs representing files that edit predictions should be disabled for.
+     // There's a sensible default list of globs already included.
+     // Any addition to this list will be merged with the default list.
+diff --git a/crates/acp_thread/src/mention.rs b/crates/acp_thread/src/mention.rs
+index 93e7b4d846..4da8d00744 100644
+--- a/crates/acp_thread/src/mention.rs
++++ b/crates/acp_thread/src/mention.rs
+@@ -466,7 +466,7 @@ impl MentionUri {
+                 url
+             }
+             MentionUri::PastedImage { name } => {
+-                let mut url = Url::parse("zed:///agent/pasted-image").unwrap();
++                let mut url = Url::parse("zedium:///agent/pasted-image").unwrap();
+                 url.query_pairs_mut().append_pair("name", name);
+                 url
+             }
+@@ -505,7 +505,7 @@ impl MentionUri {
+                     url.set_path(&path.to_string_lossy());
+                     url
+                 } else {
+-                    let mut url = Url::parse("zed:///").unwrap();
++                    let mut url = Url::parse("zedium:///").unwrap();
+                     url.set_path("/agent/untitled-buffer");
+                     url
+                 };
+@@ -521,11 +521,12 @@ impl MentionUri {
+                 url
+             }
+             MentionUri::Thread { name, id } => {
+-                let mut url = Url::parse("zed:///").unwrap();
++                let mut url = Url::parse("zedium:///").unwrap();
+                 url.set_path(&format!("/agent/thread/{id}"));
+                 url.query_pairs_mut().append_pair("name", name);
+                 url
+             }
++<<<<<<< HEAD
+             MentionUri::Rule { id, name } => {
+                 let mut url = Url::parse("zed:///").unwrap();
+                 let rule_id = id
+@@ -534,6 +535,11 @@ impl MentionUri {
+                     .and_then(|uuid| uuid.as_str())
+                     .unwrap_or_default();
+                 url.set_path(&format!("/agent/rule/{rule_id}"));
++=======
++            MentionUri::Rule { name, id } => {
++                let mut url = Url::parse("zedium:///").unwrap();
++                url.set_path(&format!("/agent/rule/{id}"));
++>>>>>>> c05db00b9d (brand: rename zed:// URL scheme to zedium://)
+                 url.query_pairs_mut().append_pair("name", name);
+                 url
+             }
+@@ -541,7 +547,7 @@ impl MentionUri {
+                 include_errors,
+                 include_warnings,
+             } => {
+-                let mut url = Url::parse("zed:///").unwrap();
++                let mut url = Url::parse("zedium:///").unwrap();
+                 url.set_path("/agent/diagnostics");
+                 if *include_warnings {
+                     url.query_pairs_mut()
+@@ -554,18 +560,18 @@ impl MentionUri {
+             }
+             MentionUri::Fetch { url } => url.clone(),
+             MentionUri::TerminalSelection { line_count } => {
+-                let mut url = Url::parse("zed:///agent/terminal-selection").unwrap();
++                let mut url = Url::parse("zedium:///agent/terminal-selection").unwrap();
+                 url.query_pairs_mut()
+                     .append_pair("lines", &line_count.to_string());
+                 url
+             }
+             MentionUri::GitDiff { base_ref } => {
+-                let mut url = Url::parse("zed:///agent/git-diff").unwrap();
++                let mut url = Url::parse("zedium:///agent/git-diff").unwrap();
+                 url.query_pairs_mut().append_pair("base", base_ref);
+                 url
+             }
+             MentionUri::MergeConflict { file_path } => {
+-                let mut url = Url::parse("zed:///agent/merge-conflict").unwrap();
++                let mut url = Url::parse("zedium:///agent/merge-conflict").unwrap();
+                 url.query_pairs_mut().append_pair("path", file_path);
+                 url
+             }
+@@ -574,7 +580,7 @@ impl MentionUri {
+                 source,
+                 skill_file_path,
+             } => {
+-                let mut url = Url::parse("zed:///").unwrap();
++                let mut url = Url::parse("zedium:///").unwrap();
+                 url.set_path("/agent/skill");
+                 url.query_pairs_mut()
+                     .append_pair("name", name)
+@@ -1304,7 +1310,7 @@ mod tests {
+ 
+     #[test]
+     fn test_parse_untitled_selection_uri() {
+-        let selection_uri = uri!("zed:///agent/untitled-buffer#L1:10");
++        let selection_uri = uri!("zedium:///agent/untitled-buffer#L1:10");
+         let parsed = MentionUri::parse(selection_uri, PathStyle::local()).unwrap();
+         match &parsed {
+             MentionUri::Selection {
+@@ -1322,7 +1328,7 @@ mod tests {
+ 
+     #[test]
+     fn test_parse_thread_uri() {
+-        let thread_uri = "zed:///agent/thread/session123?name=Thread+name";
++        let thread_uri = "zedium:///agent/thread/session123?name=Thread+name";
+         let parsed = MentionUri::parse(thread_uri, PathStyle::local()).unwrap();
+         match &parsed {
+             MentionUri::Thread {
+@@ -1338,8 +1344,13 @@ mod tests {
+     }
+ 
+     #[test]
++<<<<<<< HEAD
+     fn test_parse_legacy_rule_uri() {
+         let rule_uri = "zed:///agent/rule/d8694ff2-90d5-4b6f-be33-33c1763acd52?name=Some+rule";
++=======
++    fn test_parse_rule_uri() {
++        let rule_uri = "zedium:///agent/rule/d8694ff2-90d5-4b6f-be33-33c1763acd52?name=Some+rule";
++>>>>>>> c05db00b9d (brand: rename zed:// URL scheme to zedium://)
+         let parsed = MentionUri::parse(rule_uri, PathStyle::local()).unwrap();
+         match &parsed {
+             MentionUri::Rule { name, .. } => assert_eq!(name, "Some rule"),
+@@ -1416,7 +1427,7 @@ mod tests {
+ 
+     #[test]
+     fn test_parse_diagnostics_uri() {
+-        let uri = "zed:///agent/diagnostics?include_warnings=true";
++        let uri = "zedium:///agent/diagnostics?include_warnings=true";
+         let parsed = MentionUri::parse(uri, PathStyle::local()).unwrap();
+         match &parsed {
+             MentionUri::Diagnostics {
+@@ -1433,7 +1444,7 @@ mod tests {
+ 
+     #[test]
+     fn test_parse_diagnostics_uri_warnings_only() {
+-        let uri = "zed:///agent/diagnostics?include_warnings=true&include_errors=false";
++        let uri = "zedium:///agent/diagnostics?include_warnings=true&include_errors=false";
+         let parsed = MentionUri::parse(uri, PathStyle::local()).unwrap();
+         match &parsed {
+             MentionUri::Diagnostics {
+@@ -1457,8 +1468,8 @@ mod tests {
+ 
+     #[test]
+     fn test_invalid_zed_path() {
+-        assert!(MentionUri::parse("zed:///invalid/path", PathStyle::local()).is_err());
+-        assert!(MentionUri::parse("zed:///agent/unknown/test", PathStyle::local()).is_err());
++        assert!(MentionUri::parse("zedium:///invalid/path", PathStyle::local()).is_err());
++        assert!(MentionUri::parse("zedium:///agent/unknown/test", PathStyle::local()).is_err());
+     }
+ 
+     #[test]
+@@ -1692,7 +1703,7 @@ mod tests {
+ 
+     #[test]
+     fn test_parse_terminal_selection_uri() {
+-        let terminal_uri = "zed:///agent/terminal-selection?lines=42";
++        let terminal_uri = "zedium:///agent/terminal-selection?lines=42";
+         let parsed = MentionUri::parse(terminal_uri, PathStyle::local()).unwrap();
+         match &parsed {
+             MentionUri::TerminalSelection { line_count } => {
+@@ -1704,7 +1715,7 @@ mod tests {
+         assert_eq!(parsed.name(), "Terminal (42 lines)");
+ 
+         // Test single line
+-        let single_line_uri = "zed:///agent/terminal-selection?lines=1";
++        let single_line_uri = "zedium:///agent/terminal-selection?lines=1";
+         let parsed_single = MentionUri::parse(single_line_uri, PathStyle::local()).unwrap();
+         assert_eq!(parsed_single.name(), "Terminal (1 line)");
+     }
+diff --git a/crates/agent_ui/src/agent_panel.rs b/crates/agent_ui/src/agent_panel.rs
+index 969c3b1cdf..83addfc977 100644
+--- a/crates/agent_ui/src/agent_panel.rs
++++ b/crates/agent_ui/src/agent_panel.rs
+@@ -7997,7 +7997,7 @@ mod tests {
+             "resource text should be the raw conflict"
+         );
+         assert!(
+-            uri.starts_with("zed:///agent/merge-conflict"),
++            uri.starts_with("zedium:///agent/merge-conflict"),
+             "URI should use the zed merge-conflict scheme, got: {uri}"
+         );
+         assert!(uri.contains("utils.rs"), "URI should encode the file path");
+diff --git a/crates/cli/src/main.rs b/crates/cli/src/main.rs
+index 565f97ff23..7388d03d26 100644
+--- a/crates/cli/src/main.rs
++++ b/crates/cli/src/main.rs
+@@ -31,7 +31,7 @@ use walkdir::WalkDir;
+ 
+ use std::io::IsTerminal;
+ 
+-const URL_PREFIX: [&'static str; 5] = ["zed://", "http://", "https://", "file://", "ssh://"];
++const URL_PREFIX: [&'static str; 5] = ["zedium://", "http://", "https://", "file://", "ssh://"];
+ 
+ struct Detect;
+ 
+diff --git a/crates/client/src/client.rs b/crates/client/src/client.rs
+index afba3a25c6..5209f9bb92 100644
+--- a/crates/client/src/client.rs
++++ b/crates/client/src/client.rs
+@@ -1824,13 +1824,13 @@ impl ProtoClient for Client {
+     }
+ }
+ 
+-/// prefix for the zed:// url scheme
+-pub const ZED_URL_SCHEME: &str = "zed";
++/// prefix for the zedium:// url scheme
++pub const ZED_URL_SCHEME: &str = "zedium";
+ 
+ /// A parsed Zed link that can be handled internally by the application.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub enum ZedLink {
+-    /// Join a channel: `zed.dev/channel/channel-name-123` or `zed://channel/channel-name-123`
++    /// Join a channel: `zed.dev/channel/channel-name-123` or `zedium://channel/channel-name-123`
+     Channel { channel_id: u64 },
+     /// Open channel notes: `zed.dev/channel/channel-name-123/notes` or with heading `notes#heading`
+     ChannelNotes {
+diff --git a/crates/client/src/zed_urls.rs b/crates/client/src/zed_urls.rs
+index 6eb69b8327..ffe189a1c8 100644
+--- a/crates/client/src/zed_urls.rs
++++ b/crates/client/src/zed_urls.rs
+@@ -82,5 +82,5 @@ pub fn acp_registry_blog(cx: &App) -> String {
+ }
+ 
+ pub fn shared_agent_thread_url(session_id: &str) -> String {
+-    format!("zed://agent/shared/{}", session_id)
++    format!("zedium://agent/shared/{}", session_id)
+ }
+diff --git a/crates/gpui/src/app.rs b/crates/gpui/src/app.rs
+index e6ca25ecae..25bf28c74f 100644
+--- a/crates/gpui/src/app.rs
++++ b/crates/gpui/src/app.rs
+@@ -1345,7 +1345,7 @@ impl App {
+         self.platform.open_url(url);
+     }
+ 
+-    /// Registers the given URL scheme (e.g. `zed` for `zed://` urls) to be
++    /// Registers the given URL scheme (e.g. `zed` for `zedium://` urls) to be
+     /// opened by the current app.
+     ///
+     /// On some platforms (e.g. macOS) you may be able to register URL schemes
+diff --git a/crates/install_cli/src/register_zed_scheme.rs b/crates/install_cli/src/register_zed_scheme.rs
+index 048b2dd50a..2436653410 100644
+--- a/crates/install_cli/src/register_zed_scheme.rs
++++ b/crates/install_cli/src/register_zed_scheme.rs
+@@ -1,14 +1,14 @@
+-use client::ZED_URL_SCHEME;
+-use gpui::{AsyncApp, actions};
+-
+-actions!(
+-    cli,
+-    [
+-        /// Registers the zed:// URL scheme handler.
+-        RegisterZedScheme
+-    ]
+-);
+-
+-pub async fn register_zed_scheme(cx: &AsyncApp) -> anyhow::Result<()> {
+-    cx.update(|cx| cx.register_url_scheme(ZED_URL_SCHEME)).await
+-}
++use client::ZED_URL_SCHEME;
++use gpui::{AsyncApp, actions};
++
++actions!(
++    cli,
++    [
++        /// Registers the zedium:// URL scheme handler.
++        RegisterZedScheme
++    ]
++);
++
++pub async fn register_zed_scheme(cx: &AsyncApp) -> anyhow::Result<()> {
++    cx.update(|cx| cx.register_url_scheme(ZED_URL_SCHEME)).await
++}
+diff --git a/crates/json_schema_store/src/json_schema_store.rs b/crates/json_schema_store/src/json_schema_store.rs
+index afe6c51e81..ece9c7eafa 100644
+--- a/crates/json_schema_store/src/json_schema_store.rs
++++ b/crates/json_schema_store/src/json_schema_store.rs
+@@ -12,7 +12,7 @@ use project::{LspStore, lsp_store::LocalLspAdapterDelegate};
+ use settings::{LSP_SETTINGS_SCHEMA_URL_PREFIX, Settings as _, SettingsLocation};
+ use util::schemars::{AllowTrailingCommas, DefaultDenyUnknownFields};
+ 
+-const SCHEMA_URI_PREFIX: &str = "zed://schemas/";
++const SCHEMA_URI_PREFIX: &str = "zedium://schemas/";
+ 
+ const TSCONFIG_SCHEMA: &str = include_str!("schemas/tsconfig.json");
+ const PACKAGE_JSON_SCHEMA: &str = include_str!("schemas/package.json");
+diff --git a/crates/project/src/lsp_store/json_language_server_ext.rs b/crates/project/src/lsp_store/json_language_server_ext.rs
+index 1f2fa0330b..1a93a9fb3a 100644
+--- a/crates/project/src/lsp_store/json_language_server_ext.rs
++++ b/crates/project/src/lsp_store/json_language_server_ext.rs
+@@ -10,7 +10,7 @@ const LOGGER: zlog::Logger = zlog::scoped!("json-schema");
+ ///
+ /// Represents a "JSON language server-specific, non-standardized, extension to the LSP" with which the vscode-json-language-server
+ /// can request the contents of a schema that is associated with a uri scheme it does not support.
+-/// In our case, we provide the uris for actions on server startup under the `zed://schemas/action/{normalize_action_name}` scheme.
++/// In our case, we provide the uris for actions on server startup under the `zedium://schemas/action/{normalize_action_name}` scheme.
+ /// We can then respond to this request with the schema content on demand, thereby greatly reducing the total size of the JSON we send to the server on startup
+ struct SchemaContentRequest {}
+ 
+diff --git a/crates/settings/src/settings_store.rs b/crates/settings/src/settings_store.rs
+index 29d9f91dc6..b88c5357f2 100644
+--- a/crates/settings/src/settings_store.rs
++++ b/crates/settings/src/settings_store.rs
+@@ -43,7 +43,7 @@ use crate::{
+ 
+ use settings_json::{infer_json_indent_size, update_value_in_json_text};
+ 
+-pub const LSP_SETTINGS_SCHEMA_URL_PREFIX: &str = "zed://schemas/settings/lsp/";
++pub const LSP_SETTINGS_SCHEMA_URL_PREFIX: &str = "zedium://schemas/settings/lsp/";
+ 
+ pub trait SettingsKey: 'static + Send + Sync {
+     /// The name of a key within the JSON file from which this setting should
+@@ -2956,7 +2956,7 @@ mod tests {
+ 
+         assert_eq!(
+             init_options_ref,
+-            "zed://schemas/settings/lsp/rust-analyzer/initialization_options"
++            "zedium://schemas/settings/lsp/rust-analyzer/initialization_options"
+         );
+ 
+         let settings_ref = properties
+@@ -2969,7 +2969,7 @@ mod tests {
+ 
+         assert_eq!(
+             settings_ref,
+-            "zed://schemas/settings/lsp/rust-analyzer/settings"
++            "zedium://schemas/settings/lsp/rust-analyzer/settings"
+         );
+     }
+ 
+@@ -3011,7 +3011,7 @@ mod tests {
+ 
+         assert_eq!(
+             init_options_ref,
+-            "zed://schemas/settings/lsp/rust-analyzer/initialization_options"
++            "zedium://schemas/settings/lsp/rust-analyzer/initialization_options"
+         );
+ 
+         let settings_ref = properties
+@@ -3024,7 +3024,7 @@ mod tests {
+ 
+         assert_eq!(
+             settings_ref,
+-            "zed://schemas/settings/lsp/rust-analyzer/settings"
++            "zedium://schemas/settings/lsp/rust-analyzer/settings"
+         );
+     }
+ 
+diff --git a/crates/settings_ui/src/settings_ui.rs b/crates/settings_ui/src/settings_ui.rs
+index 0befd738d1..26f504ba27 100644
+--- a/crates/settings_ui/src/settings_ui.rs
++++ b/crates/settings_ui/src/settings_ui.rs
+@@ -1538,7 +1538,7 @@ fn render_settings_item_link(
+                 .tooltip(Tooltip::text("Copy Link"))
+                 .when_some(json_path, |this, path| {
+                     this.on_click(cx.listener(move |this, _, _, cx| {
+-                        let link = format!("zed://settings/{}", path);
++                        let link = format!("zedium://settings/{}", path);
+                         cx.write_to_clipboard(ClipboardItem::new_string(link));
+                         this.last_copied_link_path = Some(path);
+                         cx.notify();
+diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
+index 8b1124f9a3..7ea1c0f95c 100644
+--- a/crates/zed/src/main.rs
++++ b/crates/zed/src/main.rs
+@@ -957,7 +957,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
+                                 });
+                             } else {
+                                 log::warn!(
+-                                    "zed://agent received but the AgentPanel is not registered \
++                                    "zedium://agent received but the AgentPanel is not registered \
+                                      (is `disable_ai` enabled?)"
+                                 );
+                             }
+@@ -994,7 +994,7 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
+                                     .project()
+                                     .update(cx, |project, _| project.lsp_store())
+                             })?;
+-                            let uri = format!("zed://schemas/{}", schema_path);
++                            let uri = format!("zedium://schemas/{}", schema_path);
+                             let json_schema_content =
+                                 json_schema_store::handle_schema_request(lsp_store, uri, cx)
+                                     .await?;
+@@ -1043,8 +1043,8 @@ fn handle_open_request(request: OpenRequest, app_state: Arc<AppState>, cx: &mut
+                 });
+             }
+             OpenRequestKind::Setting { setting_path } => {
+-                // zed://settings/languages/$(language)/tab_size  - DONT SUPPORT
+-                // zed://settings/languages/Rust/tab_size  - SUPPORT
++                // zedium://settings/languages/$(language)/tab_size  - DONT SUPPORT
++                // zedium://settings/languages/Rust/tab_size  - SUPPORT
+                 // languages.$(language).tab_size
+                 // [ languages $(language) tab_size]
+                 cx.spawn(async move |cx| {
+@@ -1539,7 +1539,7 @@ struct Args {
+     /// Use `path:line:row` syntax to open a file at a specific location.
+     /// Non-existing paths and directories will ignore `:line:row` suffix.
+     ///
+-    /// URLs can either be `file://` or `zed://` scheme, or relative to <https://zed.dev>.
++    /// URLs can either be `file://` or `zedium://` scheme, or relative to <https://zed.dev>.
+     paths_or_urls: Vec<String>,
+ 
+     /// Pairs of file paths to diff. Can be specified multiple times.
+@@ -1645,7 +1645,7 @@ fn parse_url_arg(arg: &str, cx: &App) -> String {
+         Ok(path) => format!("file://{}", path.display()),
+         Err(_) => {
+             if arg.starts_with("file://")
+-                || arg.starts_with("zed://")
++                || arg.starts_with("zedium://")
+                 || arg.starts_with("zed-cli://")
+                 || arg.starts_with("ssh://")
+                 || parse_zed_link(arg, cx).is_some()
+diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
+index 181c519bf2..c507957f78 100644
+--- a/crates/zed/src/zed.rs
++++ b/crates/zed/src/zed.rs
+@@ -1133,7 +1133,7 @@ fn register_actions(
+                         Toast::new(
+                             NotificationId::unique::<RegisterZedScheme>(),
+                             format!(
+-                                "zed:// links will now open in {}.",
++                                "zedium:// links will now open in {}.",
+                                 ReleaseChannel::global(cx).display_name()
+                             ),
+                         ),
+@@ -1143,7 +1143,7 @@ fn register_actions(
+                 Ok(())
+             })
+             .detach_and_prompt_err(
+-                "Error registering zed:// scheme",
++                "Error registering zedium:// scheme",
+                 window,
+                 cx,
+                 |_, _, _| None,
+diff --git a/crates/zed/src/zed/open_listener.rs b/crates/zed/src/zed/open_listener.rs
+index d59e80a35d..9b86247c86 100644
+--- a/crates/zed/src/zed/open_listener.rs
++++ b/crates/zed/src/zed/open_listener.rs
+@@ -162,34 +162,42 @@ impl OpenRequest {
+                 });
+             } else if let Some(file) = url.strip_prefix("file://") {
+                 this.parse_file_path(file)
+-            } else if let Some(file) = url.strip_prefix("zed://file") {
++            } else if let Some(file) = url.strip_prefix("zedium://file") {
+                 this.parse_file_path(file)
+-            } else if let Some(file) = url.strip_prefix("zed://ssh") {
++            } else if let Some(file) = url.strip_prefix("zedium://ssh") {
+                 let ssh_url = "ssh:/".to_string() + file;
+                 this.parse_ssh_file_path(&ssh_url, cx)?
+-            } else if let Some(extension_id) = url.strip_prefix("zed://extension/") {
++            } else if let Some(extension_id) = url.strip_prefix("zedium://extension/") {
+                 this.kind = Some(OpenRequestKind::Extension {
+                     extension_id: extension_id.to_string(),
+                 });
++            } else if let Some(session_id_str) = url.strip_prefix("zedium://agent/shared/") {
++                if uuid::Uuid::parse_str(session_id_str).is_ok() {
++                    this.kind = Some(OpenRequestKind::SharedAgentThread {
++                        session_id: session_id_str.to_string(),
++                    });
++                } else {
++                    log::error!("Invalid session ID in URL: {}", session_id_str);
++                }
+             } else if url.starts_with(agent_skills::SKILL_SHARE_LINK_PREFIX) {
+                 this.parse_skill_install_url(&url)?
+-            } else if let Some(agent_path) = url.strip_prefix("zed://agent") {
++            } else if let Some(agent_path) = url.strip_prefix("zedium://agent") {
+                 this.parse_agent_url(agent_path)
+-            } else if url == "zed://" || url == "zed://open" || url == "zed://open/" {
++            } else if url == "zedium://" || url == "zedium://open" || url == "zedium://open/" {
+                 this.kind = Some(OpenRequestKind::FocusApp);
+-            } else if let Some(schema_path) = url.strip_prefix("zed://schemas/") {
++            } else if let Some(schema_path) = url.strip_prefix("zedium://schemas/") {
+                 this.kind = Some(OpenRequestKind::BuiltinJsonSchema {
+                     schema_path: schema_path.to_string(),
+                 });
+-            } else if url == "zed://settings" || url == "zed://settings/" {
++            } else if url == "zedium://settings" || url == "zedium://settings/" {
+                 this.kind = Some(OpenRequestKind::Setting { setting_path: None });
+-            } else if let Some(setting_path) = url.strip_prefix("zed://settings/") {
++            } else if let Some(setting_path) = url.strip_prefix("zedium://settings/") {
+                 this.kind = Some(OpenRequestKind::Setting {
+                     setting_path: Some(setting_path.to_string()),
+                 });
+-            } else if let Some(clone_path) = url.strip_prefix("zed://git/clone") {
++            } else if let Some(clone_path) = url.strip_prefix("zedium://git/clone") {
+                 this.parse_git_clone_url(clone_path)?
+-            } else if let Some(commit_path) = url.strip_prefix("zed://git/commit/") {
++            } else if let Some(commit_path) = url.strip_prefix("zedium://git/commit/") {
+                 this.parse_git_commit_url(commit_path)?
+             } else if url.starts_with("ssh://") {
+                 this.parse_ssh_file_path(&url, cx)?
+@@ -1415,7 +1423,7 @@ mod tests {
+         let request = cx.update(|cx| {
+             OpenRequest::parse(
+                 RawOpenRequest {
+-                    urls: vec!["zed://agent".into()],
++                    urls: vec!["zedium://agent".into()],
+                     ..Default::default()
+                 },
+                 cx,
+@@ -1480,7 +1488,7 @@ mod tests {
+     }
+ 
+     fn agent_url_with_prompt(prompt: &str) -> String {
+-        let mut serializer = url::form_urlencoded::Serializer::new("zed://agent?".to_string());
++        let mut serializer = url::form_urlencoded::Serializer::new("zedium://agent?".to_string());
+         serializer.append_pair("prompt", prompt);
+         serializer.finish()
+     }
+@@ -1523,7 +1531,7 @@ mod tests {
+         let request = cx.update(|cx| {
+             OpenRequest::parse(
+                 RawOpenRequest {
+-                    urls: vec!["zed://agent/?prompt=hello".into()],
++                    urls: vec!["zedium://agent/?prompt=hello".into()],
+                     ..Default::default()
+                 },
+                 cx,
+@@ -1550,7 +1558,7 @@ mod tests {
+     fn test_parse_focus_app_url(cx: &mut TestAppContext) {
+         let _app_state = init_test(cx);
+ 
+-        for url in ["zed://", "zed://open", "zed://open/"] {
++        for url in ["zedium://", "zedium://open", "zedium://open/"] {
+             let request = cx.update(|cx| {
+                 OpenRequest::parse(
+                     RawOpenRequest {
+@@ -1598,6 +1606,50 @@ mod tests {
+         }
+     }
+ 
++    #[gpui::test]
++    fn test_parse_shared_agent_thread_url(cx: &mut TestAppContext) {
++        let _app_state = init_test(cx);
++        let session_id = "123e4567-e89b-12d3-a456-426614174000";
++
++        let request = cx.update(|cx| {
++            OpenRequest::parse(
++                RawOpenRequest {
++                    urls: vec![format!("zedium://agent/shared/{session_id}")],
++                    ..Default::default()
++                },
++                cx,
++            )
++            .unwrap()
++        });
++
++        match request.kind {
++            Some(OpenRequestKind::SharedAgentThread {
++                session_id: parsed_session_id,
++            }) => {
++                assert_eq!(parsed_session_id, session_id);
++            }
++            _ => panic!("Expected SharedAgentThread kind"),
++        }
++    }
++
++    #[gpui::test]
++    fn test_parse_shared_agent_thread_url_with_invalid_uuid(cx: &mut TestAppContext) {
++        let _app_state = init_test(cx);
++
++        let request = cx.update(|cx| {
++            OpenRequest::parse(
++                RawOpenRequest {
++                    urls: vec!["zedium://agent/shared/not-a-uuid".into()],
++                    ..Default::default()
++                },
++                cx,
++            )
++            .unwrap()
++        });
++
++        assert!(request.kind.is_none());
++    }
++
+     #[gpui::test]
+     fn test_parse_git_commit_url(cx: &mut TestAppContext) {
+         let _app_state = init_test(cx);
+@@ -1606,7 +1658,7 @@ mod tests {
+         let request = cx.update(|cx| {
+             OpenRequest::parse(
+                 RawOpenRequest {
+-                    urls: vec!["zed://git/commit/abc123?repo=path/to/repo".into()],
++                    urls: vec!["zedium://git/commit/abc123?repo=path/to/repo".into()],
+                     ..Default::default()
+                 },
+                 cx,
+@@ -1627,7 +1679,7 @@ mod tests {
+         let request = cx.update(|cx| {
+             OpenRequest::parse(
+                 RawOpenRequest {
+-                    urls: vec!["zed://git/commit/def456?repo=path%20with%20spaces".into()],
++                    urls: vec!["zedium://git/commit/def456?repo=path%20with%20spaces".into()],
+                     ..Default::default()
+                 },
+                 cx,
+@@ -1648,7 +1700,7 @@ mod tests {
+             assert!(
+                 OpenRequest::parse(
+                     RawOpenRequest {
+-                        urls: vec!["zed://git/commit/abc123?repo=".into()],
++                        urls: vec!["zedium://git/commit/abc123?repo=".into()],
+                         ..Default::default()
+                     },
+                     cx,
+@@ -1663,7 +1715,7 @@ mod tests {
+         let result = cx.update(|cx| {
+             OpenRequest::parse(
+                 RawOpenRequest {
+-                    urls: vec!["zed://git/commit/abc123?foo=bar".into()],
++                    urls: vec!["zedium://git/commit/abc123?foo=bar".into()],
+                     ..Default::default()
+                 },
+                 cx,
+@@ -2025,7 +2077,7 @@ mod tests {
+             OpenRequest::parse(
+                 RawOpenRequest {
+                     urls: vec![
+-                        "zed://git/clone/?repo=https://github.com/zed-industries/zed.git".into(),
++                        "zedium://git/clone/?repo=https://github.com/zed-industries/zed.git".into(),
+                     ],
+                     ..Default::default()
+                 },
+@@ -2050,7 +2102,7 @@ mod tests {
+             OpenRequest::parse(
+                 RawOpenRequest {
+                     urls: vec![
+-                        "zed://git/clone?repo=https://github.com/zed-industries/zed.git".into(),
++                        "zedium://git/clone?repo=https://github.com/zed-industries/zed.git".into(),
+                     ],
+                     ..Default::default()
+                 },
+@@ -2075,7 +2127,7 @@ mod tests {
+             OpenRequest::parse(
+                 RawOpenRequest {
+                     urls: vec![
+-                        "zed://git/clone/?repo=https%3A%2F%2Fgithub.com%2Fzed-industries%2Fzed.git"
++                        "zedium://git/clone/?repo=https%3A%2F%2Fgithub.com%2Fzed-industries%2Fzed.git"
+                             .into(),
+                     ],
+                     ..Default::default()
+diff --git a/crates/zed/src/zed/open_url_modal.rs b/crates/zed/src/zed/open_url_modal.rs
+index d143dc0ba0..a4595082e0 100644
+--- a/crates/zed/src/zed/open_url_modal.rs
++++ b/crates/zed/src/zed/open_url_modal.rs
+@@ -27,7 +27,7 @@ impl OpenUrlModal {
+     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+         let editor = cx.new(|cx| {
+             let mut editor = Editor::single_line(window, cx);
+-            editor.set_placeholder_text("zed://...", window, cx);
++            editor.set_placeholder_text("zedium://...", window, cx);
+             editor
+         });
+ 
+@@ -53,8 +53,8 @@ impl OpenUrlModal {
+             return;
+         }
+ 
+-        // Handle zed:// URLs internally.
+-        if url.starts_with("zed://") || url.starts_with("zed-cli://") {
++        // Handle zedium:// URLs internally.
++        if url.starts_with("zedium://") || url.starts_with("zed-cli://") {
+             OpenListener::global(cx).open(RawOpenRequest {
+                 urls: vec![url],
+                 ..Default::default()
+diff --git a/crates/zed/src/zed/windows_only_instance.rs b/crates/zed/src/zed/windows_only_instance.rs
+index c43e4f9e19..3a1412f614 100644
+--- a/crates/zed/src/zed/windows_only_instance.rs
++++ b/crates/zed/src/zed/windows_only_instance.rs
+@@ -126,7 +126,7 @@ fn send_args_to_instance(args: &Args) -> anyhow::Result<()> {
+             match std::fs::canonicalize(&path) {
+                 Ok(path) => paths.push(path.to_string_lossy().into_owned()),
+                 Err(error) => {
+-                    if path.starts_with("zed://")
++                    if path.starts_with("zedium://")
+                         || path.starts_with("http://")
+                         || path.starts_with("https://")
+                         || path.starts_with("file://")
+diff --git a/crates/zed_actions/src/lib.rs b/crates/zed_actions/src/lib.rs
+index 5ff0b406dc..92e14c33b4 100644
+--- a/crates/zed_actions/src/lib.rs
++++ b/crates/zed_actions/src/lib.rs
+@@ -20,7 +20,7 @@ pub struct OpenBrowser {
+     pub url: Arc<str>,
+ }
+ 
+-/// Opens a zed:// URL within the application.
++/// Opens a zedium:// URL within the application.
+ #[derive(Clone, PartialEq, Deserialize, JsonSchema, Action)]
+ #[action(namespace = zed)]
+ #[serde(deny_unknown_fields)]

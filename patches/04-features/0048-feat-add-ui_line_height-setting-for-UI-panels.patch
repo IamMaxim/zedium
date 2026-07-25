@@ -1,0 +1,486 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Thu, 11 Jun 2026 21:21:22 +0300
+Subject: [PATCH] feat: add ui_line_height setting for UI panels
+
+Port of zed-industries/zed#51271. Adds a configurable ui_line_height
+setting (comfortable/standard/custom) that controls item heights in the
+file tree, git panel, and outline panel. Parallels buffer_line_height.
+
+Skips collab_panel.rs changes since collab_ui is stripped in Zedium.
+Adds theme_settings::UiLineHeight to public exports.
+---
+ assets/settings/default.json                |  4 +
+ crates/git_ui/src/git_panel.rs              | 11 +--
+ crates/outline_panel/src/outline_panel.rs   |  4 +-
+ crates/project_panel/src/project_panel.rs   |  6 +-
+ crates/settings/src/vscode_import.rs        |  1 +
+ crates/settings_content/src/theme.rs        | 98 +++++++++++++++++++--
+ crates/settings_ui/src/page_data.rs         | 91 ++++++++++++++++++-
+ crates/settings_ui/src/settings_ui.rs       |  1 +
+ crates/theme_settings/src/settings.rs       | 43 +++++++++
+ crates/theme_settings/src/theme_settings.rs |  2 +-
+ 10 files changed, 246 insertions(+), 15 deletions(-)
+
+diff --git a/assets/settings/default.json b/assets/settings/default.json
+index 9d1dfc2996..a9cd9d03eb 100644
+--- a/assets/settings/default.json
++++ b/assets/settings/default.json
+@@ -50,6 +50,10 @@
+   //           "custom": 2
+   //         },
+   "buffer_line_height": "comfortable",
++  // The line height for UI elements like the file tree, git panel,
++  // and outline panel. Works as a multiplier of `ui_font_size`.
++  // Accepts "comfortable", "standard", or {"custom": <value>}.
++  "ui_line_height": "comfortable",
+   // The name of a font to use for rendering text in the UI
+   // You can set this to ".SystemUIFont" to use the system font
+   // ".ZedSans" currently aliases to "IBM Plex Sans", but this may
+diff --git a/crates/git_ui/src/git_panel.rs b/crates/git_ui/src/git_panel.rs
+index 5b9fbb7d0c..fc96a2ce31 100644
+--- a/crates/git_ui/src/git_panel.rs
++++ b/crates/git_ui/src/git_panel.rs
+@@ -6435,8 +6435,9 @@ impl GitPanel {
+         Label::new(label.into()).color(color)
+     }
+ 
+-    fn list_item_height(&self) -> Rems {
+-        rems(1.75)
++    fn list_item_height(&self, cx: &App) -> Pixels {
++        let theme_settings = ThemeSettings::get_global(cx);
++        theme_settings.ui_font_size(cx) * theme_settings.ui_line_height()
+     }
+ 
+     fn render_list_header(
+@@ -6458,7 +6459,7 @@ impl GitPanel {
+             .id(id)
+             .cursor_pointer()
+             .group(group_name)
+-            .h(self.list_item_height())
++            .h(self.list_item_height(cx))
+             .w_full()
+             .pl_3()
+             .pr_1()
+@@ -6756,7 +6757,7 @@ impl GitPanel {
+ 
+         h_flex()
+             .id(id)
+-            .h(self.list_item_height())
++            .h(self.list_item_height(cx))
+             .w_full()
+             .pl_3()
+             .pr_1()
+@@ -6950,7 +6951,7 @@ impl GitPanel {
+ 
+         h_flex()
+             .id(id)
+-            .h(self.list_item_height())
++            .h(self.list_item_height(cx))
+             .min_w_0()
+             .w_full()
+             .pl_3()
+diff --git a/crates/outline_panel/src/outline_panel.rs b/crates/outline_panel/src/outline_panel.rs
+index c880891502..511ce8f78a 100644
+--- a/crates/outline_panel/src/outline_panel.rs
++++ b/crates/outline_panel/src/outline_panel.rs
+@@ -2629,6 +2629,8 @@ impl OutlinePanel {
+         cx: &mut Context<OutlinePanel>,
+     ) -> Stateful<Div> {
+         let settings = OutlinePanelSettings::get_global(cx);
++        let theme_settings = ThemeSettings::get_global(cx);
++        let ui_line_height = theme_settings.ui_font_size(cx) * theme_settings.ui_line_height();
+         div()
+             .text_ui(cx)
+             .id(item_id.clone())
+@@ -2660,7 +2662,7 @@ impl OutlinePanel {
+                     .child(
+                         h_flex()
+                             .child(h_flex().w(px(16.)).justify_center().child(icon_element))
+-                            .child(h_flex().h_6().child(label_element).ml_1()),
++                            .child(h_flex().h(ui_line_height).child(label_element).ml_1()),
+                     )
+                     .on_secondary_mouse_down(cx.listener(
+                         move |outline_panel, event: &MouseDownEvent, window, cx| {
+diff --git a/crates/project_panel/src/project_panel.rs b/crates/project_panel/src/project_panel.rs
+index f230ad5c3c..072c5b0ec8 100644
+--- a/crates/project_panel/src/project_panel.rs
++++ b/crates/project_panel/src/project_panel.rs
+@@ -5555,6 +5555,8 @@ impl ProjectPanel {
+         let is_sticky = details.sticky.is_some();
+         let sticky_index = details.sticky.as_ref().map(|this| this.sticky_index);
+         let settings = ProjectPanelSettings::get_global(cx);
++        let theme_settings = ThemeSettings::get_global(cx);
++        let ui_line_height = theme_settings.ui_font_size(cx) * theme_settings.ui_line_height();
+         let show_editor = details.is_editing && !details.is_processing;
+ 
+         let selection = SelectedEntry {
+@@ -6140,10 +6142,10 @@ impl ProjectPanel {
+                             .flex_none()
+                     })
+                     .child(if show_editor {
+-                        h_flex().h_6().w_full().child(self.filename_editor.clone())
++                        h_flex().h(ui_line_height).w_full().child(self.filename_editor.clone())
+                     } else {
+                         h_flex()
+-                            .h_6()
++                            .h(ui_line_height)
+                             .map(|this| match self.state.ancestors.get(&entry_id) {
+                                 Some(folded_ancestors) => {
+                                     this.children(self.render_folder_elements(
+diff --git a/crates/settings/src/vscode_import.rs b/crates/settings/src/vscode_import.rs
+index 9b8584c4e6..c93310d718 100644
+--- a/crates/settings/src/vscode_import.rs
++++ b/crates/settings/src/vscode_import.rs
+@@ -976,6 +976,7 @@ impl VsCodeSettings {
+             buffer_font_size: self.read_f32("editor.fontSize").map(FontSize::from),
+             buffer_font_weight: self.read_f32("editor.fontWeight").map(FontWeightContent),
+             buffer_line_height: None,
++            ui_line_height: None,
+             buffer_font_features: None,
+             agent_ui_font_size: None,
+             agent_buffer_font_size: None,
+diff --git a/crates/settings_content/src/theme.rs b/crates/settings_content/src/theme.rs
+index 406c1ead91..ba15f00049 100644
+--- a/crates/settings_content/src/theme.rs
++++ b/crates/settings_content/src/theme.rs
+@@ -142,6 +142,9 @@ pub struct ThemeSettingsContent {
+     pub buffer_font_weight: Option<FontWeightContent>,
+     /// The buffer's line height.
+     pub buffer_line_height: Option<BufferLineHeight>,
++    /// The line height for UI elements like the file tree, git panel, and outline panel.
++    /// Works as a multiplier of `ui_font_size`.
++    pub ui_line_height: Option<UiLineHeight>,
+     /// The OpenType features to enable for rendering in text buffers.
+     #[schemars(default = "default_font_features")]
+     pub buffer_font_features: Option<FontFeaturesContent>,
+@@ -449,23 +452,63 @@ pub enum BufferLineHeight {
+     /// The default line height.
+     Standard,
+     /// A custom line height, where 1.0 is the font's height. Must be at least 1.0.
+-    Custom(#[serde(deserialize_with = "deserialize_line_height")] f32),
++    Custom(#[serde(deserialize_with = "deserialize_buffer_line_height")] f32),
+ }
+ 
+-fn deserialize_line_height<'de, D>(deserializer: D) -> Result<f32, D::Error>
++/// The line height for UI elements like the file tree, git panel, and outline panel.
++/// Works as a multiplier of `ui_font_size`.
++#[derive(
++    Clone,
++    Copy,
++    Debug,
++    Serialize,
++    Deserialize,
++    PartialEq,
++    JsonSchema,
++    MergeFrom,
++    Default,
++    strum::EnumDiscriminants,
++)]
++#[strum_discriminants(derive(strum::VariantArray, strum::VariantNames, strum::FromRepr))]
++#[serde(rename_all = "snake_case")]
++pub enum UiLineHeight {
++    /// A less dense line height.
++    #[default]
++    Comfortable,
++    /// The default line height.
++    Standard,
++    /// A custom line height, where 1.0 is the font's height. Must be at least 1.0.
++    Custom(#[serde(deserialize_with = "deserialize_ui_line_height")] f32),
++}
++
++fn deserialize_min_line_height<'de, D>(deserializer: D, field_name: &str) -> Result<f32, D::Error>
+ where
+     D: serde::Deserializer<'de>,
+ {
+     let value = f32::deserialize(deserializer)?;
+     if value < 1.0 {
+-        return Err(serde::de::Error::custom(
+-            "buffer_line_height.custom must be at least 1.0",
+-        ));
++        return Err(serde::de::Error::custom(format!(
++            "{field_name}.custom must be at least 1.0"
++        )));
+     }
+ 
+     Ok(value)
+ }
+ 
++fn deserialize_buffer_line_height<'de, D>(deserializer: D) -> Result<f32, D::Error>
++where
++    D: serde::Deserializer<'de>,
++{
++    deserialize_min_line_height(deserializer, "buffer_line_height")
++}
++
++fn deserialize_ui_line_height<'de, D>(deserializer: D) -> Result<f32, D::Error>
++where
++    D: serde::Deserializer<'de>,
++{
++    deserialize_min_line_height(deserializer, "ui_line_height")
++}
++
+ /// The content of a serialized theme.
+ #[with_fallible_options]
+ #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, PartialEq)]
+@@ -1424,6 +1467,51 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn test_ui_line_height_deserialize_valid() {
++        assert_eq!(
++            serde_json::from_value::<UiLineHeight>(json!("comfortable")).unwrap(),
++            UiLineHeight::Comfortable
++        );
++        assert_eq!(
++            serde_json::from_value::<UiLineHeight>(json!("standard")).unwrap(),
++            UiLineHeight::Standard
++        );
++        assert_eq!(
++            serde_json::from_value::<UiLineHeight>(json!({"custom": 1.0})).unwrap(),
++            UiLineHeight::Custom(1.0)
++        );
++        assert_eq!(
++            serde_json::from_value::<UiLineHeight>(json!({"custom": 1.5})).unwrap(),
++            UiLineHeight::Custom(1.5)
++        );
++    }
++
++    #[test]
++    fn test_ui_line_height_deserialize_invalid() {
++        assert!(
++            serde_json::from_value::<UiLineHeight>(json!({"custom": 0.99}))
++                .err()
++                .unwrap()
++                .to_string()
++                .contains("ui_line_height.custom must be at least 1.0")
++        );
++        assert!(
++            serde_json::from_value::<UiLineHeight>(json!({"custom": 0.0}))
++                .err()
++                .unwrap()
++                .to_string()
++                .contains("ui_line_height.custom must be at least 1.0")
++        );
++        assert!(
++            serde_json::from_value::<UiLineHeight>(json!({"custom": -1.0}))
++                .err()
++                .unwrap()
++                .to_string()
++                .contains("ui_line_height.custom must be at least 1.0")
++        );
++    }
++
+     #[test]
+     fn test_buffer_font_weight_schema_has_default() {
+         use schemars::schema_for;
+diff --git a/crates/settings_ui/src/page_data.rs b/crates/settings_ui/src/page_data.rs
+index 65903e2de4..ed93e4fe30 100644
+--- a/crates/settings_ui/src/page_data.rs
++++ b/crates/settings_ui/src/page_data.rs
+@@ -1013,7 +1013,7 @@ fn appearance_page() -> SettingsPage {
+         ]
+     }
+ 
+-    fn ui_font_section() -> [SettingsPageItem; 6] {
++    fn ui_font_section() -> [SettingsPageItem; 7] {
+         [
+             SettingsPageItem::SectionHeader("UI Font"),
+             SettingsPageItem::SettingItem(SettingItem {
+@@ -1058,6 +1058,95 @@ fn appearance_page() -> SettingsPage {
+                 metadata: None,
+                 files: USER,
+             }),
++            SettingsPageItem::DynamicItem(DynamicItem {
++                discriminant: SettingItem {
++                    files: USER,
++                    title: "Line Height",
++                    description: "Line height for UI elements like the file tree, git panel, and outline panel.",
++                    field: Box::new(SettingField {
++                        json_path: Some("ui_line_height$"),
++                        pick: |settings_content| {
++                            Some(
++                                &dynamic_variants::<settings::UiLineHeight>()[settings_content
++                                    .theme
++                                    .ui_line_height
++                                    .as_ref()?
++                                    .discriminant()
++                                    as usize],
++                            )
++                        },
++                        write: |settings_content, value, _| {
++                            let Some(value) = value else {
++                                settings_content.theme.ui_line_height = None;
++                                return;
++                            };
++                            let settings_value = settings_content
++                                .theme
++                                .ui_line_height
++                                .get_or_insert_default();
++                            *settings_value = match value {
++                                settings::UiLineHeightDiscriminants::Comfortable => {
++                                    settings::UiLineHeight::Comfortable
++                                }
++                                settings::UiLineHeightDiscriminants::Standard => {
++                                    settings::UiLineHeight::Standard
++                                }
++                                settings::UiLineHeightDiscriminants::Custom => {
++                                    let custom_value =
++                                        theme_settings::UiLineHeight::from(*settings_value)
++                                            .value();
++                                    settings::UiLineHeight::Custom(custom_value)
++                                }
++                            };
++                        },
++                    }),
++                    metadata: None,
++                },
++                pick_discriminant: |settings_content| {
++                    Some(
++                        settings_content
++                            .theme
++                            .ui_line_height
++                            .as_ref()?
++                            .discriminant() as usize,
++                    )
++                },
++                fields: dynamic_variants::<settings::UiLineHeight>()
++                    .into_iter()
++                    .map(|variant| match variant {
++                        settings::UiLineHeightDiscriminants::Comfortable => vec![],
++                        settings::UiLineHeightDiscriminants::Standard => vec![],
++                        settings::UiLineHeightDiscriminants::Custom => vec![SettingItem {
++                            files: USER,
++                            title: "Custom Line Height",
++                            description: "Custom UI line height value (must be at least 1.0).",
++                            field: Box::new(SettingField {
++                                json_path: Some("ui_line_height"),
++                                pick: |settings_content| match settings_content
++                                    .theme
++                                    .ui_line_height
++                                    .as_ref()
++                                {
++                                    Some(settings::UiLineHeight::Custom(value)) => Some(value),
++                                    _ => None,
++                                },
++                                write: |settings_content, value, _| {
++                                    let Some(value) = value else {
++                                        return;
++                                    };
++                                    match settings_content.theme.ui_line_height.as_mut() {
++                                        Some(settings::UiLineHeight::Custom(line_height)) => {
++                                            *line_height = f32::max(value, 1.0)
++                                        }
++                                        _ => return,
++                                    }
++                                },
++                            }),
++                            metadata: None,
++                        }],
++                    })
++                    .collect(),
++            }),
+             SettingsPageItem::SettingItem(SettingItem {
+                 files: USER,
+                 title: "Font Features",
+diff --git a/crates/settings_ui/src/settings_ui.rs b/crates/settings_ui/src/settings_ui.rs
+index 26f504ba27..6a76653c77 100644
+--- a/crates/settings_ui/src/settings_ui.rs
++++ b/crates/settings_ui/src/settings_ui.rs
+@@ -625,6 +625,7 @@ fn init_renderers(cx: &mut App) {
+         .add_basic_renderer::<settings::IconThemeSelectionDiscriminants>(render_dropdown)
+         .add_basic_renderer::<settings::IconThemeName>(render_icon_theme_picker)
+         .add_basic_renderer::<settings::BufferLineHeightDiscriminants>(render_dropdown)
++        .add_basic_renderer::<settings::UiLineHeightDiscriminants>(render_dropdown)
+         .add_basic_renderer::<settings::AutosaveSettingDiscriminants>(render_dropdown)
+         .add_basic_renderer::<settings::WorkingDirectoryDiscriminants>(render_dropdown)
+         .add_basic_renderer::<settings::IncludeIgnoredContent>(render_dropdown)
+diff --git a/crates/theme_settings/src/settings.rs b/crates/theme_settings/src/settings.rs
+index 517367af2b..33ac8d8ef5 100644
+--- a/crates/theme_settings/src/settings.rs
++++ b/crates/theme_settings/src/settings.rs
+@@ -75,6 +75,9 @@ pub struct ThemeSettings {
+     ///
+     /// The terminal font family can be overridden using it's own setting.
+     pub buffer_line_height: BufferLineHeight,
++    /// The line height for UI elements like the file tree, git panel, and outline panel.
++    /// Works as a multiplier of `ui_font_size`.
++    pub ui_line_height: UiLineHeight,
+     /// The current theme selection.
+     pub theme: ThemeSelection,
+     /// Manual overrides for the active theme.
+@@ -388,6 +391,40 @@ impl BufferLineHeight {
+     }
+ }
+ 
++/// The line height for UI elements like the file tree, git panel, and outline panel.
++/// Works as a multiplier of `ui_font_size`.
++#[derive(Clone, Copy, Debug, PartialEq, Default)]
++pub enum UiLineHeight {
++    /// A less dense line height.
++    #[default]
++    Comfortable,
++    /// The default line height.
++    Standard,
++    /// A custom line height, where 1.0 is the font's height. Must be at least 1.0.
++    Custom(f32),
++}
++
++impl From<settings::UiLineHeight> for UiLineHeight {
++    fn from(value: settings::UiLineHeight) -> Self {
++        match value {
++            settings::UiLineHeight::Comfortable => UiLineHeight::Comfortable,
++            settings::UiLineHeight::Standard => UiLineHeight::Standard,
++            settings::UiLineHeight::Custom(line_height) => UiLineHeight::Custom(line_height),
++        }
++    }
++}
++
++impl UiLineHeight {
++    /// Returns the value of the line height.
++    pub fn value(&self) -> f32 {
++        match self {
++            UiLineHeight::Comfortable => 1.5,
++            UiLineHeight::Standard => 1.3,
++            UiLineHeight::Custom(line_height) => *line_height,
++        }
++    }
++}
++
+ impl ThemeSettings {
+     /// Returns the buffer font size.
+     pub fn buffer_font_size(&self, cx: &App) -> Pixels {
+@@ -510,6 +547,11 @@ impl ThemeSettings {
+         f32::max(self.buffer_line_height.value(), MIN_LINE_HEIGHT)
+     }
+ 
++    /// Returns the UI line height as a multiplier of `ui_font_size`.
++    pub fn ui_line_height(&self) -> f32 {
++        f32::max(self.ui_line_height.value(), MIN_LINE_HEIGHT)
++    }
++
+     /// Applies the theme overrides, if there are any, to the current theme.
+     pub fn apply_theme_overrides(&self, mut arc_theme: Arc<Theme>) -> Arc<Theme> {
+         if let Some(experimental_theme_overrides) = &self.experimental_theme_overrides {
+@@ -737,6 +779,7 @@ impl settings::Settings for ThemeSettings {
+             },
+             buffer_font_size: clamp_font_size(content.buffer_font_size.unwrap().into_gpui()),
+             buffer_line_height: content.buffer_line_height.unwrap().into(),
++            ui_line_height: content.ui_line_height.unwrap_or_default().into(),
+             agent_ui_font_size: content.agent_ui_font_size.map(|s| s.into_gpui()),
+             agent_buffer_font_size: content.agent_buffer_font_size.map(|s| s.into_gpui()),
+             git_commit_buffer_font_size: content.git_commit_buffer_font_size.map(|s| s.into_gpui()),
+diff --git a/crates/theme_settings/src/theme_settings.rs b/crates/theme_settings/src/theme_settings.rs
+index ff47093c0c..aa961ff3c1 100644
+--- a/crates/theme_settings/src/theme_settings.rs
++++ b/crates/theme_settings/src/theme_settings.rs
+@@ -28,7 +28,7 @@ pub use crate::schema::{
+ };
+ use crate::settings::adjust_buffer_font_size;
+ pub use crate::settings::{
+-    AgentBufferFontSize, AgentUiFontSize, BufferLineHeight, FontFamilyName,
++    AgentBufferFontSize, AgentUiFontSize, BufferLineHeight, FontFamilyName, UiLineHeight,
+     GitCommitBufferFontSize, IconThemeName, IconThemeSelection, MarkdownPreviewFontSize,
+     ThemeAppearanceMode, ThemeName, ThemeSelection, ThemeSettings, adjust_agent_buffer_font_size,
+     adjust_agent_ui_font_size, adjust_git_commit_buffer_font_size,

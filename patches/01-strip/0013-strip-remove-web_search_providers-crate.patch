@@ -1,0 +1,347 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Thu, 28 May 2026 23:10:51 +0300
+Subject: [PATCH] strip: remove web_search_providers crate
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The only registered provider was CloudWebSearchProvider, which gated on
+model.is_provided_by_zed() — never true after the cloud LLM provider was
+deregistered in patch 0009. Drop the init calls + crate.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Cargo.lock                                    | 19 ----
+ Cargo.toml                                    |  2 -
+ crates/web_search_providers/Cargo.toml        | 26 -----
+ crates/web_search_providers/LICENSE-GPL       |  1 -
+ crates/web_search_providers/src/cloud.rs      | 97 -------------------
+ .../src/web_search_providers.rs               | 68 -------------
+ crates/zed/Cargo.toml                         |  1 -
+ crates/zed/src/main.rs                        |  2 -
+ crates/zed/src/zed.rs                         |  1 -
+ 9 files changed, 217 deletions(-)
+ delete mode 100644 crates/web_search_providers/Cargo.toml
+ delete mode 120000 crates/web_search_providers/LICENSE-GPL
+ delete mode 100644 crates/web_search_providers/src/cloud.rs
+ delete mode 100644 crates/web_search_providers/src/web_search_providers.rs
+
+diff --git a/Cargo.lock b/Cargo.lock
+index a1fa773e66..a6d2e8987c 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -20954,24 +20954,6 @@ dependencies = [
+  "serde",
+ ]
+ 
+-[[package]]
+-name = "web_search_providers"
+-version = "0.1.0"
+-dependencies = [
+- "anyhow",
+- "client",
+- "cloud_api_client",
+- "cloud_api_types",
+- "cloud_llm_client",
+- "futures 0.3.32",
+- "gpui",
+- "http_client",
+- "language_model",
+- "serde",
+- "serde_json",
+- "web_search",
+-]
+-
+ [[package]]
+ name = "webpki-root-certs"
+ version = "0.26.8"
+@@ -23123,7 +23105,6 @@ dependencies = [
+  "vim_mode_setting",
+  "watch",
+  "web_search",
+- "web_search_providers",
+  "which_key",
+  "windows 0.61.3",
+  "windows_resources",
+diff --git a/Cargo.toml b/Cargo.toml
+index 2a72c20392..e98253d0b8 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -208,7 +208,6 @@ members = [
+     "crates/vim_mode_setting",
+     "crates/watch",
+     "crates/web_search",
+-    "crates/web_search_providers",
+     "crates/which_key",
+     "crates/workspace",
+     "crates/worktree",
+@@ -456,7 +455,6 @@ which_key = { path = "crates/which_key" }
+ 
+ watch = { path = "crates/watch" }
+ web_search = { path = "crates/web_search" }
+-web_search_providers = { path = "crates/web_search_providers" }
+ workspace = { path = "crates/workspace" }
+ worktree = { path = "crates/worktree" }
+ x_ai = { path = "crates/x_ai" }
+diff --git a/crates/web_search_providers/Cargo.toml b/crates/web_search_providers/Cargo.toml
+deleted file mode 100644
+index e2bbc1aeb2..0000000000
+--- a/crates/web_search_providers/Cargo.toml
++++ /dev/null
+@@ -1,26 +0,0 @@
+-[package]
+-name = "web_search_providers"
+-version = "0.1.0"
+-edition.workspace = true
+-publish.workspace = true
+-license = "GPL-3.0-or-later"
+-
+-[lints]
+-workspace = true
+-
+-[lib]
+-path = "src/web_search_providers.rs"
+-
+-[dependencies]
+-anyhow.workspace = true
+-client.workspace = true
+-cloud_api_client.workspace = true
+-cloud_api_types.workspace = true
+-cloud_llm_client.workspace = true
+-futures.workspace = true
+-gpui.workspace = true
+-http_client.workspace = true
+-language_model.workspace = true
+-serde.workspace = true
+-serde_json.workspace = true
+-web_search.workspace = true
+diff --git a/crates/web_search_providers/LICENSE-GPL b/crates/web_search_providers/LICENSE-GPL
+deleted file mode 120000
+index 89e542f750..0000000000
+--- a/crates/web_search_providers/LICENSE-GPL
++++ /dev/null
+@@ -1 +0,0 @@
+-../../LICENSE-GPL
+\ No newline at end of file
+diff --git a/crates/web_search_providers/src/cloud.rs b/crates/web_search_providers/src/cloud.rs
+deleted file mode 100644
+index a1c66d1d1e..0000000000
+--- a/crates/web_search_providers/src/cloud.rs
++++ /dev/null
+@@ -1,97 +0,0 @@
+-use std::sync::Arc;
+-
+-use anyhow::{Result, anyhow};
+-use client::{Client, UserStore, global_llm_token};
+-use cloud_api_client::LlmApiToken;
+-use cloud_api_types::OrganizationId;
+-use cloud_llm_client::{WebSearchBody, WebSearchResponse};
+-use futures::AsyncReadExt as _;
+-use gpui::{App, AppContext, Context, Entity, Task};
+-use http_client::Method;
+-use web_search::{WebSearchProvider, WebSearchProviderId};
+-
+-pub struct CloudWebSearchProvider {
+-    state: Entity<State>,
+-}
+-
+-impl CloudWebSearchProvider {
+-    pub fn new(client: Arc<Client>, user_store: Entity<UserStore>, cx: &mut App) -> Self {
+-        let state = cx.new(|cx| State::new(client, user_store, cx));
+-
+-        Self { state }
+-    }
+-}
+-
+-pub struct State {
+-    client: Arc<Client>,
+-    user_store: Entity<UserStore>,
+-    llm_api_token: LlmApiToken,
+-}
+-
+-impl State {
+-    pub fn new(client: Arc<Client>, user_store: Entity<UserStore>, cx: &mut Context<Self>) -> Self {
+-        let llm_api_token = global_llm_token(cx);
+-
+-        Self {
+-            client,
+-            user_store,
+-            llm_api_token,
+-        }
+-    }
+-}
+-
+-pub const ZED_WEB_SEARCH_PROVIDER_ID: &str = "zed.dev";
+-
+-impl WebSearchProvider for CloudWebSearchProvider {
+-    fn id(&self) -> WebSearchProviderId {
+-        WebSearchProviderId(ZED_WEB_SEARCH_PROVIDER_ID.into())
+-    }
+-
+-    fn search(&self, query: String, cx: &mut App) -> Task<Result<WebSearchResponse>> {
+-        let state = self.state.read(cx);
+-        let client = state.client.clone();
+-        let llm_api_token = state.llm_api_token.clone();
+-        let organization_id = state
+-            .user_store
+-            .read(cx)
+-            .current_organization()
+-            .map(|organization| organization.id.clone());
+-        let body = WebSearchBody { query };
+-        cx.background_spawn(async move {
+-            perform_web_search(client, llm_api_token, organization_id, body).await
+-        })
+-    }
+-}
+-
+-async fn perform_web_search(
+-    client: Arc<Client>,
+-    llm_api_token: LlmApiToken,
+-    organization_id: Option<OrganizationId>,
+-    body: WebSearchBody,
+-) -> Result<WebSearchResponse> {
+-    let organization_id = organization_id.ok_or_else(|| anyhow!("No organization selected."))?;
+-
+-    let url = client.http_client().build_zed_llm_url("/web_search", &[])?;
+-    let body = serde_json::to_string(&body)?;
+-    let mut response = client
+-        .authenticated_llm_request(&llm_api_token, organization_id, |token| {
+-            Ok(http_client::Request::builder()
+-                .method(Method::POST)
+-                .uri(url.as_ref())
+-                .header("Content-Type", "application/json")
+-                .header("Authorization", format!("Bearer {token}"))
+-                .body(body.clone().into())?)
+-        })
+-        .await?;
+-
+-    if response.status().is_success() {
+-        let mut body = String::new();
+-        response.body_mut().read_to_string(&mut body).await?;
+-        Ok(serde_json::from_str(&body)?)
+-    } else {
+-        let status = response.status();
+-        let mut body = String::new();
+-        response.body_mut().read_to_string(&mut body).await?;
+-        anyhow::bail!("error performing web search.\nStatus: {status:?}\nBody: {body}");
+-    }
+-}
+diff --git a/crates/web_search_providers/src/web_search_providers.rs b/crates/web_search_providers/src/web_search_providers.rs
+deleted file mode 100644
+index 509632429f..0000000000
+--- a/crates/web_search_providers/src/web_search_providers.rs
++++ /dev/null
+@@ -1,68 +0,0 @@
+-mod cloud;
+-
+-use client::{Client, UserStore};
+-use gpui::{App, Context, Entity};
+-use language_model::LanguageModelRegistry;
+-use std::sync::Arc;
+-use web_search::{WebSearchProviderId, WebSearchRegistry};
+-
+-pub fn init(client: Arc<Client>, user_store: Entity<UserStore>, cx: &mut App) {
+-    let registry = WebSearchRegistry::global(cx);
+-    registry.update(cx, |registry, cx| {
+-        register_web_search_providers(registry, client, user_store, cx);
+-    });
+-}
+-
+-fn register_web_search_providers(
+-    registry: &mut WebSearchRegistry,
+-    client: Arc<Client>,
+-    user_store: Entity<UserStore>,
+-    cx: &mut Context<WebSearchRegistry>,
+-) {
+-    register_zed_web_search_provider(
+-        registry,
+-        client.clone(),
+-        user_store.clone(),
+-        &LanguageModelRegistry::global(cx),
+-        cx,
+-    );
+-
+-    cx.subscribe(
+-        &LanguageModelRegistry::global(cx),
+-        move |this, registry, event, cx| {
+-            if let language_model::Event::DefaultModelChanged = event {
+-                register_zed_web_search_provider(
+-                    this,
+-                    client.clone(),
+-                    user_store.clone(),
+-                    &registry,
+-                    cx,
+-                )
+-            }
+-        },
+-    )
+-    .detach();
+-}
+-
+-fn register_zed_web_search_provider(
+-    registry: &mut WebSearchRegistry,
+-    client: Arc<Client>,
+-    user_store: Entity<UserStore>,
+-    language_model_registry: &Entity<LanguageModelRegistry>,
+-    cx: &mut Context<WebSearchRegistry>,
+-) {
+-    let using_zed_provider = language_model_registry
+-        .read(cx)
+-        .default_model()
+-        .is_some_and(|default| default.is_provided_by_zed());
+-    if using_zed_provider {
+-        registry.register_provider(
+-            cloud::CloudWebSearchProvider::new(client, user_store, cx),
+-            cx,
+-        )
+-    } else {
+-        registry.unregister_provider(WebSearchProviderId(
+-            cloud::ZED_WEB_SEARCH_PROVIDER_ID.into(),
+-        ));
+-    }
+-}
+diff --git a/crates/zed/Cargo.toml b/crates/zed/Cargo.toml
+index cc73e940ad..43b9a4417a 100644
+--- a/crates/zed/Cargo.toml
++++ b/crates/zed/Cargo.toml
+@@ -208,7 +208,6 @@ vim.workspace = true
+ vim_mode_setting.workspace = true
+ watch.workspace = true
+ web_search.workspace = true
+-web_search_providers.workspace = true
+ which_key.workspace = true
+ workspace.workspace = true
+ zed_actions.workspace = true
+diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
+index 717f11d787..ad2f84015d 100644
+--- a/crates/zed/src/main.rs
++++ b/crates/zed/src/main.rs
+@@ -662,7 +662,6 @@ fn main() {
+         zed::remote_debug::init(cx);
+         edit_prediction_ui::init(cx);
+         web_search::init(cx);
+-        web_search_providers::init(app_state.client.clone(), app_state.user_store.clone(), cx);
+         snippet_provider::init(cx);
+         edit_prediction_registry::init(app_state.client.clone(), app_state.user_store.clone(), cx);
+         let prompt_builder = PromptBuilder::load(app_state.fs.clone(), stdout_is_a_pty(), cx);
+@@ -726,7 +725,6 @@ fn main() {
+         settings_profile_selector::init(cx);
+         language_tools::init(cx);
+         git_ui::init(cx);
+-        git_graph::init(cx);
+         markdown_preview::init(cx);
+         csv_preview::init(cx);
+         svg_preview::init(cx);
+diff --git a/crates/zed/src/zed.rs b/crates/zed/src/zed.rs
+index 0d9a3cde65..5abe0e94bd 100644
+--- a/crates/zed/src/zed.rs
++++ b/crates/zed/src/zed.rs
+@@ -5609,7 +5609,6 @@ mod tests {
+             );
+             language_models::init(app_state.user_store.clone(), app_state.client.clone(), cx);
+             web_search::init(cx);
+-            web_search_providers::init(app_state.client.clone(), app_state.user_store.clone(), cx);
+             let prompt_builder = PromptBuilder::load(app_state.fs.clone(), false, cx);
+             project::AgentRegistryStore::init_global(
+                 cx,

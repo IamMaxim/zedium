@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Sun, 31 May 2026 15:05:04 +0300
+Subject: [PATCH] brand: fix residual Zed brand strings
+
+Follow-up sweep catching user-facing/identifier brand leaks missed by
+0030/0032, so the verifier brand tripwires can be enabled with no in-code
+exceptions:
+- zed/src/main.rs: notification id dev.zed.Oops -> dev.zedium.Oops.
+- cli: second flatpak-id check dev.zed.Zed -> dev.zedium.Zedium.
+- agent thread payment-required telemetry message: drop "Upgrade to Zed Pro".
+- install_cli prompt: Zed -> Zedium and the CLI name hint -> zedium.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/agent_ui/src/conversation_view/thread_view.rs | 2 +-
+ crates/cli/src/main.rs                               | 2 +-
+ crates/install_cli/src/install_cli_binary.rs         | 8 ++++----
+ crates/zed/src/main.rs                               | 2 +-
+ 4 files changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/crates/agent_ui/src/conversation_view/thread_view.rs b/crates/agent_ui/src/conversation_view/thread_view.rs
+index 2b3388d812..ed03f7d043 100644
+--- a/crates/agent_ui/src/conversation_view/thread_view.rs
++++ b/crates/agent_ui/src/conversation_view/thread_view.rs
+@@ -1824,7 +1824,7 @@ impl ThreadView {
+                 ThreadError::PaymentRequired => (
+                     "payment_required",
+                     None,
+-                    "You reached your free usage limit. Upgrade to Zed Pro for more prompts."
++                    "Your model provider reported that you have reached a usage limit."
+                         .into(),
+                 ),
+                 ThreadError::Refusal => {
+diff --git a/crates/cli/src/main.rs b/crates/cli/src/main.rs
+index b1b31613bf..a573d9bb63 100644
+--- a/crates/cli/src/main.rs
++++ b/crates/cli/src/main.rs
+@@ -1093,7 +1093,7 @@ mod flatpak {
+         }
+ 
+         if let Ok(flatpak_id) = env::var("FLATPAK_ID") {
+-            if !flatpak_id.starts_with("dev.zed.Zed") {
++            if !flatpak_id.starts_with("dev.zedium.Zedium") {
+                 return None;
+             }
+ 
+diff --git a/crates/install_cli/src/install_cli_binary.rs b/crates/install_cli/src/install_cli_binary.rs
+index a88816ace1..d8e8e07608 100644
+--- a/crates/install_cli/src/install_cli_binary.rs
++++ b/crates/install_cli/src/install_cli_binary.rs
+@@ -80,7 +80,7 @@ async fn install_script(cx: &AsyncApp) -> Result<Option<PathBuf>> {
+ }
+ 
+ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
+-    const LINUX_PROMPT_DETAIL: &str = "If you installed Zed from our official release add ~/.local/bin to your PATH.\n\nIf you installed Zed from a different source like your package manager, then you may need to create an alias/symlink manually.\n\nDepending on your package manager, the CLI might be named zeditor, zedit, zed-editor or something else.";
++    const LINUX_PROMPT_DETAIL: &str = "If you installed Zedium from our official release add ~/.local/bin to your PATH.\n\nIf you installed Zedium from a different source like your package manager, then you may need to create an alias/symlink manually.\n\nDepending on your package manager, the CLI might be named zedium or something else.";
+ 
+     cx.spawn_in(window, async move |workspace, cx| {
+         if cfg!(any(target_os = "linux", target_os = "freebsd")) {
+@@ -98,7 +98,7 @@ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
+             // The user dismissed the administrator prompt; nothing to do.
+             Ok(None) => return Ok(()),
+             Err(error) => {
+-                log::error!("failed to install zed CLI: {error:#}");
++                log::error!("failed to install zedium CLI: {error:#}");
+                 workspace.update(cx, |workspace, cx| {
+                     struct CliInstallFailed;
+ 
+@@ -111,7 +111,7 @@ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
+                                     "You can add `zed` to your PATH manually.",
+                                     cx,
+                                 )
+-                                .with_title("Couldn't install the Zed CLI")
++                                .with_title("Couldn't install the Zedium CLI")
+                                 .more_info_message("Show me how")
+                                 .more_info_url(CANT_INSTALL_DOCS_URL)
+                             })
+@@ -140,5 +140,5 @@ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
+         register_zed_scheme(cx).await.log_err();
+         Ok(())
+     })
+-    .detach_and_prompt_err("Cannot install the Zed CLI", window, cx, |_, _, _| None);
++    .detach_and_prompt_err("Cannot install the Zedium CLI", window, cx, |_, _, _| None);
+ }
+diff --git a/crates/zed/src/main.rs b/crates/zed/src/main.rs
+index a7f68aca12..d939063a9a 100644
+--- a/crates/zed/src/main.rs
++++ b/crates/zed/src/main.rs
+@@ -170,7 +170,7 @@ fn fail_to_open_window(e: anyhow::Error, _cx: &mut App) {
+                 process::exit(1);
+             };
+ 
+-            let notification_id = "dev.zed.Oops";
++            let notification_id = "dev.zedium.Oops";
+             proxy
+                 .add_notification(
+                     notification_id,

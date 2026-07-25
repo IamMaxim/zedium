@@ -1,0 +1,147 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: IamMaxim <g.maxim.stepanoff@gmail.com>
+Date: Wed, 10 Jun 2026 01:12:54 +0300
+Subject: [PATCH] strip: drop libwebrtc/webrtc-sys from audio (no-op echo
+ canceller)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+libwebrtc was pulled into the graph solely by crates/audio's acoustic echo
+canceller (audio_pipeline/echo_canceller.rs), which only matters for the duplex
+voice audio of calls/collab — features Zedium already strips (patch 0002). Use
+the no-op EchoCanceller upstream already ships for windows-gnu/freebsd, and drop
+the libwebrtc/livekit/webrtc-sys workspace deps + [patch] entries.
+
+Removes WebRTC from an air-gapped editor, shrinks the binary, and fixes the macOS
+release build: webrtc-sys's cxx-generated rust::Slice iterator fails to compile
+against modern libc++ (Xcode 15.2 and 15.4 alike) under -std=c++20.
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ Cargo.toml                                    |  7 +-
+ crates/audio/Cargo.toml                       |  3 -
+ .../src/audio_pipeline/echo_canceller.rs      | 69 ++++---------------
+ 3 files changed, 15 insertions(+), 64 deletions(-)
+
+diff --git a/Cargo.toml b/Cargo.toml
+index e479550043..bdb200a22d 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -587,8 +587,6 @@ jupyter-websocket-client = "1.1.0"
+ libc = "0.2"
+ libsqlite3-sys = { version = "0.30.1", features = ["bundled"] }
+ linkify = "0.10.0"
+-libwebrtc = "0.3.26"
+-livekit = { version = "0.7.32", features = ["tokio", "rustls-tls-native-roots"] }
+ log = { version = "0.4.16", features = ["kv_unstable_serde", "serde"] }
+ lru = "0.16"
+ lsp-types = { git = "https://github.com/zed-industries/lsp-types", rev = "f4dfa89a21ca35cd929b70354b1583fabae325f8" }
+@@ -801,7 +799,6 @@ wax = "0.7"
+ which = "6.0.0"
+ wasm-bindgen = "0.2.120"
+ web-time = "1.1.0"
+-webrtc-sys = "0.3.23"
+ wgpu = "29.0.4"
+ windows-core = "0.61"
+ yaml-rust2 = "0.8"
+@@ -874,11 +871,9 @@ async-process = { git = "https://github.com/zed-industries/async-process.git", r
+ async-task = { git = "https://github.com/smol-rs/async-task.git", rev = "b4486cd71e4e94fbda54ce6302444de14f4d190e" }
+ windows-capture = { git = "https://github.com/zed-industries/windows-capture.git", rev = "f0d6c1b6691db75461b732f6d5ff56eed002eeb9" }
+ calloop = { git = "https://github.com/zed-industries/calloop" }
+-livekit = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "d0e27be0cdad89eadab3e36207cda0a2b6e359ee" }
+-libwebrtc = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "d0e27be0cdad89eadab3e36207cda0a2b6e359ee" }
+ notify = { git = "https://github.com/zed-industries/notify", rev = "faecbc33db4f59313e5225ef766bfd9e54a54cfd" }
+ notify-types = { git = "https://github.com/zed-industries/notify", rev = "faecbc33db4f59313e5225ef766bfd9e54a54cfd" }
+-webrtc-sys = { git = "https://github.com/zed-industries/livekit-rust-sdks", rev = "d0e27be0cdad89eadab3e36207cda0a2b6e359ee" }
++>>>>>>> strip: drop libwebrtc/webrtc-sys from audio (no-op echo canceller)
+ 
+ [profile.dev]
+ split-debuginfo = "unpacked"
+diff --git a/crates/audio/Cargo.toml b/crates/audio/Cargo.toml
+index 156915b4ba..2f1edf98a1 100644
+--- a/crates/audio/Cargo.toml
++++ b/crates/audio/Cargo.toml
+@@ -25,6 +25,3 @@ serde.workspace = true
+ settings.workspace = true
+ thiserror.workspace = true
+ util.workspace = true
+-
+-[target.'cfg(not(any(all(target_os = "windows", target_env = "gnu"), target_os = "freebsd")))'.dependencies]
+-libwebrtc.workspace = true
+diff --git a/crates/audio/src/audio_pipeline/echo_canceller.rs b/crates/audio/src/audio_pipeline/echo_canceller.rs
+index 59f3063d9f..49ea14c0d1 100644
+--- a/crates/audio/src/audio_pipeline/echo_canceller.rs
++++ b/crates/audio/src/audio_pipeline/echo_canceller.rs
+@@ -1,57 +1,16 @@
+-#[cfg(not(any(all(target_os = "windows", target_env = "gnu"), target_os = "freebsd")))]
+-mod real_implementation {
+-    use anyhow::Context;
+-    use libwebrtc::native::apm;
+-    use parking_lot::Mutex;
+-    use std::sync::Arc;
+-
+-    use crate::{CHANNEL_COUNT, SAMPLE_RATE};
+-
+-    #[derive(Clone)]
+-    pub struct EchoCanceller(Arc<Mutex<apm::AudioProcessingModule>>);
+-
+-    impl Default for EchoCanceller {
+-        fn default() -> Self {
+-            // Sound-effect playback only feeds this APM through `process_reverse_stream`
+-            // for AEC reference; gain/HPF/NS would be no-ops here, so we keep the
+-            // original (echo only) configuration via the legacy flag form.
+-            Self(Arc::new(Mutex::new(
+-                apm::AudioProcessingModule::from_flags(true, false, false, false),
+-            )))
+-        }
+-    }
+-
+-    impl EchoCanceller {
+-        pub fn process_reverse_stream(&mut self, buf: &mut [i16]) {
+-            self.0
+-                .lock()
+-                .process_reverse_stream(buf, SAMPLE_RATE.get() as i32, CHANNEL_COUNT.get().into())
+-                .expect("Audio input and output threads should not panic");
+-        }
+-
+-        pub fn process_stream(&mut self, buf: &mut [i16]) -> anyhow::Result<()> {
+-            self.0
+-                .lock()
+-                .process_stream(buf, SAMPLE_RATE.get() as i32, CHANNEL_COUNT.get() as i32)
+-                .context("livekit audio processor error")
+-        }
++// Zedium strips libwebrtc (WebRTC) from the build: it was pulled in solely for
++// the acoustic echo canceller below, which only matters for the duplex voice
++// audio of calls/collaboration — features Zedium removes. Dropping it keeps
++// WebRTC out of an air-gapped editor and unblocks the macOS build (webrtc-sys's
++// C++ bridge fails to compile against modern libc++). The no-op passthrough is
++// the same fallback upstream already shipped for the windows-gnu / freebsd
++// targets that never had libwebrtc.
++#[derive(Clone, Default)]
++pub struct EchoCanceller;
++
++impl EchoCanceller {
++    pub fn process_reverse_stream(&mut self, _buf: &mut [i16]) {}
++    pub fn process_stream(&mut self, _buf: &mut [i16]) -> anyhow::Result<()> {
++        Ok(())
+     }
+ }
+-
+-#[cfg(any(all(target_os = "windows", target_env = "gnu"), target_os = "freebsd"))]
+-mod fake_implementation {
+-    #[derive(Clone, Default)]
+-    pub struct EchoCanceller;
+-
+-    impl EchoCanceller {
+-        pub fn process_reverse_stream(&mut self, _buf: &mut [i16]) {}
+-        pub fn process_stream(&mut self, _buf: &mut [i16]) -> anyhow::Result<()> {
+-            Ok(())
+-        }
+-    }
+-}
+-
+-#[cfg(any(all(target_os = "windows", target_env = "gnu"), target_os = "freebsd"))]
+-pub use fake_implementation::EchoCanceller;
+-#[cfg(not(any(all(target_os = "windows", target_env = "gnu"), target_os = "freebsd")))]
+-pub use real_implementation::EchoCanceller;

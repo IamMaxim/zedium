@@ -1,0 +1,580 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Maxim Stepanov <g.maxim.stepanoff@gmail.com>
+Date: Thu, 23 Jul 2026 01:05:19 +0300
+Subject: [PATCH] strip: remove residual telemetry surfaces (v1.10.3/v1.11.3)
+
+Strips telemetry::event! sites and dangling telemetry deps that appeared in new upstream
+code (git_ui diffs, remote/remote_server, agent_ui inline/terminal codegen assistants).
+
+Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
+---
+ crates/agent_ui/src/buffer_codegen.rs         |  43 --------
+ crates/agent_ui/src/inline_assistant.rs       |  61 -----------
+ crates/agent_ui/src/terminal_codegen.rs       |  30 +-----
+ .../agent_ui/src/terminal_inline_assistant.rs |  40 -------
+ crates/git_ui/src/branch_diff.rs              |   1 -
+ crates/git_ui/src/staged_diff.rs              |   8 --
+ crates/git_ui/src/unstaged_diff.rs            |   8 --
+ crates/remote/Cargo.toml                      |   1 -
+ crates/remote/src/remote_client.rs            |  12 +--
+ crates/remote_server/Cargo.toml               |   1 -
+ .../remote_server/src/remote_editing_tests.rs | 101 ------------------
+ crates/remote_server/src/server.rs            |  23 +---
+ 12 files changed, 6 insertions(+), 323 deletions(-)
+
+diff --git a/crates/agent_ui/src/buffer_codegen.rs b/crates/agent_ui/src/buffer_codegen.rs
+index 975bb57776..14bb2fdd55 100644
+--- a/crates/agent_ui/src/buffer_codegen.rs
++++ b/crates/agent_ui/src/buffer_codegen.rs
+@@ -21,9 +21,6 @@ use language_model::{
+     LanguageModelRequestTool, LanguageModelTextStream, LanguageModelToolChoice,
+     LanguageModelToolUse, LanguageModelToolUseId, Role, TokenUsage,
+ };
+-use language_models::provider::anthropic::telemetry::{
+-    AnthropicCompletionType, AnthropicEventData, AnthropicEventReporter, AnthropicEventType,
+-};
+ use multi_buffer::MultiBufferRow;
+ use parking_lot::Mutex;
+ use prompt_store::PromptBuilder;
+@@ -644,10 +641,6 @@ impl CodegenAlternative {
+         stream: impl 'static + Future<Output = Result<LanguageModelTextStream>>,
+         cx: &mut Context<Self>,
+     ) -> Task<()> {
+-        let anthropic_reporter = AnthropicEventReporter::new(&model, cx);
+-        let session_id = self.session_id;
+-        let model_telemetry_id = model.telemetry_id();
+-        let model_provider_id = model.provider_id().to_string();
+         let start_time = Instant::now();
+ 
+         // Make a new snapshot and re-resolve anchor in case the document was modified.
+@@ -685,16 +678,6 @@ impl CodegenAlternative {
+             }
+         }
+ 
+-        let language_name = {
+-            let multibuffer = self.buffer.read(cx);
+-            let snapshot = multibuffer.snapshot(cx);
+-            let ranges = snapshot.range_to_buffer_ranges(self.range.start..self.range.end);
+-            ranges
+-                .first()
+-                .and_then(|(buffer, _, _)| buffer.language())
+-                .map(|language| language.name())
+-        };
+-
+         self.diff = Diff::default();
+         self.status = CodegenStatus::Pending;
+         let mut edit_start = self.range.start.to_offset(&snapshot);
+@@ -705,25 +688,14 @@ impl CodegenAlternative {
+         cx.spawn(async move |codegen, cx| {
+             let stream = stream.await;
+ 
+-            let token_usage = stream
+-                .as_ref()
+-                .ok()
+-                .map(|stream| stream.last_token_usage.clone());
+             let message_id = stream
+                 .as_ref()
+                 .ok()
+                 .and_then(|stream| stream.message_id.clone());
+             let generate = async {
+-                let model_telemetry_id = model_telemetry_id.clone();
+-                let model_provider_id = model_provider_id.clone();
+                 let (mut diff_tx, mut diff_rx) = mpsc::channel(1);
+-                let message_id = message_id.clone();
+                 let line_based_stream_diff: Task<anyhow::Result<()>> = cx.background_spawn({
+-                    let anthropic_reporter = anthropic_reporter.clone();
+-                    let language_name = language_name.clone();
+                     async move {
+-                        let mut response_latency = None;
+-                        let request_start = Instant::now();
+                         let diff = async {
+                             let raw_stream = stream?.stream.map_err(|error| error.into());
+ 
+@@ -745,9 +717,6 @@ impl CodegenAlternative {
+                             let mut first_line = true;
+ 
+                             while let Some(chunk) = chunks.next().await {
+-                                if response_latency.is_none() {
+-                                    response_latency = Some(request_start.elapsed());
+-                                }
+                                 let chunk = chunk?;
+                                 completion_clone.lock().push_str(&chunk);
+ 
+@@ -823,15 +792,6 @@ impl CodegenAlternative {
+ 
+                         let result = diff.await;
+ 
+-                        let error_message = result.as_ref().err().map(|error| error.to_string());
+-
+-                        anthropic_reporter.report(AnthropicEventData {
+-                            completion_type: AnthropicCompletionType::Editor,
+-                            event: AnthropicEventType::Response,
+-                            language_name: language_name.map(|n| n.to_string()),
+-                            message_id,
+-                        });
+-
+                         result?;
+                         Ok(())
+                     }
+@@ -903,9 +863,6 @@ impl CodegenAlternative {
+                     }
+                     this.elapsed_time = Some(elapsed_time);
+                     this.completion = Some(completion.lock().clone());
+-                    if let Some(usage) = token_usage {
+-                        let usage = usage.lock();
+-                    }
+ 
+                     cx.emit(CodegenEvent::Finished);
+                     cx.notify();
+diff --git a/crates/agent_ui/src/inline_assistant.rs b/crates/agent_ui/src/inline_assistant.rs
+index 01a7f4b0f5..268ae347fb 100644
+--- a/crates/agent_ui/src/inline_assistant.rs
++++ b/crates/agent_ui/src/inline_assistant.rs
+@@ -1,6 +1,3 @@
+-use language_models::provider::anthropic::telemetry::{
+-    AnthropicCompletionType, AnthropicEventData, AnthropicEventType, report_anthropic_event,
+-};
+ use std::mem;
+ use std::ops::Range;
+ use std::sync::Arc;
+@@ -401,20 +398,6 @@ impl InlineAssistant {
+             let anchor_range = start..end;
+ 
+             codegen_ranges.push(anchor_range);
+-
+-            if let Some(model) = LanguageModelRegistry::read_global(cx).inline_assistant_model() {
+-
+-                report_anthropic_event(
+-                    &model.model,
+-                    AnthropicEventData {
+-                        completion_type: AnthropicCompletionType::Editor,
+-                        event: AnthropicEventType::Invoked,
+-                        language_name: buffer.language().map(|language| language.name().to_proto()),
+-                        message_id: None,
+-                    },
+-                    cx,
+-                );
+-            }
+         }
+ 
+         Some((codegen_ranges, newest_selection))
+@@ -967,50 +950,6 @@ impl InlineAssistant {
+             }
+ 
+             let active_alternative = assist.codegen.read(cx).active_alternative().clone();
+-            if let Some(model) = LanguageModelRegistry::read_global(cx).inline_assistant_model() {
+-                let language_name = assist.editor.upgrade().and_then(|editor| {
+-                    let multibuffer = editor.read(cx).buffer().read(cx);
+-                    let snapshot = multibuffer.snapshot(cx);
+-                    let ranges =
+-                        snapshot.range_to_buffer_ranges(assist.range.start..assist.range.end);
+-                    ranges
+-                        .first()
+-                        .and_then(|(buffer, _, _)| buffer.language())
+-                        .map(|language| language.name().0.to_string())
+-                });
+-
+-                let codegen = assist.codegen.read(cx);
+-                let session_id = codegen.session_id();
+-                let message_id = active_alternative.read(cx).message_id.clone();
+-                let model_telemetry_id = model.model.telemetry_id();
+-                let model_provider_id = model.model.provider_id().to_string();
+-
+-                let (phase, event_type, anthropic_event_type) = if undo {
+-                    (
+-                        "rejected",
+-                        "Assistant Response Rejected",
+-                        AnthropicEventType::Reject,
+-                    )
+-                } else {
+-                    (
+-                        "accepted",
+-                        "Assistant Response Accepted",
+-                        AnthropicEventType::Accept,
+-                    )
+-                };
+-
+-
+-                report_anthropic_event(
+-                    &model.model,
+-                    AnthropicEventData {
+-                        completion_type: AnthropicCompletionType::Editor,
+-                        event: anthropic_event_type,
+-                        language_name,
+-                        message_id,
+-                    },
+-                    cx,
+-                );
+-            }
+ 
+             if undo {
+                 assist.codegen.update(cx, |codegen, cx| codegen.undo(cx));
+diff --git a/crates/agent_ui/src/terminal_codegen.rs b/crates/agent_ui/src/terminal_codegen.rs
+index 9645ad9c88..95a85868a8 100644
+--- a/crates/agent_ui/src/terminal_codegen.rs
++++ b/crates/agent_ui/src/terminal_codegen.rs
+@@ -2,10 +2,6 @@ use crate::inline_prompt_editor::CodegenStatus;
+ use futures::{SinkExt, StreamExt, channel::mpsc};
+ use gpui::{App, AppContext as _, Context, Entity, EventEmitter, Task};
+ use language_model::{ConfiguredModel, LanguageModelRegistry, LanguageModelRequest};
+-use language_models::provider::anthropic::telemetry::{
+-    AnthropicCompletionType, AnthropicEventData, AnthropicEventReporter, AnthropicEventType,
+-};
+-use std::time::Instant;
+ use terminal::Terminal;
+ use uuid::Uuid;
+ 
+@@ -43,11 +39,6 @@ impl TerminalCodegen {
+             return;
+         };
+ 
+-        let anthropic_reporter = AnthropicEventReporter::new(&model, cx);
+-        let session_id = self.session_id;
+-        let model_telemetry_id = model.telemetry_id();
+-        let model_provider_id = model.provider_id().to_string();
+-
+         self.status = CodegenStatus::Pending;
+         self.transaction = Some(TerminalTransaction::start(self.terminal.clone()));
+         self.generation = cx.spawn(async move |this, cx| {
+@@ -62,17 +53,10 @@ impl TerminalCodegen {
+                 let (mut hunks_tx, mut hunks_rx) = mpsc::channel(1);
+ 
+                 let task = cx.background_spawn({
+-                    let message_id = message_id.clone();
+-                    let anthropic_reporter = anthropic_reporter.clone();
+                     async move {
+-                        let mut response_latency = None;
+-                        let request_start = Instant::now();
+                         let task = async {
+                             let mut chunks = response?.stream;
+                             while let Some(chunk) = chunks.next().await {
+-                                if response_latency.is_none() {
+-                                    response_latency = Some(request_start.elapsed());
+-                                }
+                                 let chunk = chunk?;
+                                 hunks_tx.send(chunk).await?;
+                             }
+@@ -80,19 +64,7 @@ impl TerminalCodegen {
+                             anyhow::Ok(())
+                         };
+ 
+-                        let result = task.await;
+-
+-                        let error_message = result.as_ref().err().map(|error| error.to_string());
+-
+-
+-                        anthropic_reporter.report(AnthropicEventData {
+-                            completion_type: AnthropicCompletionType::Terminal,
+-                            event: AnthropicEventType::Response,
+-                            language_name: None,
+-                            message_id,
+-                        });
+-
+-                        result?;
++                        task.await?;
+                         anyhow::Ok(())
+                     }
+                 });
+diff --git a/crates/agent_ui/src/terminal_inline_assistant.rs b/crates/agent_ui/src/terminal_inline_assistant.rs
+index 1d4fc3aeaf..f217cc0946 100644
+--- a/crates/agent_ui/src/terminal_inline_assistant.rs
++++ b/crates/agent_ui/src/terminal_inline_assistant.rs
+@@ -18,9 +18,6 @@ use language_model::{
+     CompletionIntent, ConfiguredModel, LanguageModelRegistry, LanguageModelRequest,
+     LanguageModelRequestMessage, Role,
+ };
+-use language_models::provider::anthropic::telemetry::{
+-    AnthropicCompletionType, AnthropicEventData, AnthropicEventType, report_anthropic_event,
+-};
+ use project::Project;
+ use prompt_store::PromptBuilder;
+ use std::sync::Arc;
+@@ -298,43 +295,6 @@ impl TerminalInlineAssistant {
+                 })
+                 .log_err();
+ 
+-            if let Some(ConfiguredModel { model, .. }) =
+-                LanguageModelRegistry::read_global(cx).inline_assistant_model()
+-            {
+-                let codegen = assist.codegen.read(cx);
+-                let session_id = codegen.session_id();
+-                let message_id = codegen.message_id.clone();
+-                let model_telemetry_id = model.telemetry_id();
+-                let model_provider_id = model.provider_id().to_string();
+-
+-                let (phase, event_type, anthropic_event_type) = if undo {
+-                    (
+-                        "rejected",
+-                        "Assistant Response Rejected",
+-                        AnthropicEventType::Reject,
+-                    )
+-                } else {
+-                    (
+-                        "accepted",
+-                        "Assistant Response Accepted",
+-                        AnthropicEventType::Accept,
+-                    )
+-                };
+-
+-                // Fire Zed telemetry
+-
+-                report_anthropic_event(
+-                    &model,
+-                    AnthropicEventData {
+-                        completion_type: AnthropicCompletionType::Terminal,
+-                        event: anthropic_event_type,
+-                        language_name: None,
+-                        message_id,
+-                    },
+-                    cx,
+-                );
+-            }
+-
+             assist.codegen.update(cx, |codegen, cx| {
+                 if undo {
+                     codegen.undo(cx);
+diff --git a/crates/git_ui/src/branch_diff.rs b/crates/git_ui/src/branch_diff.rs
+index 068d8e9af1..0c84eaf616 100644
+--- a/crates/git_ui/src/branch_diff.rs
++++ b/crates/git_ui/src/branch_diff.rs
+@@ -80,7 +80,6 @@ impl BranchDiff {
+         window: &mut Window,
+         cx: &mut Context<Workspace>,
+     ) {
+-        telemetry::event!("Git Branch Diff Opened");
+         let project = workspace.project().clone();
+         let Some(intended_repo) = project.read(cx).active_repository(cx) else {
+             let workspace = cx.entity().downgrade();
+diff --git a/crates/git_ui/src/staged_diff.rs b/crates/git_ui/src/staged_diff.rs
+index 9b607c72cb..c475a049b6 100644
+--- a/crates/git_ui/src/staged_diff.rs
++++ b/crates/git_ui/src/staged_diff.rs
+@@ -153,14 +153,6 @@ impl StagedDiff {
+         window: &mut Window,
+         cx: &mut Context<Workspace>,
+     ) {
+-        telemetry::event!(
+-            "Git Staged Diff Opened",
+-            source = if entry.is_some() {
+-                "Git Panel"
+-            } else {
+-                "Action"
+-            }
+-        );
+         let intended_repo = workspace.project().read(cx).active_repository(cx);
+         let existing = workspace.items_of_type::<Self>(cx).next();
+         let staged_diff = if let Some(existing) = existing {
+diff --git a/crates/git_ui/src/unstaged_diff.rs b/crates/git_ui/src/unstaged_diff.rs
+index 44f700c722..111e25eacf 100644
+--- a/crates/git_ui/src/unstaged_diff.rs
++++ b/crates/git_ui/src/unstaged_diff.rs
+@@ -157,14 +157,6 @@ impl UnstagedDiff {
+         window: &mut Window,
+         cx: &mut Context<Workspace>,
+     ) {
+-        telemetry::event!(
+-            "Git Unstaged Diff Opened",
+-            source = if entry.is_some() {
+-                "Git Panel"
+-            } else {
+-                "Action"
+-            }
+-        );
+         let intended_repo = workspace.project().read(cx).active_repository(cx);
+         let existing = workspace.items_of_type::<Self>(cx).next();
+         let unstaged_diff = if let Some(existing) = existing {
+diff --git a/crates/remote/Cargo.toml b/crates/remote/Cargo.toml
+index f420c2dca1..c08561954e 100644
+--- a/crates/remote/Cargo.toml
++++ b/crates/remote/Cargo.toml
+@@ -39,7 +39,6 @@ serde.workspace = true
+ serde_json.workspace = true
+ settings.workspace = true
+ smol.workspace = true
+-telemetry.workspace = true
+ tempfile.workspace = true
+ thiserror.workspace = true
+ urlencoding.workspace = true
+diff --git a/crates/remote/src/remote_client.rs b/crates/remote/src/remote_client.rs
+index 239e978593..a45b7214b5 100644
+--- a/crates/remote/src/remote_client.rs
++++ b/crates/remote/src/remote_client.rs
+@@ -509,17 +509,7 @@ impl RemoteClient {
+                     });
+                 });
+ 
+-                // Use the same `remote_*` property schema as the forwarded
+-                // remote events (see `client::telemetry::report_remote_event`)
+-                // so all remote-origin telemetry can be queried uniformly.
+-                telemetry::event!(
+-                    "Remote Connection Established",
+-                    remote = true,
+-                    remote_connection_type = connection_type,
+-                    remote_os_name = platform.os.display_name(),
+-                    remote_os_version = os_version,
+-                    remote_architecture = platform.arch.as_str(),
+-                );
++                let _ = (connection_type, &os_version);
+ 
+                 Ok(Some(this))
+             });
+diff --git a/crates/remote_server/Cargo.toml b/crates/remote_server/Cargo.toml
+index 89b0dfef67..3621612017 100644
+--- a/crates/remote_server/Cargo.toml
++++ b/crates/remote_server/Cargo.toml
+@@ -68,7 +68,6 @@ shellexpand.workspace = true
+ smol.workspace = true
+ sysinfo.workspace = true
+ task.workspace = true
+-telemetry.workspace = true
+ util.workspace = true
+ watch.workspace = true
+ worktree.workspace = true
+diff --git a/crates/remote_server/src/remote_editing_tests.rs b/crates/remote_server/src/remote_editing_tests.rs
+index 46e2eb1eb6..ee89b64a6c 100644
+--- a/crates/remote_server/src/remote_editing_tests.rs
++++ b/crates/remote_server/src/remote_editing_tests.rs
+@@ -187,107 +187,6 @@ async fn test_basic_remote_editing(cx: &mut TestAppContext, server_cx: &mut Test
+     });
+ }
+ 
+-#[gpui::test]
+-async fn test_remote_telemetry_event_forwarding(
+-    cx: &mut TestAppContext,
+-    server_cx: &mut TestAppContext,
+-) {
+-    // This mirrors `init_test`, but retains the server-side session so the test
+-    // can drive a forwarded telemetry event over the proto channel (as
+-    // `init_telemetry_forwarding` does on a real remote server).
+-    let server_fs = FakeFs::new(server_cx.executor());
+-    server_fs
+-        .insert_tree(
+-            path!("/code"),
+-            json!({ "project1": { "README.md": "# project 1" } }),
+-        )
+-        .await;
+-
+-    cx.update(|cx| release_channel::init(semver::Version::new(0, 0, 0), cx));
+-    server_cx.update(|cx| release_channel::init(semver::Version::new(0, 0, 0), cx));
+-    init_logger();
+-
+-    let (opts, server_session, _) = RemoteClient::fake_server(cx, server_cx);
+-    let http_client = Arc::new(BlockedHttpClient);
+-    let node_runtime = NodeRuntime::unavailable();
+-    let languages = Arc::new(LanguageRegistry::new(cx.executor()));
+-    let proxy = Arc::new(ExtensionHostProxy::new());
+-    server_cx.update(HeadlessProject::init);
+-    let headless = server_cx.new(|cx| {
+-        HeadlessProject::new(
+-            crate::HeadlessAppState {
+-                session: server_session.clone(),
+-                fs: server_fs.clone(),
+-                http_client,
+-                node_runtime,
+-                languages,
+-                extension_host_proxy: proxy,
+-                startup_time: std::time::Instant::now(),
+-            },
+-            false,
+-            cx,
+-        )
+-    });
+-
+-    let ssh = RemoteClient::connect_mock(opts, cx).await;
+-    let project = build_project(ssh, cx);
+-    project
+-        .update(cx, {
+-            let headless = headless.clone();
+-            |_, cx| cx.on_release(|_, _| drop(headless))
+-        })
+-        .detach();
+-
+-    // The remote server forwards a bare `FlexibleEvent` as JSON; mirror that
+-    // here by sending the proto message the forwarding task would send.
+-    let event_json = json!({
+-        "event_type": "fs_watcher_poll",
+-        "event_properties": { "path": "/code/project1" },
+-    })
+-    .to_string();
+-    server_session
+-        .send(proto::TelemetryEvent {
+-            project_id: proto::REMOTE_SERVER_PROJECT_ID,
+-            event_json,
+-        })
+-        .unwrap();
+-    cx.executor().run_until_parked();
+-
+-    let events = project.read_with(cx, |project, _| {
+-        project.client().telemetry().queued_events()
+-    });
+-    assert_eq!(
+-        events.len(),
+-        1,
+-        "the forwarded event should be reported once"
+-    );
+-    let event = &events[0];
+-    assert_eq!(event.event_type, "fs_watcher_poll");
+-    // The event's original properties survive the round-trip.
+-    assert_eq!(
+-        event.event_properties.get("path"),
+-        Some(&serde_json::Value::String("/code/project1".to_string()))
+-    );
+-    // The client stamps the remote host metadata it learned at connection time.
+-    // The mock connection reports a Linux/x86_64 host over a "mock" connection.
+-    assert_eq!(
+-        event.event_properties.get("remote"),
+-        Some(&serde_json::Value::Bool(true))
+-    );
+-    assert_eq!(
+-        event.event_properties.get("remote_connection_type"),
+-        Some(&serde_json::Value::String("mock".to_string()))
+-    );
+-    assert_eq!(
+-        event.event_properties.get("remote_os_name"),
+-        Some(&serde_json::Value::String("Linux".to_string()))
+-    );
+-    assert_eq!(
+-        event.event_properties.get("remote_architecture"),
+-        Some(&serde_json::Value::String("x86_64".to_string()))
+-    );
+-}
+-
+ async fn do_search_and_assert(
+     project: &Entity<Project>,
+     query: &str,
+diff --git a/crates/remote_server/src/server.rs b/crates/remote_server/src/server.rs
+index e00c9173bb..372e9c97ef 100644
+--- a/crates/remote_server/src/server.rs
++++ b/crates/remote_server/src/server.rs
+@@ -309,27 +309,12 @@ fn init_logging_server(log_file_path: &Path) -> Result<Receiver<Vec<u8>>> {
+ ///
+ /// The remote server cannot upload telemetry itself (it has no logged-in user,
+ /// no checksum seed, and no Telemetry instance), so without this its
+-/// `telemetry::event!` calls are silently dropped. The client attributes these
++/// telemetry calls are silently dropped. The client attributes these
+ /// events to the remote host using the platform it already detected during
+ /// connection setup, so no OS metadata needs to be sent here.
+-fn init_telemetry_forwarding(session: AnyProtoClient, cx: &mut App) {
+-    let (tx, mut rx) = mpsc::unbounded::<telemetry::Event>();
+-    telemetry::init(tx);
+-
+-    cx.background_spawn(async move {
+-        while let Some(event) = rx.next().await {
+-            let Some(event_json) = serde_json::to_string(&event).log_err() else {
+-                continue;
+-            };
+-            session
+-                .send(proto::TelemetryEvent {
+-                    project_id: REMOTE_SERVER_PROJECT_ID,
+-                    event_json,
+-                })
+-                .log_err();
+-        }
+-    })
+-    .detach();
++fn init_telemetry_forwarding(_session: AnyProtoClient, _cx: &mut App) {
++    // Zedium: telemetry is stripped, so there is nothing to forward from the
++    // remote server to the client.
+ }
+ 
+ fn handle_crash_files_requests(project: &Entity<HeadlessProject>, client: &AnyProtoClient) {
